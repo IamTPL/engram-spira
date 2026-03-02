@@ -1,0 +1,79 @@
+import Elysia, { t } from 'elysia';
+import { requireAuth } from './auth.middleware';
+import { validateSession } from './session.utils';
+import * as authService from './auth.service';
+import { ENV } from '../../config/env';
+import { SESSION } from '../../shared/constants';
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: ENV.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: SESSION.MAX_AGE_MS / 1000,
+};
+
+export const authRoutes = new Elysia({ prefix: '/auth' })
+  .post(
+    '/register',
+    async ({ body, cookie }) => {
+      const { user, token } = await authService.register(
+        body.email,
+        body.password,
+      );
+
+      cookie[ENV.SESSION_COOKIE_NAME].set({
+        value: token,
+        ...COOKIE_OPTIONS,
+      });
+
+      return { user };
+    },
+    {
+      body: t.Object({
+        email: t.String(),
+        password: t.String(),
+      }),
+    },
+  )
+  .post(
+    '/login',
+    async ({ body, cookie }) => {
+      const { user, token } = await authService.login(
+        body.email,
+        body.password,
+      );
+
+      cookie[ENV.SESSION_COOKIE_NAME].set({
+        value: token,
+        ...COOKIE_OPTIONS,
+      });
+
+      return { user };
+    },
+    {
+      body: t.Object({
+        email: t.String(),
+        password: t.String(),
+      }),
+    },
+  )
+  .post('/logout', async ({ cookie }) => {
+    const token = cookie[ENV.SESSION_COOKIE_NAME]?.value;
+    if (token) {
+      await authService.logout(token);
+      cookie[ENV.SESSION_COOKIE_NAME].remove();
+    }
+    return { success: true };
+  })
+  .get('/me', async ({ cookie }) => {
+    const token = cookie[ENV.SESSION_COOKIE_NAME]?.value;
+    if (!token) {
+      return { user: null };
+    }
+    const result = await validateSession(token);
+    if (!result.user) {
+      return { user: null };
+    }
+    return { user: result.user };
+  });

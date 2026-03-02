@@ -1,0 +1,53 @@
+# ── Dependencies ────────────────────────────────────────
+node_modules/
+
+# ── Build outputs ────────────────────────────────────────
+dist/
+build/
+.output/
+
+# ── Vite / SolidJS ──────────────────────────────────────
+.vite/
+*.tsbuildinfo
+
+# ── Environment variables ────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ── Bun ─────────────────────────────────────────────────
+# bun.lock and bun.lockb should be committed for reproducible installs
+# bun.lockb
+
+# ── Logs ────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── OS ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ─────────────────────────────────────────────────
+.idea/
+*.swp
+*.swo
+*.suo
+.agent
+
+# ── Test / Coverage ──────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Drizzle ─────────────────────────────────────────────
+# Giữ lại migrations/ và schema/ — chỉ ignore cache drizzle kit
+.drizzle/
+
+# ── Docker volumes (nếu mount local) ────────────────────
+postgres-data/

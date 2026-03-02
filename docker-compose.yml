@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: flashcard_db_container
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: flashcard_db
+    ports:
+      - '5435:5432'
+    volumes:
+      - flashcard_db_data:/var/lib/postgresql/data
+
+volumes:
+  flashcard_db_data:

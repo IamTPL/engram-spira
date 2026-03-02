@@ -1,0 +1,413 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   ENGRAM SPIRA — DESIGN SYSTEM
+   Tông màu: White · Blue · Blue-Gray (Slate)
+   Font: Inter (variable font, 300–800)
+   Triết lý: Tối giản, hiện đại, kích thích tập trung học tập
+   ============================================================ */
+
+@theme {
+  /* ── Font Family ─────────────────────────────────────────
+     Inter là variable font → hỗ trợ toàn bộ weight/style
+     trong 1 file duy nhất, load nhanh hơn nhiều file riêng.
+  ──────────────────────────────────────────────────────── */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* ── Primitive Color Palette: Blue ───────────────────────
+     Lấy từ tông màu chủ đạo của UI mockup (button "Good",
+     sidebar active state, progress bar).
+  ──────────────────────────────────────────────────────── */
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a8a;
+
+  /* ── Primitive Color Palette: Slate (Blue-Gray) ──────────
+     Dùng cho text, border, background tổng thể.
+     Slate khác Gray thường ở chỗ có tông blue lạnh hơn →
+     hài hoà với primary blue, trông "tech" và sạch sẽ.
+  ──────────────────────────────────────────────────────── */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  /* ── Primitive Color Palette: Status ─────────────────── */
+  --color-green-50: #ecfdf5;
+  --color-green-500: #10b981;
+  --color-green-600: #059669;
+  --color-amber-50: #fffbeb;
+  --color-amber-500: #f59e0b;
+  --color-red-50: #fef2f2;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+
+  /* ── Semantic Tokens: Background & Surface ───────────────
+     background = nền trang tổng thể (slate-50 → xanh nhạt)
+     surface = nền của panel, card, modal (trắng tinh)
+     Tách 2 lớp này giúp tạo "depth" mà không cần shadow nặng.
+  ──────────────────────────────────────────────────────── */
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+
+  /* ── Semantic Tokens: Card ───────────────────────────── */
+  --color-card: #ffffff;
+  --color-card-foreground: #1e293b;
+
+  /* ── Semantic Tokens: Foreground (Text) ──────────────────
+     Không dùng pure black (#000) → dùng slate-800 (#1E293B)
+     Trông nhẹ nhàng, giảm mỏi mắt khi đọc lâu.
+  ──────────────────────────────────────────────────────── */
+  --color-foreground: #1e293b;
+
+  /* ── Semantic Tokens: Primary Action (Blue) ─────────────
+     blue-600 là "sweet spot": đủ tươi để nổi bật, không chói.
+     primary-subtle = nền hint nhẹ khi hover trên ghost element.
+  ──────────────────────────────────────────────────────── */
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+
+  /* ── Semantic Tokens: Secondary ─────────────────────────
+     Dùng cho button thứ cấp, badge, chip nhẹ.
+  ──────────────────────────────────────────────────────── */
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #475569;
+
+  /* ── Semantic Tokens: Muted (Placeholder, Subtle text) ── */
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+
+  /* ── Semantic Tokens: Accent (Hover, highlight) ─────────
+     Dùng cho hover state của ghost button, sidebar item.
+     Màu xanh nhạt thay vì gray → brand-consistent hơn.
+  ──────────────────────────────────────────────────────── */
+  --color-accent: #eff6ff;
+  --color-accent-foreground: #2563eb;
+
+  /* ── Semantic Tokens: Destructive ───────────────────────  */
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+
+  /* ── Semantic Tokens: Success ───────────────────────── */
+  --color-success: #10b981;
+  --color-success-foreground: #ffffff;
+
+  /* ── Semantic Tokens: Border & Input ────────────────────
+     border = slate-200 (rất nhẹ, không làm lộn xộn layout)
+     ring = màu primary dùng cho focus outline
+  ──────────────────────────────────────────────────────── */
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #2563eb;
+
+  /* ── Border Radius Scale ─────────────────────────────────
+     Thiết kế bo góc nhất quán theo mock:
+     sm = button nhỏ, chip
+     md = button thường, input
+     lg = card thường
+     xl = card lớn trong library
+     2xl = flashcard study (bo nhiều nhất)
+  ──────────────────────────────────────────────────────── */
+  --radius-xs: 0.25rem; /* 4px  */
+  --radius-sm: 0.375rem; /* 6px  */
+  --radius-md: 0.5rem; /* 8px  */
+  --radius-lg: 0.75rem; /* 12px */
+  --radius-xl: 1rem; /* 16px */
+  --radius-2xl: 1.5rem; /* 24px */
+  --radius-full: 9999px;
+
+  /* ── Shadow Scale ────────────────────────────────────────
+     Dùng màu blue-tinted thay vì black → phù hợp tông slate.
+     Shadow nhỏ nhẹ, không dùng shadow quá nặng → tối giản.
+  ──────────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-sm:
+    0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.04);
+  --shadow-md:
+    0 4px 6px -1px rgb(15 23 42 / 0.06), 0 2px 4px -2px rgb(15 23 42 / 0.04);
+  --shadow-lg:
+    0 10px 15px -3px rgb(15 23 42 / 0.07), 0 4px 6px -4px rgb(15 23 42 / 0.04);
+  --shadow-xl:
+    0 20px 25px -5px rgb(15 23 42 / 0.08), 0 8px 10px -6px rgb(15 23 42 / 0.04);
+  /* Flashcard shadow: prominent nhưng mềm, tạo cảm giác "lơ lửng" */
+  --shadow-card-study:
+    0 24px 40px -8px rgb(37 99 235 / 0.12), 0 8px 16px -4px rgb(15 23 42 / 0.06);
+
+  /* ── Transition Timing ───────────────────────────────── */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Animation: Flashcard Flip ──────────────────────── */
+  --animate-fade-in: fade-in 200ms ease forwards;
+}
+
+/* ============================================================
+   BASE LAYER — Reset & Global Defaults
+   ============================================================ */
+@layer base {
+  /* Box-sizing toàn app */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  /* Border color mặc định dùng token, không hardcode */
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    /* Smooth scroll cho toàn app */
+    scroll-behavior: smooth;
+    /* Tối ưu font rendering trên macOS/Windows */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem; /* 15px — đọc dễ chịu hơn 14px cho app dạng học */
+    line-height: 1.6;
+    font-feature-settings:
+      'cv02', 'cv03', 'cv04', 'cv11'; /* Inter OpenType features */
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  /* Typography scale — dùng Inter variable weight */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 600;
+    letter-spacing: -0.02em; /* Inter trông đẹp hơn khi tight tracking ở heading */
+    line-height: 1.3;
+    color: var(--color-foreground);
+  }
+
+  h1 {
+    font-size: 1.875rem;
+  } /* 30px */
+  h2 {
+    font-size: 1.5rem;
+  } /* 24px */
+  h3 {
+    font-size: 1.25rem;
+  } /* 20px */
+  h4 {
+    font-size: 1.125rem;
+  } /* 18px */
+
+  p {
+    line-height: 1.7;
+    color: var(--color-foreground);
+  }
+
+  /* Link reset */
+  a {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* Focus ring dùng màu primary — accessible */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Text selection — brand color */
+  ::selection {
+    background-color: var(--color-blue-200);
+    color: var(--color-blue-900);
+  }
+
+  /* ── Custom Scrollbar (Webkit) ───────────────────────────
+     Thanh scroll nhỏ, mềm, match tông slate của app.
+  ──────────────────────────────────────────────────────── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-slate-300);
+    border-radius: var(--radius-full);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-slate-400);
+  }
+
+  /* Input & Button reset */
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  /* Prevent layout shift khi load */
+  img,
+  video {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+}
+
+/* ============================================================
+   UTILITY LAYER — Custom utilities không có trong Tailwind
+   ============================================================ */
+@layer utilities {
+  /* ── Flashcard 3D Flip Utilities ─────────────────────────
+     Cần set perspective trên container, preserve-3d trên
+     inner, và backface-hidden trên từng mặt.
+  ──────────────────────────────────────────────────────── */
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+
+  .backface-hidden {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .perspective-1200 {
+    perspective: 1200px;
+  }
+
+  /* ── Flashcard Study Shadow ──────────────────────────── */
+  .shadow-card-study {
+    box-shadow: var(--shadow-card-study);
+  }
+
+  /* ── Fade In Animation ────────────────────────────────── */
+  .animate-fade-in {
+    animation: fade-in 200ms ease forwards;
+  }
+
+  /* ── Smooth transition shorthand ─────────────────────── */
+  .transition-smooth {
+    transition: all 200ms ease;
+  }
+
+  /* ── Sidebar layout token ─────────────────────────────── */
+  .w-sidebar {
+    width: 16rem; /* 256px */
+  }
+
+  /* ── Truncate multi-line text ─────────────────────────── */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ── Progress bar ─────────────────────────────────────── */
+  .progress-bar {
+    height: 4px;
+    background-color: var(--color-blue-600);
+    border-radius: var(--radius-full);
+    transition: width 400ms ease;
+  }
+
+  /* ── Keyboard hint badge ──────────────────────────────── */
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.35rem;
+    height: 1.25rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    background-color: var(--color-muted);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xs);
+    font-family: var(--font-sans);
+    line-height: 1;
+    user-select: none;
+  }
+}
+
+/* ============================================================
+   KEYFRAME ANIMATIONS
+   ============================================================ */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in-right 200ms ease forwards;
+}

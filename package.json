@@ -1,0 +1,17 @@
+{
+  "name": "engram-spira",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "bun run --filter @engram/api dev",
+    "dev:web": "bun run --filter @engram/web dev",
+    "dev": "bun run --filter '*' dev",
+    "db:generate": "bun run --filter @engram/api db:generate",
+    "db:migrate": "bun run --filter @engram/api db:migrate",
+    "db:seed": "bun run --filter @engram/api db:seed",
+    "db:studio": "bun run --filter @engram/api db:studio"
+  }
+}
