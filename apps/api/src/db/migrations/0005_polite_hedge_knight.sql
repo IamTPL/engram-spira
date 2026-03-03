@@ -1,0 +1,1 @@
+-- Empty migration to sync Drizzle snapshot with manual migrations (0001-0004)

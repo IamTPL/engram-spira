@@ -36,6 +36,13 @@
       "when": 1772200003000,
       "tag": "0004_daily_study_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772558176320,
+      "tag": "0005_polite_hedge_knight",
+      "breakpoints": true
     }
   ]
 }
