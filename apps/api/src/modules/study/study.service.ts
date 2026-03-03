@@ -1,7 +1,8 @@
-import { eq, and, lte, inArray, isNull, or, sql } from 'drizzle-orm';
+import { eq, and, lte, inArray, isNull, or, sql, gte, desc } from 'drizzle-orm';
 import { db } from '../../db';
 import {
   studyProgress,
+  studyDailyLogs,
   cards,
   cardFieldValues,
   templateFields,
@@ -9,7 +10,24 @@ import {
 } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
 import { calculateNextReview } from './srs.engine';
-import type { ReviewAction } from '../../shared/constants';
+import { STREAK, type ReviewAction } from '../../shared/constants';
+
+/**
+ * Upsert today's study log for a user, incrementing cards_reviewed by `count`.
+ * Uses a single SQL upsert to avoid race conditions.
+ */
+async function upsertDailyLog(userId: string, count: number) {
+  const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  await db
+    .insert(studyDailyLogs)
+    .values({ userId, studyDate: today, cardsReviewed: count })
+    .onConflictDoUpdate({
+      target: [studyDailyLogs.userId, studyDailyLogs.studyDate],
+      set: {
+        cardsReviewed: sql`study_daily_logs.cards_reviewed + ${count}`,
+      },
+    });
+}
 
 // Ownership check: uses denormalized decks.userId — single index lookup, no JOIN chain
 async function verifyDeckOwnership(deckId: string, userId: string) {
@@ -165,27 +183,30 @@ export async function reviewCard(
     });
   const now = new Date();
 
-  await db
-    .insert(studyProgress)
-    .values({
-      userId,
-      cardId,
-      boxLevel,
-      easeFactor,
-      intervalDays,
-      nextReviewAt,
-      lastReviewedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [studyProgress.userId, studyProgress.cardId],
-      set: {
+  await Promise.all([
+    db
+      .insert(studyProgress)
+      .values({
+        userId,
+        cardId,
         boxLevel,
         easeFactor,
         intervalDays,
         nextReviewAt,
         lastReviewedAt: now,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: [studyProgress.userId, studyProgress.cardId],
+        set: {
+          boxLevel,
+          easeFactor,
+          intervalDays,
+          nextReviewAt,
+          lastReviewedAt: now,
+        },
+      }),
+    upsertDailyLog(userId, 1),
+  ]);
 
   return { cardId, boxLevel, easeFactor, intervalDays, nextReviewAt };
 }
@@ -248,20 +269,23 @@ export async function reviewCardBatch(
 
   if (upsertValues.length === 0) return { reviewed: 0 };
 
-  // Single batch upsert for all cards
-  await db
-    .insert(studyProgress)
-    .values(upsertValues)
-    .onConflictDoUpdate({
-      target: [studyProgress.userId, studyProgress.cardId],
-      set: {
-        boxLevel: sql`excluded.box_level`,
-        easeFactor: sql`excluded.ease_factor`,
-        intervalDays: sql`excluded.interval_days`,
-        nextReviewAt: sql`excluded.next_review_at`,
-        lastReviewedAt: sql`excluded.last_reviewed_at`,
-      },
-    });
+  // Single batch upsert for all cards + log daily activity in parallel
+  await Promise.all([
+    db
+      .insert(studyProgress)
+      .values(upsertValues)
+      .onConflictDoUpdate({
+        target: [studyProgress.userId, studyProgress.cardId],
+        set: {
+          boxLevel: sql`excluded.box_level`,
+          easeFactor: sql`excluded.ease_factor`,
+          intervalDays: sql`excluded.interval_days`,
+          nextReviewAt: sql`excluded.next_review_at`,
+          lastReviewedAt: sql`excluded.last_reviewed_at`,
+        },
+      }),
+    upsertDailyLog(userId, upsertValues.length),
+  ]);
 
   return { reviewed: upsertValues.length };
 }
@@ -331,5 +355,130 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     learnedCards,
     upcoming,
     nextReviewDate,
+  };
+}
+
+/**
+ * Compute the user's current streak and longest streak.
+ *
+ * Algorithm: fetch all study dates sorted desc, walk backwards from today
+ * to count consecutive days, then do a second pass for longest streak.
+ */
+export async function getUserStreak(userId: string) {
+  const scanFrom = new Date();
+  scanFrom.setDate(scanFrom.getDate() - STREAK.ACTIVITY_MAX_DAYS);
+  const scanFromDate = scanFrom.toISOString().slice(0, 10);
+
+  const rows = await db
+    .select({ studyDate: studyDailyLogs.studyDate })
+    .from(studyDailyLogs)
+    .where(
+      and(
+        eq(studyDailyLogs.userId, userId),
+        gte(studyDailyLogs.studyDate, scanFromDate),
+      ),
+    )
+    .orderBy(desc(studyDailyLogs.studyDate));
+
+  if (rows.length === 0) {
+    return {
+      currentStreak: 0,
+      longestStreak: 0,
+      totalStudyDays: 0,
+      studiedToday: false,
+    };
+  }
+
+  // Build a set of study date strings for O(1) lookup
+  const studyDates = new Set(rows.map((r) => r.studyDate));
+  const today = new Date().toISOString().slice(0, 10);
+
+  const studiedToday = studyDates.has(today);
+
+  // Compute current streak backwards from today (or yesterday if not studied today)
+  let currentStreak = 0;
+  let checkDate = new Date();
+  if (!studiedToday) {
+    // If didn't study today, streak is still valid as long as yesterday was studied
+    checkDate.setDate(checkDate.getDate() - 1);
+  }
+
+  while (true) {
+    const dateStr = checkDate.toISOString().slice(0, 10);
+    if (!studyDates.has(dateStr)) break;
+    currentStreak++;
+    checkDate.setDate(checkDate.getDate() - 1);
+  }
+
+  // Compute longest streak (slide through all dates)
+  const sortedDates = Array.from(studyDates).sort();
+  let longestStreak = 0;
+  let runLength = 1;
+
+  for (let i = 1; i < sortedDates.length; i++) {
+    const prev = new Date(sortedDates[i - 1]!);
+    const curr = new Date(sortedDates[i]!);
+    const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    if (diffDays === 1) {
+      runLength++;
+    } else {
+      longestStreak = Math.max(longestStreak, runLength);
+      runLength = 1;
+    }
+  }
+  longestStreak = Math.max(longestStreak, runLength);
+
+  return {
+    currentStreak,
+    longestStreak,
+    totalStudyDays: studyDates.size,
+    studiedToday,
+  };
+}
+
+/**
+ * Fetch daily activity logs for heatmap display.
+ * Returns an array of { date, cardsReviewed } for the last `days` days.
+ */
+export async function getUserActivity(userId: string, days: number) {
+  const clampedDays = Math.min(days, STREAK.ACTIVITY_MAX_DAYS);
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - clampedDays + 1);
+  const fromDateStr = fromDate.toISOString().slice(0, 10);
+
+  const rows = await db
+    .select({
+      studyDate: studyDailyLogs.studyDate,
+      cardsReviewed: studyDailyLogs.cardsReviewed,
+    })
+    .from(studyDailyLogs)
+    .where(
+      and(
+        eq(studyDailyLogs.userId, userId),
+        gte(studyDailyLogs.studyDate, fromDateStr),
+      ),
+    )
+    .orderBy(studyDailyLogs.studyDate);
+
+  return { activity: rows, days: clampedDays };
+}
+
+/**
+ * Get global stats for a user:
+ * - totalCardsReviewed all time
+ * - totalStudySessions (distinct days)
+ */
+export async function getUserStats(userId: string) {
+  const [row] = await db
+    .select({
+      totalCardsReviewed: sql<number>`COALESCE(SUM(cards_reviewed), 0)::int`,
+      totalStudyDays: sql<number>`COUNT(*)::int`,
+    })
+    .from(studyDailyLogs)
+    .where(eq(studyDailyLogs.userId, userId));
+
+  return {
+    totalCardsReviewed: row?.totalCardsReviewed ?? 0,
+    totalStudyDays: row?.totalStudyDays ?? 0,
   };
 }

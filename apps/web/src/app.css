@@ -154,6 +154,45 @@
 }
 
 /* ============================================================
+   DARK MODE OVERRIDES
+   Applied when <html class="dark"> is set.
+   ============================================================ */
+.dark {
+  --color-background: #0f172a;
+  --color-surface: #1e293b;
+  --color-card: #1e293b;
+  --color-card-foreground: #e2e8f0;
+  --color-foreground: #e2e8f0;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1e293b;
+  --color-secondary-foreground: #94a3b8;
+  --color-muted: #1e293b;
+  --color-muted-foreground: #94a3b8;
+  --color-accent: #1e3a5f;
+  --color-accent-foreground: #60a5fa;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #10b981;
+  --color-success-foreground: #ffffff;
+  --color-border: #334155;
+  --color-input: #334155;
+  --color-ring: #3b82f6;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.2);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+  --shadow-lg:
+    0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
+  --shadow-xl:
+    0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.2);
+  --shadow-card-study:
+    0 24px 40px -8px rgb(59 130 246 / 0.15), 0 8px 16px -4px rgb(0 0 0 / 0.3);
+
+  color-scheme: dark;
+}
+
+/* ============================================================
    BASE LAYER — Reset & Global Defaults
    ============================================================ */
 @layer base {
@@ -410,4 +449,23 @@
 
 .animate-slide-in {
   animation: slide-in-right 200ms ease forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 300ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translateY(-10px) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(100vh) rotate(720deg);
+  }
+}
+
+.animate-confetti-fall {
+  animation: confetti-fall 2.5s ease-in forwards;
 }

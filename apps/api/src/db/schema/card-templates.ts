@@ -26,10 +26,7 @@ export const cardTemplates = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [
-    index('idx_card_templates_user_id').on(table.userId),
-    index('idx_card_templates_is_system').on(table.isSystem),
-  ],
+  (table) => [index('idx_card_templates_user_id').on(table.userId)],
 );
 
 export const cardTemplatesRelations = relations(

@@ -13,5 +13,12 @@
     "db:migrate": "bun run --filter @engram/api db:migrate",
     "db:seed": "bun run --filter @engram/api db:seed",
     "db:studio": "bun run --filter @engram/api db:studio"
+  },
+  "dependencies": {
+    "three": "^0.183.2",
+    "web": "^0.0.2"
+  },
+  "devDependencies": {
+    "@types/three": "^0.183.1"
   }
 }

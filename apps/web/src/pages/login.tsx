@@ -40,7 +40,7 @@ const LoginPage: Component = () => {
           <img
             src="/logo-engram-full.png"
             alt="Engram Spira"
-            class="h-20 w-auto mb-2"
+            class="h-40 w-auto mb-2"
           />
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>

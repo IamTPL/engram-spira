@@ -1,6 +1,8 @@
 /* @refresh reload */
 import { render } from 'solid-js/web';
 import './app.css';
+// Initialize theme (applies dark/light class to <html> on load)
+import './stores/theme.store';
 import App from './app';
 
 const root = document.getElementById('root');

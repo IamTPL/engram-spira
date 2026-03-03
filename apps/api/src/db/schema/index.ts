@@ -16,3 +16,4 @@ export {
   cardFieldValuesRelations,
 } from './cards';
 export { studyProgress, studyProgressRelations } from './study-progress';
+export { studyDailyLogs, studyDailyLogsRelations } from './study-daily-logs';

@@ -8,7 +8,7 @@ export const requireAuth = new Elysia({ name: 'require-auth' }).derive(
   async ({ cookie }) => {
     const token = cookie[ENV.SESSION_COOKIE_NAME]?.value;
 
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       throw new UnauthorizedError();
     }
 

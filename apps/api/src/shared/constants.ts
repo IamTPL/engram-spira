@@ -72,3 +72,17 @@ export const PASSWORD = {
   MIN_LENGTH: 8,
   MAX_LENGTH: 128,
 } as const;
+
+// Streak constants
+export const STREAK = {
+  /** Max days back to scan for activity heatmap */
+  ACTIVITY_MAX_DAYS: 365,
+  /** Default days returned by the activity endpoint */
+  ACTIVITY_DEFAULT_DAYS: 90,
+} as const;
+
+// Notification constants
+export const NOTIFICATIONS = {
+  /** Max decks to return in a single due-decks notification call */
+  MAX_DUE_DECKS: 50,
+} as const;

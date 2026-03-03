@@ -4,11 +4,14 @@ import { QueryClientProvider } from '@tanstack/solid-query';
 import { queryClient } from '@/lib/query-client';
 import { currentUser, isLoading, fetchCurrentUser } from '@/stores/auth.store';
 import Toaster from '@/components/ui/toaster';
+import FocusDrawer from '@/components/focus/focus-drawer';
 import LoginPage from '@/pages/login';
 import RegisterPage from '@/pages/register';
 import DashboardPage from '@/pages/dashboard';
 import StudyModePage from '@/pages/study-mode';
 import DeckViewPage from '@/pages/deck-view';
+import SettingsPage from '@/pages/settings';
+import FeedbackPage from '@/pages/feedback';
 import NotFoundPage from '@/pages/not-found';
 
 const ProtectedRoute: Component<{ children: any }> = (props) => {
@@ -93,9 +96,26 @@ const App: Component = () => {
             </ProtectedRoute>
           )}
         />
+        <Route
+          path="/settings"
+          component={() => (
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/feedback"
+          component={() => (
+            <ProtectedRoute>
+              <FeedbackPage />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="*" component={NotFoundPage} />
       </Router>
       <Toaster />
+      <FocusDrawer />
     </QueryClientProvider>
   );
 };

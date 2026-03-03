@@ -11,13 +11,14 @@ import { decksRoutes } from './modules/decks/decks.routes';
 import { cardTemplatesRoutes } from './modules/card-templates/card-templates.routes';
 import { cardsRoutes } from './modules/cards/cards.routes';
 import { studyRoutes } from './modules/study/study.routes';
+import { notificationsRoutes } from './modules/notifications/notifications.routes';
+import { feedbackRoutes } from './modules/feedback/feedback.routes';
 
 const app = new Elysia({ aot: true })
   .use(
     cors({
-      origin: ENV.NODE_ENV === 'production'
-        ? false
-        : /^http:\/\/localhost:\d+$/,
+      origin:
+        ENV.NODE_ENV === 'production' ? false : /^http:\/\/localhost:\d+$/,
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization'],
     }),
@@ -29,7 +30,7 @@ const app = new Elysia({ aot: true })
     }
 
     // Elysia validation errors
-    if (error.message === 'Unauthorized') {
+    if ('message' in error && error.message === 'Unauthorized') {
       set.status = 401;
       return { error: 'Unauthorized' };
     }
@@ -46,6 +47,8 @@ const app = new Elysia({ aot: true })
   .use(cardTemplatesRoutes)
   .use(cardsRoutes)
   .use(studyRoutes)
+  .use(notificationsRoutes)
+  .use(feedbackRoutes)
   .listen(ENV.PORT);
 
 console.log(`API server running at http://localhost:${ENV.PORT}`);

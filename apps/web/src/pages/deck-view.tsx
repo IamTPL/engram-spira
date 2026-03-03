@@ -2,6 +2,7 @@ import {
   type Component,
   createSignal,
   createResource,
+  createMemo,
   Show,
   For,
 } from 'solid-js';
@@ -12,8 +13,20 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import ArrayInput from '@/components/ui/array-input';
 import Header from '@/components/layout/header';
+import Sidebar from '@/components/layout/sidebar';
 import { toast } from '@/stores/toast.store';
-import { ArrowLeft, Plus, Play, Trash2, Pencil, X, Check } from 'lucide-solid';
+import {
+  ArrowLeft,
+  Plus,
+  Play,
+  Trash2,
+  Pencil,
+  X,
+  Check,
+  Layers,
+  Search,
+  Hash,
+} from 'lucide-solid';
 
 const WORD_TYPES = [
   { value: 'noun', label: 'Noun (n)' },
@@ -251,333 +264,441 @@ const DeckViewPage: Component = () => {
     }
   };
 
+  // ── Search / filter ──────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = createSignal('');
+
+  const filteredCards = createMemo(() => {
+    const q = searchQuery().toLowerCase().trim();
+    const all = cards() ?? [];
+    if (!q) return all;
+    return all.filter((card) =>
+      card.fields.some((f) => {
+        if (Array.isArray(f.value))
+          return (f.value as string[]).some((v) => v.toLowerCase().includes(q));
+        return String(f.value ?? '')
+          .toLowerCase()
+          .includes(q);
+      }),
+    );
+  });
+
+  const cardCount = () => cards()?.length ?? 0;
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <div class="h-screen flex flex-col">
       <Header />
-      <div class="flex-1 overflow-y-auto p-8">
-        <div class="max-w-2xl mx-auto">
-          {/* Title */}
-          <div class="flex items-center gap-3 mb-2">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
-              <ArrowLeft class="h-4 w-4" />
-            </Button>
-            <div class="flex-1 min-w-0">
-              <h2 class="text-2xl font-bold truncate">
-                {deck()?.name ?? 'Loading...'}
-              </h2>
-              <Show when={template()}>
-                <span class="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                  {template()!.name}
-                </span>
-              </Show>
+      <div class="flex flex-1 overflow-hidden">
+        <Sidebar />
+
+        <main class="flex-1 overflow-y-auto">
+          {/* ── Hero header ── */}
+          <div class="border-b bg-card px-6 py-5">
+            <div class="max-w-4xl mx-auto">
+              <div class="flex items-center gap-3 mb-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-8 w-8 shrink-0"
+                  onClick={() => navigate('/')}
+                >
+                  <ArrowLeft class="h-4 w-4" />
+                </Button>
+                <div class="flex-1 min-w-0">
+                  <h1 class="text-xl font-bold truncate leading-tight">
+                    {deck()?.name ?? 'Loading...'}
+                  </h1>
+                  <div class="flex items-center gap-3 mt-1">
+                    <Show when={template()}>
+                      <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                        <Layers class="h-3 w-3" />
+                        {template()!.name}
+                      </span>
+                    </Show>
+                    <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Hash class="h-3 w-3" />
+                      {cardCount()} card{cardCount() !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions row */}
+              <div class="flex items-center gap-3">
+                <Button
+                  onClick={() => navigate(`/study/${params.deckId}`)}
+                  class="shadow-sm"
+                >
+                  <Play class="h-4 w-4 mr-2" />
+                  Study Now
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setAddInputs({});
+                    setShowAddCard(true);
+                  }}
+                  disabled={showAddCard()}
+                >
+                  <Plus class="h-4 w-4 mr-2" />
+                  Add Card
+                </Button>
+
+                {/* Search */}
+                <div class="ml-auto relative max-w-xs w-full">
+                  <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    placeholder="Search cards..."
+                    class="pl-9 h-9 text-sm"
+                    value={searchQuery()}
+                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Actions */}
-          <div class="flex gap-3 my-6">
-            <Button onClick={() => navigate(`/study/${params.deckId}`)}>
-              <Play class="h-4 w-4 mr-2" />
-              Study
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAddInputs({});
-                setShowAddCard(true);
-              }}
-              disabled={showAddCard()}
-            >
-              <Plus class="h-4 w-4 mr-2" />
-              Add Card
-            </Button>
-          </div>
-
-          {/* Add card form */}
-          <Show when={showAddCard() && template()}>
-            <form
-              onSubmit={handleAddCard}
-              class="border rounded-lg p-6 mb-6 bg-card space-y-4"
-            >
-              <div class="flex items-center justify-between">
-                <h3 class="font-semibold">New Card</h3>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowAddCard(false)}
+          {/* ── Content ── */}
+          <div class="p-6">
+            <div class="max-w-4xl mx-auto space-y-4">
+              {/* Add card form */}
+              <Show when={showAddCard() && template()}>
+                <form
+                  onSubmit={handleAddCard}
+                  class="border rounded-xl p-6 bg-card shadow-sm space-y-4 animate-fade-in"
                 >
-                  <X class="h-4 w-4" />
-                </Button>
-              </div>
-              <For each={sortedFields()}>
-                {(field) => (
-                  <FieldEditor
-                    field={field}
-                    value={addInputs()[field.id]}
-                    onChange={(v) =>
-                      setAddInputs((prev) => ({ ...prev, [field.id]: v }))
-                    }
-                  />
-                )}
-              </For>
-              <div class="flex gap-2">
-                <Button type="submit" disabled={saving()}>
-                  {saving() ? 'Saving...' : 'Save Card'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowAddCard(false)}
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-foreground">New Card</h3>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
+                      onClick={() => setShowAddCard(false)}
+                    >
+                      <X class="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <For each={sortedFields()}>
+                    {(field) => (
+                      <FieldEditor
+                        field={field}
+                        value={addInputs()[field.id]}
+                        onChange={(v) =>
+                          setAddInputs((prev) => ({ ...prev, [field.id]: v }))
+                        }
+                      />
+                    )}
+                  </For>
+                  <div class="flex gap-2 pt-1">
+                    <Button type="submit" disabled={saving()}>
+                      {saving() ? 'Saving...' : 'Save Card'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowAddCard(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </Show>
+
+              {/* Card list */}
+              <Show when={cards.loading}>
+                <div class="space-y-3">
+                  <For each={[1, 2, 3]}>
+                    {() => (
+                      <div class="h-24 rounded-xl bg-muted animate-pulse" />
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              <Show when={!cards.loading}>
+                <Show
+                  when={filteredCards().length > 0}
+                  fallback={
+                    <div class="text-center py-16">
+                      <Show
+                        when={cardCount() === 0}
+                        fallback={
+                          <div>
+                            <p class="text-muted-foreground text-sm">
+                              No results for &ldquo;{searchQuery()}&rdquo;
+                            </p>
+                          </div>
+                        }
+                      >
+                        <div class="inline-flex h-16 w-16 rounded-full bg-muted items-center justify-center mb-4">
+                          <Layers class="h-7 w-7 text-muted-foreground" />
+                        </div>
+                        <p class="text-foreground font-medium mb-1">
+                          No cards yet
+                        </p>
+                        <p class="text-muted-foreground text-sm mb-4">
+                          Click <strong>Add Card</strong> to get started!
+                        </p>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setAddInputs({});
+                            setShowAddCard(true);
+                          }}
+                        >
+                          <Plus class="h-4 w-4 mr-2" />
+                          Add your first card
+                        </Button>
+                      </Show>
+                    </div>
+                  }
                 >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </Show>
+                  <div class="space-y-2">
+                    <For each={filteredCards()}>
+                      {(card, index) => {
+                        const getField = (name: string) =>
+                          card.fields.find((f) => f.fieldName === name);
+                        const hasValue = (f: CardField | undefined) => {
+                          if (!f) return false;
+                          if (Array.isArray(f.value))
+                            return (f.value as string[]).length > 0;
+                          return String(f.value ?? '').trim() !== '';
+                        };
+                        const getExamples = (): string[] => {
+                          const f = getField('examples');
+                          if (!f || !Array.isArray(f.value)) return [];
+                          return f.value as string[];
+                        };
 
-          {/* Card list */}
-          <div class="space-y-3">
-            <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-              Cards ({cards()?.length ?? 0})
-            </h3>
+                        const wordField = getField('word');
+                        const typeField = getField('type');
+                        const ipaField = getField('ipa');
+                        const defField = getField('definition');
+                        const isVocabLayout =
+                          hasValue(wordField) && hasValue(defField);
+                        const examples = getExamples();
 
-            <Show when={cards.loading}>
-              <For each={[1, 2, 3]}>
-                {() => <div class="h-20 rounded-lg bg-muted animate-pulse" />}
-              </For>
-            </Show>
+                        const otherFields = card.fields.filter(
+                          (f) =>
+                            ![
+                              'word',
+                              'type',
+                              'ipa',
+                              'definition',
+                              'examples',
+                            ].includes(f.fieldName) && hasValue(f),
+                        );
 
-            <For
-              each={cards() ?? []}
-              fallback={
-                <Show when={!cards.loading}>
-                  <p class="text-muted-foreground text-sm py-8 text-center">
-                    No cards yet. Click <strong>Add Card</strong> to get
-                    started!
-                  </p>
-                </Show>
-              }
-            >
-              {(card) => {
-                // Extract named fields directly from card.fields (bypass isNotEmpty filter)
-                const getField = (name: string) =>
-                  card.fields.find((f) => f.fieldName === name);
-                const hasValue = (f: CardField | undefined) => {
-                  if (!f) return false;
-                  if (Array.isArray(f.value))
-                    return (f.value as string[]).length > 0;
-                  return String(f.value ?? '').trim() !== '';
-                };
-                const getExamples = (): string[] => {
-                  const f = getField('examples');
-                  if (!f || !Array.isArray(f.value)) return [];
-                  return f.value as string[];
-                };
+                        return (
+                          <div class="group border rounded-xl bg-card overflow-hidden hover:shadow-sm transition-shadow">
+                            {/* Normal view */}
+                            <Show when={editingCardId() !== card.id}>
+                              <div class="p-4 flex items-start gap-4">
+                                {/* Card number */}
+                                <span class="text-xs font-mono text-muted-foreground/60 mt-1 shrink-0 w-6 text-right">
+                                  {index() + 1}
+                                </span>
 
-                const wordField = getField('word');
-                const typeField = getField('type');
-                const ipaField = getField('ipa');
-                const defField = getField('definition');
-                const isVocabLayout = hasValue(wordField) && hasValue(defField);
-                const examples = getExamples();
+                                <div class="flex-1 min-w-0">
+                                  {/* Vocabulary two-column layout */}
+                                  <Show when={isVocabLayout}>
+                                    <div class="grid grid-cols-[1fr_1fr] gap-0">
+                                      <div class="pr-4">
+                                        <p class="font-semibold text-foreground leading-snug">
+                                          {String(wordField!.value)}
+                                          <Show when={hasValue(typeField)}>
+                                            <span class="ml-1.5 text-xs font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                              {String(typeField!.value)}
+                                            </span>
+                                          </Show>
+                                        </p>
+                                        <Show when={hasValue(ipaField)}>
+                                          <p class="text-sm text-muted-foreground/70 mt-0.5 font-mono">
+                                            {String(ipaField!.value)}
+                                          </p>
+                                        </Show>
+                                      </div>
 
-                // Fields not covered by the vocab layout
-                const otherFields = card.fields.filter(
-                  (f) =>
-                    !['word', 'type', 'ipa', 'definition', 'examples'].includes(
-                      f.fieldName,
-                    ) && hasValue(f),
-                );
-
-                return (
-                  <div class="border rounded-xl bg-card overflow-hidden">
-                    {/* Normal view */}
-                    <Show when={editingCardId() !== card.id}>
-                      <div class="p-4 flex items-start gap-3">
-                        <div class="flex-1 min-w-0">
-                          {/* ── Vocabulary two-column layout ── */}
-                          <Show when={isVocabLayout}>
-                            <div class="grid grid-cols-[1fr_1fr] gap-0">
-                              {/* Left: word, type, ipa */}
-                              <div class="pr-4">
-                                <p class="font-semibold text-foreground leading-snug">
-                                  {String(wordField!.value)}
-                                  <Show when={hasValue(typeField)}>
-                                    <span class="ml-1.5 text-sm font-normal text-muted-foreground">
-                                      ({String(typeField!.value)})
-                                    </span>
-                                  </Show>
-                                </p>
-                                <Show when={hasValue(ipaField)}>
-                                  <p class="text-sm text-muted-foreground/70 mt-0.5 font-mono">
-                                    {String(ipaField!.value)}
-                                  </p>
-                                </Show>
-                              </div>
-
-                              {/* Right: definition, examples */}
-                              <div class="border-l pl-4">
-                                <p class="text-sm text-foreground leading-relaxed">
-                                  {String(defField!.value)}
-                                </p>
-                                <Show when={examples.length > 0}>
-                                  <ul class="mt-2 space-y-1">
-                                    <For each={examples}>
-                                      {(ex) => (
-                                        <li class="text-xs text-muted-foreground flex gap-1.5 items-start">
-                                          <span class="text-muted-foreground/40 shrink-0 mt-0.5">
-                                            ·
-                                          </span>
-                                          <span class="italic">{ex}</span>
-                                        </li>
-                                      )}
-                                    </For>
-                                  </ul>
-                                </Show>
-                              </div>
-                            </div>
-
-                            {/* Other fields below the 2-col layout */}
-                            <Show when={otherFields.length > 0}>
-                              <div class="mt-2 pt-2 border-t space-y-1">
-                                <For each={otherFields}>
-                                  {(f) => (
-                                    <div class="text-sm">
-                                      <span class="text-muted-foreground capitalize font-medium">
-                                        {f.fieldName}:{' '}
-                                      </span>
-                                      <span>
-                                        {Array.isArray(f.value)
-                                          ? (f.value as string[]).join(' · ')
-                                          : String(f.value)}
-                                      </span>
+                                      <div class="border-l pl-4">
+                                        <p class="text-sm text-foreground leading-relaxed">
+                                          {String(defField!.value)}
+                                        </p>
+                                        <Show when={examples.length > 0}>
+                                          <ul class="mt-2 space-y-1">
+                                            <For each={examples}>
+                                              {(ex) => (
+                                                <li class="text-xs text-muted-foreground flex gap-1.5 items-start">
+                                                  <span class="text-primary/40 shrink-0 mt-0.5">
+                                                    &bull;
+                                                  </span>
+                                                  <span class="italic">
+                                                    {ex}
+                                                  </span>
+                                                </li>
+                                              )}
+                                            </For>
+                                          </ul>
+                                        </Show>
+                                      </div>
                                     </div>
-                                  )}
-                                </For>
+
+                                    <Show when={otherFields.length > 0}>
+                                      <div class="mt-2 pt-2 border-t space-y-1">
+                                        <For each={otherFields}>
+                                          {(f) => (
+                                            <div class="text-sm">
+                                              <span class="text-muted-foreground capitalize font-medium">
+                                                {f.fieldName}:{' '}
+                                              </span>
+                                              <span>
+                                                {Array.isArray(f.value)
+                                                  ? (f.value as string[]).join(
+                                                      ' · ',
+                                                    )
+                                                  : String(f.value)}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </For>
+                                      </div>
+                                    </Show>
+                                  </Show>
+
+                                  {/* Fallback: linear layout */}
+                                  <Show when={!isVocabLayout}>
+                                    <div class="space-y-1">
+                                      <For
+                                        each={card.fields.filter((f) =>
+                                          hasValue(f),
+                                        )}
+                                      >
+                                        {(field) => (
+                                          <div class="text-sm">
+                                            <span class="text-muted-foreground capitalize font-medium">
+                                              {field.fieldName}:{' '}
+                                            </span>
+                                            <span>
+                                              {Array.isArray(field.value)
+                                                ? (
+                                                    field.value as string[]
+                                                  ).join(' · ')
+                                                : String(field.value)}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+
+                                {/* Action buttons (visible on hover) */}
+                                <div class="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    class="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    title="Edit card"
+                                    onClick={() => {
+                                      const tmpl = template();
+                                      if (tmpl) startEdit(card, tmpl);
+                                    }}
+                                  >
+                                    <Pencil class="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Show
+                                    when={confirmDeleteId() === card.id}
+                                    fallback={
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                        title="Delete card"
+                                        onClick={() =>
+                                          setConfirmDeleteId(card.id)
+                                        }
+                                      >
+                                        <Trash2 class="h-3.5 w-3.5" />
+                                      </Button>
+                                    }
+                                  >
+                                    <div class="flex items-center gap-1">
+                                      <span class="text-xs text-destructive whitespace-nowrap font-medium">
+                                        Delete?
+                                      </span>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        class="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                        onClick={() =>
+                                          handleDeleteCard(card.id)
+                                        }
+                                      >
+                                        <Check class="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        class="h-8 w-8"
+                                        onClick={() => setConfirmDeleteId(null)}
+                                      >
+                                        <X class="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </Show>
+                                </div>
                               </div>
                             </Show>
-                          </Show>
 
-                          {/* ── Fallback: linear layout for other templates ── */}
-                          <Show when={!isVocabLayout}>
-                            <div class="space-y-1">
-                              <For
-                                each={card.fields.filter((f) => hasValue(f))}
+                            {/* Edit form */}
+                            <Show
+                              when={editingCardId() === card.id && template()}
+                            >
+                              <form
+                                onSubmit={handleEditCard}
+                                class="p-5 space-y-3 bg-accent/30"
                               >
-                                {(field) => (
-                                  <div class="text-sm">
-                                    <span class="text-muted-foreground capitalize font-medium">
-                                      {field.fieldName}:{' '}
-                                    </span>
-                                    <span>
-                                      {Array.isArray(field.value)
-                                        ? (field.value as string[]).join(' · ')
-                                        : String(field.value)}
-                                    </span>
-                                  </div>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                        </div>
-
-                        <div class="flex gap-1 shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            class="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            title="Edit card"
-                            onClick={() => {
-                              const tmpl = template();
-                              if (tmpl) startEdit(card, tmpl);
-                            }}
-                          >
-                            <Pencil class="h-3.5 w-3.5" />
-                          </Button>
-                          <Show
-                            when={confirmDeleteId() === card.id}
-                            fallback={
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                title="Delete card"
-                                onClick={() => setConfirmDeleteId(card.id)}
-                              >
-                                <Trash2 class="h-3.5 w-3.5" />
-                              </Button>
-                            }
-                          >
-                            <div class="flex items-center gap-1">
-                              <span class="text-xs text-destructive whitespace-nowrap font-medium">
-                                Delete?
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                class="h-8 w-8 text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteCard(card.id)}
-                              >
-                                <Check class="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                class="h-8 w-8"
-                                onClick={() => setConfirmDeleteId(null)}
-                              >
-                                <X class="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </Show>
-                        </div>
-                      </div>
-                    </Show>
-
-                    {/* Edit form */}
-                    <Show when={editingCardId() === card.id && template()}>
-                      <form
-                        onSubmit={handleEditCard}
-                        class="p-4 space-y-3 bg-accent/30"
-                      >
-                        <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Editing card
-                        </p>
-                        <For each={sortedFields()}>
-                          {(field) => (
-                            <FieldEditor
-                              field={field}
-                              value={editInputs()[field.id]}
-                              onChange={(v) =>
-                                setEditInputs((prev) => ({
-                                  ...prev,
-                                  [field.id]: v,
-                                }))
-                              }
-                            />
-                          )}
-                        </For>
-                        <div class="flex gap-2 pt-1">
-                          <Button type="submit" disabled={editSaving()}>
-                            {editSaving() ? 'Saving...' : 'Save'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setEditingCardId(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </form>
-                    </Show>
+                                <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                  Editing card
+                                </p>
+                                <For each={sortedFields()}>
+                                  {(field) => (
+                                    <FieldEditor
+                                      field={field}
+                                      value={editInputs()[field.id]}
+                                      onChange={(v) =>
+                                        setEditInputs((prev) => ({
+                                          ...prev,
+                                          [field.id]: v,
+                                        }))
+                                      }
+                                    />
+                                  )}
+                                </For>
+                                <div class="flex gap-2 pt-1">
+                                  <Button type="submit" disabled={editSaving()}>
+                                    {editSaving() ? 'Saving...' : 'Save'}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setEditingCardId(null)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </form>
+                            </Show>
+                          </div>
+                        );
+                      }}
+                    </For>
                   </div>
-                );
-              }}
-            </For>
+                </Show>
+              </Show>
+            </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );

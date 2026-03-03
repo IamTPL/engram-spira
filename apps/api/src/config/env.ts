@@ -6,6 +6,11 @@ const ENV = {
   SESSION_COOKIE_NAME: 'engram_session',
   SESSION_MAX_AGE_DAYS: 30,
   SESSION_REFRESH_THRESHOLD_DAYS: 15,
+  // ── Email (Gmail SMTP) ────────────────────────────────────
+  GMAIL_USER: process.env.GMAIL_USER || '',
+  GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
+  FEEDBACK_RECIPIENT:
+    process.env.FEEDBACK_RECIPIENT || 'tranphilong030201@gmail.com',
 } as const;
 
 // Validate required env vars at startup

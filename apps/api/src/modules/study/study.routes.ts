@@ -1,7 +1,7 @@
 import Elysia, { t } from 'elysia';
 import { requireAuth } from '../auth/auth.middleware';
 import * as studyService from './study.service';
-import { REVIEW_ACTIONS } from '../../shared/constants';
+import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
 
 const VALID_ACTIONS = Object.values(REVIEW_ACTIONS);
 const reviewActionSchema = t.Union(VALID_ACTIONS.map((a) => t.Literal(a)));
@@ -18,6 +18,25 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
   .get('/deck/:deckId/schedule', ({ currentUser, params }) =>
     studyService.getDeckSchedule(params.deckId, currentUser.id),
   )
+  .get('/streak', ({ currentUser }) =>
+    studyService.getUserStreak(currentUser.id),
+  )
+  .get(
+    '/activity',
+    ({ currentUser, query }) =>
+      studyService.getUserActivity(
+        currentUser.id,
+        Number(query.days ?? STREAK.ACTIVITY_DEFAULT_DAYS),
+      ),
+    {
+      query: t.Object({
+        days: t.Optional(
+          t.Numeric({ minimum: 1, maximum: STREAK.ACTIVITY_MAX_DAYS }),
+        ),
+      }),
+    },
+  )
+  .get('/stats', ({ currentUser }) => studyService.getUserStats(currentUser.id))
   .post(
     '/review',
     ({ currentUser, body }) =>

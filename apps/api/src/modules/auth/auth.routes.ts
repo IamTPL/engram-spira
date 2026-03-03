@@ -60,7 +60,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   )
   .post('/logout', async ({ cookie }) => {
     const token = cookie[ENV.SESSION_COOKIE_NAME]?.value;
-    if (token) {
+    if (token && typeof token === 'string') {
       await authService.logout(token);
       cookie[ENV.SESSION_COOKIE_NAME].remove();
     }
@@ -68,7 +68,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   })
   .get('/me', async ({ cookie }) => {
     const token = cookie[ENV.SESSION_COOKIE_NAME]?.value;
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return { user: null };
     }
     const result = await validateSession(token);
