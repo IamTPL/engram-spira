@@ -51,3 +51,10 @@ coverage/
 
 # ── Docker volumes (nếu mount local) ────────────────────
 postgres-data/
+
+# ── Structurizr (docs/c4) ────────────────────────────────
+# Runtime cache và files được sinh tự động bởi Docker container
+docs/c4/.structurizr/
+docs/c4/workspace.json
+docs/c4/.export_tmp/
+docs/c4/export/

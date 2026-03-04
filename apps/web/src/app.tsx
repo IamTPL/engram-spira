@@ -13,6 +13,7 @@ import DeckViewPage from '@/pages/deck-view';
 import FolderViewPage from '@/pages/folder-view';
 import SettingsPage from '@/pages/settings';
 import FeedbackPage from '@/pages/feedback';
+import DocsPage from '@/pages/docs';
 import NotFoundPage from '@/pages/not-found';
 
 const ProtectedRoute: Component<{ children: any }> = (props) => {
@@ -118,6 +119,14 @@ const App: Component = () => {
           component={() => (
             <ProtectedRoute>
               <FeedbackPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/docs"
+          component={() => (
+            <ProtectedRoute>
+              <DocsPage />
             </ProtectedRoute>
           )}
         />

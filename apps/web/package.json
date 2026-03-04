@@ -16,6 +16,7 @@
     "clsx": "^2.1.1",
     "elysia": "^1.4.26",
     "lucide-solid": "^0.575.0",
+    "marked": "^17.0.3",
     "solid-js": "^1.9.11",
     "tailwind-merge": "^3.5.0",
     "vite-plugin-solid": "^2.11.10"

@@ -26,6 +26,7 @@ import {
   User,
   ChevronDown,
   Target,
+  BookMarked,
 } from 'lucide-solid';
 import { openFocusDrawer, isRunning } from '@/stores/focus.store';
 
@@ -283,6 +284,17 @@ const Header: Component = () => {
                           <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                         </span>
                       </Show>
+                    </button>
+
+                    <button
+                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors text-left"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        navigate('/docs');
+                      }}
+                    >
+                      <BookMarked class="h-4 w-4 text-muted-foreground" />
+                      <span>Docs</span>
                     </button>
 
                     <button

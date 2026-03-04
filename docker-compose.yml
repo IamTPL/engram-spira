@@ -12,5 +12,15 @@ services:
     volumes:
       - flashcard_db_data:/var/lib/postgresql/data
 
+  # Structurizr Lite — chỉ chạy khi cần export C4 diagrams
+  # Dùng: bun run docs:c4  (hoặc docker-compose --profile docs up structurizr)
+  structurizr:
+    image: structurizr/lite
+    profiles: [docs]
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./docs/c4:/usr/local/structurizr
+
 volumes:
   flashcard_db_data:

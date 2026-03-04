@@ -96,15 +96,54 @@ engram_spira/
 
 ## Available Scripts
 
-| Script                | Description                       |
-| --------------------- | --------------------------------- |
-| `bun run dev`         | Start API + Web concurrently      |
-| `bun run dev:api`     | API only                          |
-| `bun run dev:web`     | Web only                          |
-| `bun run db:generate` | Generate SQL migrations           |
-| `bun run db:migrate`  | Apply migrations                  |
-| `bun run db:seed`     | Seed system templates + test user |
-| `bun run db:studio`   | Open Drizzle Studio               |
+| Script                | Description                                      |
+| --------------------- | ------------------------------------------------ |
+| `bun run dev`         | Start API + Web concurrently                     |
+| `bun run dev:api`     | API only                                         |
+| `bun run dev:web`     | Web only                                         |
+| `bun run db:generate` | Generate SQL migrations                          |
+| `bun run db:migrate`  | Apply migrations                                 |
+| `bun run db:seed`     | Seed system templates + test user                |
+| `bun run db:studio`   | Open Drizzle Studio                              |
+| `bun run docs:sync`   | Sync doc files into `apps/web/public/docs/`      |
+| `bun run docs:export` | Export C4 diagrams to SVG automatically (requires Docker) |
+| `bun run docs:c4`     | Start Structurizr Lite UI (for browsing/editing DSL)      |
+
+---
+
+## Updating Documentation
+
+### SRS Document (`docs/srs/srs.md`)
+
+Edit the markdown file, then sync it to the frontend:
+
+```bash
+bun run docs:sync
+```
+
+The live docs page at `/docs` will reflect the changes on next page load.
+
+### C4 Architecture Diagrams (`docs/c4/workspace.dsl`)
+
+Prerequisites: Docker
+
+```bash
+# 1. Edit the DSL source
+vim docs/c4/workspace.dsl
+
+# 2. Export all 4 diagrams to SVG automatically (one command)
+bun run docs:export
+
+# 3. Commit
+git add docs/c4/workspace.dsl apps/web/public/docs/c4/
+git commit -m "docs(c4): update architecture diagrams"
+```
+
+> The export pipeline runs two Docker containers internally:
+> `structurizr/cli` (DSL → PlantUML) + `plantuml/plantuml` (PlantUML → SVG)
+> No manual browser interaction needed.
+
+> **View docs:** Log in → click avatar → **Docs** (`/docs`)
 
 ---
 
