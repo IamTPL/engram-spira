@@ -1,6 +1,6 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../../db';
-import { decks, folders, classes } from '../../db/schema';
+import { decks, folders, classes, cards } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
 
 async function verifyFolderOwnership(folderId: string, userId: string) {
@@ -16,7 +16,20 @@ async function verifyFolderOwnership(folderId: string, userId: string) {
 
 export async function listByFolder(folderId: string, userId: string) {
   await verifyFolderOwnership(folderId, userId);
-  return db.select().from(decks).where(eq(decks.folderId, folderId));
+  return db
+    .select({
+      id: decks.id,
+      userId: decks.userId,
+      folderId: decks.folderId,
+      cardTemplateId: decks.cardTemplateId,
+      name: decks.name,
+      createdAt: decks.createdAt,
+      cardCount: sql<number>`count(${cards.id})::int`,
+    })
+    .from(decks)
+    .leftJoin(cards, eq(cards.deckId, decks.id))
+    .where(eq(decks.folderId, folderId))
+    .groupBy(decks.id);
 }
 
 export async function getById(id: string, userId: string) {

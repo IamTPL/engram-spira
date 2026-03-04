@@ -159,7 +159,11 @@ const StudyModePage: Component = () => {
     <div class="min-h-screen flex flex-col">
       {/* Top bar */}
       <div class="border-b px-6 py-3 flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(`/deck/${params.deckId}`)}
+        >
           <ArrowLeft class="h-4 w-4 mr-2" />
           Back
         </Button>
@@ -307,8 +311,11 @@ const StudyModePage: Component = () => {
                     </Button>
                   </Show>
                   <div class="flex gap-2 justify-center">
-                    <Button variant="outline" onClick={() => navigate('/')}>
-                      Back to Dashboard
+                    <Button
+                      variant="outline"
+                      onClick={() => navigate(`/deck/${params.deckId}`)}
+                    >
+                      Back to Deck
                     </Button>
                   </div>
                 </div>

@@ -10,6 +10,7 @@ import RegisterPage from '@/pages/register';
 import DashboardPage from '@/pages/dashboard';
 import StudyModePage from '@/pages/study-mode';
 import DeckViewPage from '@/pages/deck-view';
+import FolderViewPage from '@/pages/folder-view';
 import SettingsPage from '@/pages/settings';
 import FeedbackPage from '@/pages/feedback';
 import NotFoundPage from '@/pages/not-found';
@@ -77,6 +78,14 @@ const App: Component = () => {
           component={() => (
             <ProtectedRoute>
               <DashboardPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/folder/:folderId"
+          component={() => (
+            <ProtectedRoute>
+              <FolderViewPage />
             </ProtectedRoute>
           )}
         />

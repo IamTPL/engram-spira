@@ -165,6 +165,7 @@ const DeckViewPage: Component = () => {
       return data as {
         id: string;
         name: string;
+        folderId: string;
         cardTemplateId: string;
       } | null;
     },
@@ -300,7 +301,10 @@ const DeckViewPage: Component = () => {
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8 shrink-0"
-                  onClick={() => navigate('/')}
+                  onClick={() => {
+                    const folderId = deck()?.folderId;
+                    navigate(folderId ? `/folder/${folderId}` : '/');
+                  }}
                 >
                   <ArrowLeft class="h-4 w-4" />
                 </Button>
@@ -360,7 +364,7 @@ const DeckViewPage: Component = () => {
 
           {/* ── Content ── */}
           <div class="p-6">
-            <div class="max-w-4xl mx-auto space-y-4">
+            <div class="max-w-5xl mx-auto space-y-4">
               {/* Add card form */}
               <Show when={showAddCard() && template()}>
                 <form

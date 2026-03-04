@@ -18,6 +18,8 @@ export const ROUTES = {
   LOGIN: '/login',
   REGISTER: '/register',
   DASHBOARD: '/',
+  FOLDER: '/folder/:folderId',
+  DECK: '/deck/:deckId',
   STUDY: '/study/:deckId',
 } as const;
 

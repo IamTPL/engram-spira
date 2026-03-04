@@ -45,7 +45,12 @@ export async function register(email: string, password: string) {
       email: email.toLowerCase(),
       passwordHash,
     })
-    .returning({ id: users.id, email: users.email });
+    .returning({
+      id: users.id,
+      email: users.email,
+      displayName: users.displayName,
+      avatarUrl: users.avatarUrl,
+    });
 
   const token = generateSessionToken();
   const session = await createSession(user.id, token);
@@ -59,6 +64,8 @@ export async function login(email: string, password: string) {
       id: users.id,
       email: users.email,
       passwordHash: users.passwordHash,
+      displayName: users.displayName,
+      avatarUrl: users.avatarUrl,
     })
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
@@ -77,7 +84,12 @@ export async function login(email: string, password: string) {
   const session = await createSession(user.id, token);
 
   return {
-    user: { id: user.id, email: user.email },
+    user: {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+    },
     token,
     session,
   };

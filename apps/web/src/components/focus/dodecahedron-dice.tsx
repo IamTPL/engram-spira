@@ -18,18 +18,18 @@ export interface Reward {
 }
 
 export const REWARDS: Reward[] = [
-  { id: 0, emoji: '🎮', label: 'Chơi 1 game' },
-  { id: 1, emoji: '🎬', label: 'Xem phim' },
-  { id: 2, emoji: '📱', label: 'Lướt short video' },
-  { id: 3, emoji: '🌿', label: 'Đi ra ngoài hít thở' },
-  { id: 4, emoji: '📚', label: 'Học thêm 15 phút' },
-  { id: 5, emoji: '💬', label: 'Lướt mạng xã hội' },
-  { id: 6, emoji: '🎉', label: 'Giải lao tùy ý' },
-  { id: 7, emoji: '🎵', label: 'Nghe nhạc yêu thích' },
-  { id: 8, emoji: '🍫', label: 'Ăn snack / uống nước' },
-  { id: 9, emoji: '🧘', label: 'Thiền / Stretching' },
-  { id: 10, emoji: '💭', label: 'Chat với bạn bè' },
-  { id: 11, emoji: '😴', label: 'Power nap 10 phút' },
+  { id: 0, emoji: '🎮', label: 'Play a game' },
+  { id: 1, emoji: '🎬', label: 'Watch a movie' },
+  { id: 2, emoji: '📱', label: 'Browse short videos' },
+  { id: 3, emoji: '🌿', label: 'Go outside for fresh air' },
+  { id: 4, emoji: '📚', label: 'Study 15 more minutes' },
+  { id: 5, emoji: '💬', label: 'Browse social media' },
+  { id: 6, emoji: '🎉', label: 'Free break' },
+  { id: 7, emoji: '🎵', label: 'Listen to favorite music' },
+  { id: 8, emoji: '🍫', label: 'Have a snack / drink water' },
+  { id: 9, emoji: '🧘', label: 'Meditate / Stretch' },
+  { id: 10, emoji: '💭', label: 'Chat with friends' },
+  { id: 11, emoji: '😴', label: 'Power nap 10 minutes' },
 ];
 
 interface Props {

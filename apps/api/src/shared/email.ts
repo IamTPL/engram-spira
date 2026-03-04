@@ -5,10 +5,10 @@ import { ENV } from '../config/env';
    EMAIL UTILITY — Gmail SMTP via Nodemailer
    ══════════════════════════════════════════════════════════════
    Setup:
-   1. Bật 2FA trên Gmail account bạn muốn dùng để gửi
-   2. Vào https://myaccount.google.com/apppasswords
-   3. Tạo App Password → chọn "Mail" + "Other (Custom name)"
-   4. Copy 16-char password → set GMAIL_APP_PASSWORD in .env
+   1. Enable 2FA on the Gmail account you want to use for sending
+   2. Go to https://myaccount.google.com/apppasswords
+   3. Create an App Password → select "Mail" + "Other (Custom name)"
+   4. Copy the 16-char password → set GMAIL_APP_PASSWORD in .env
    ══════════════════════════════════════════════════════════════ */
 
 /** Lazy-init transporter — only created when first email is sent */

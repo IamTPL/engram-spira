@@ -1,0 +1,474 @@
+---
+## Kế hoạch: Engram Spira — Phân tích Chuyên sâu & Lộ trình Tính năng Đột phá
+---
+
+## 📊 Phân tích Trạng thái Hiện tại
+
+### Stack Công nghệ
+
+| Lớp                | Công nghệ                                      | Trạng thái                                    |
+| ------------------ | ---------------------------------------------- | --------------------------------------------- |
+| Runtime            | Bun 1.3+                                       | ✅ Hiện đại nhất (Bleeding-edge)              |
+| Backend            | ElysiaJS v1.4.26 (AOT)                         | ✅ Sẵn sàng cho Production                    |
+| Cơ sở dữ liệu      | PostgreSQL 15 (Docker)                         | ✅ Vững chắc                                  |
+| ORM                | Drizzle ORM v0.45                              | ✅ Dựa trên Schema, migrations                |
+| Xác thực (Auth)    | Custom Lucia-style (argon2 + SHA-256 sessions) | ✅ Bảo mật                                    |
+| Frontend           | SolidJS v1.9.11 + Vite 7                       | ✅ Reactive (Phản ứng)                        |
+| Styling            | TailwindCSS v4 + CVA                           | ✅ Đã có Design system                        |
+| API Client         | Eden Treaty (E2E type-safe)                    | ✅ Zero-codegen                               |
+| Quản lý trạng thái | SolidJS signals (module singletons)            | ⚠️ Đã cấu hình TanStack Query nhưng chưa dùng |
+| Monorepo           | Bun Workspaces                                 | ✅ `apps/*` + `packages/*`                    |
+| Shared pkg         | `@engram/shared`                               | ❌ Trống                                      |
+
+**Kiến trúc**: Monorepo, backend dựa trên module (`module/{name}.routes.ts` + `{name}.service.ts`), hệ thống thẻ EAV cho các template linh hoạt. **28 API endpoints**, 11 bảng DB, thuật toán SM-2.
+
+---
+
+### Danh mục Tính năng
+
+| Tính năng                                 | Backend                              | Frontend                                       | Mức độ hoàn thiện                                               |
+| ----------------------------------------- | ------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------- |
+| **Auth (đăng ký/đăng nhập/đăng xuất/me)** | ✅                                   | ✅                                             | 90% — chưa có đặt lại mật khẩu, chưa xác minh email             |
+| **Class CRUD**                            | ✅                                   | ✅ sidebar (tạo/đổi tên/xóa)                   | 95%                                                             |
+| **Folder CRUD**                           | ✅                                   | ✅ sidebar (tạo/đổi tên/xóa)                   | 95%                                                             |
+| **Deck CRUD**                             | ✅                                   | ✅ folder-view (tạo), sidebar (không tạo được) | 85% — chưa thể di chuyển giữa các thư mục                       |
+| **Card Templates (Mẫu thẻ)**              | ✅ Chỉ GET/POST                      | ✅ Bộ chọn khi tạo deck                        | 60% — chưa thể cập nhật/xóa, không có UI tạo template tùy chỉnh |
+| **Card CRUD**                             | ✅                                   | ✅ deck-view (tạo/sửa/xóa)                     | 90% — chưa tạo hàng loạt, chưa sắp xếp lại                      |
+| **SM-2 Study**                            | ✅ engine + routes + batch           | ✅ trang study-mode                            | 95% — chưa có hành động "Dễ" (Easy)                             |
+| **Dashboard**                             | ✅ streak/hoạt động/thống kê/đến hạn | ✅ dashboard phong phú                         | 95%                                                             |
+| **Focus Timer (Pomodoro)**                | N/A (chỉ frontend)                   | ✅ drawer + phần thưởng xúc xắc 3D             | 90%                                                             |
+| **Thông báo (deck đến hạn)**              | ✅                                   | ✅ chuông + dropdown                           | 90%                                                             |
+| **Phản hồi (email)**                      | ✅                                   | ✅ form đầy đủ                                 | 95%                                                             |
+| **Giao diện (sáng/tối/hệ thống)**         | N/A                                  | ✅                                             | 100%                                                            |
+| **Cài đặt**                               | N/A                                  | ✅ chỉ đọc                                     | 40% — chưa đổi được mật khẩu, chưa sửa được hồ sơ               |
+
+**Đã lên kế hoạch nhưng chưa bắt đầu** (từ TODO.md):
+
+- Import/export thẻ (CSV)
+- Tìm kiếm & lọc (cấp độ sidebar)
+- Biểu đồ thống kê
+- Tạo UI cho template tùy chỉnh
+
+---
+
+### Phân tích Lỗ hổng — Nợ Kỹ thuật & Bảo mật
+
+| Hạng mục      | Vấn đề                                                                                                                                  | Mức độ nghiêm trọng       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **Bảo mật**   | Không có rate limiting (giới hạn tỷ lệ) trên `/auth/login` và `/auth/register`                                                          | 🔴 Cao                    |
+| **Bảo mật**   | Không có bảo vệ CSRF ngoài `sameSite=lax`                                                                                               | 🟠 Trung bình             |
+| **Bảo mật**   | Xác thực email chỉ là `.includes('@')` — không kiểm tra định dạng                                                                       | 🟡 Thấp                   |
+| **Code**      | `ForbiddenError` được import nhưng không dùng trong classes.service.ts                                                                  | 🟢 Không đáng kể          |
+| **Code**      | Hằng số `SRS_INTERVALS` cũ là dead code trong constants.ts                                                                              | 🟢 Không đáng kể          |
+| **Code**      | `types/index.ts` không export gì cả                                                                                                     | 🟢 Không đáng kể          |
+| **Code**      | Gói `@engram/shared` trống — các type bị lặp lại/inlined                                                                                | 🟡 Thấp                   |
+| **Kiến trúc** | Đã cấu hình TanStack Query nhưng không dùng `createQuery`/`createMutation` ở đâu cả — toàn bộ việc fetch data dùng `createResource` thô | 🟠 Trung bình             |
+| **Kiến trúc** | Không có error boundary (`<ErrorBoundary>`) ở frontend                                                                                  | 🟠 Trung bình             |
+| **Dữ liệu**   | FK của `card_templates` dùng NO CASCADE — xóa một template có chứa các deck liên kết sẽ thất bại một cách âm thầm                       | 🟡 Trung bình             |
+| **UX**        | Phần thưởng trong xúc xắc 12 mặt bị hardcode bằng tiếng Việt (không có i18n)                                                            | 🟡 Thấp                   |
+| **UX**        | Điều hướng không responsive trên mobile (chỉ thu gọn được sidebar)                                                                      | 🟠 Trung bình             |
+| **Hiệu suất** | Frontend không phân trang thẻ — tải tất cả, render tất cả                                                                               | 🟡 Trung bình (scale kém) |
+| **Thiếu sót** | Không có luồng đổi/đặt lại mật khẩu                                                                                                     | 🟠 Trung bình             |
+| **Thiếu sót** | Không có endpoint tạo thẻ hàng loạt                                                                                                     | 🟠 Trung bình             |
+| **Thiếu sót** | Không có endpoint sắp xếp lại thẻ (schema đã có `sort_order`)                                                                           | 🟡 Thấp                   |
+| **Thiếu sót** | Không thể di chuyển deck giữa các thư mục                                                                                               | 🟡 Thấp                   |
+
+---
+
+## 🔬 Tóm tắt Nghiên cứu Thị trường
+
+### Cảnh quan Cạnh tranh
+
+| Đối thủ        | Tính năng Khủng                                                | Điểm yếu                                                                    | Cơ hội cho Engram Spira                                                     |
+| -------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Anki**       | Hệ sinh thái plugin, sức mạnh desktop, thuật toán FSRS (2023+) | UI xấu, đường cong học tập dốc, không collab realtime                       | UI hiện đại + áp dụng FSRS + zero-config                                    |
+| **SuperMemo**  | Thuật toán SM-18, đọc tăng dần (incremental reading)           | Chỉ có trên Windows, UI cổ lỗ sĩ, giá $60+                                  | Ưu tiên Web, điều chỉnh concept incremental reading                         |
+| **Mochi**      | Thẻ Markdown, tối giản                                         | Không được chọn thuật toán SRS, không có tính xã hội                        | Tính linh hoạt của template đã vượt trội                                    |
+| **RemNote**    | Knowledge graph + SRS + backlinks                              | Cồng kềnh, chậm, phức tạp                                                   | Tập trung vào SRS + knowledge graph như một tiện ích bổ sung                |
+| **Quizlet**    | Thư viện deck chia sẻ khổng lồ, game hóa                       | Trả phí chặn tính năng, không có thuật toán SRS thực sự (ôn tập ngẫu nhiên) | Đem SM-2/FSRS thực thụ đối đầu với tính năng "spaced study" giả của Quizlet |
+| **Brainscape** | Lặp lại dựa trên độ tự tin (thang 1-5)                         | Tùy chỉnh hạn chế, đắt đỏ                                                   | Đã có sẵn review đa hành động                                               |
+| **Memrise**    | Nội dung do AI tạo, video nhập vai                             | Chỉ dạng gói đăng ký, tập trung vào ngôn ngữ                                | AI tạo thẻ là một tính năng, không phải là toàn bộ sản phẩm                 |
+| **Orbit**      | Nhúng SRS vào bài viết (Andy Matuschak)                        | Không phải là ứng dụng độc lập                                              | Extension trình duyệt + concept nhúng ôn tập                                |
+| **Mnemosyne**  | Mã nguồn mở, dữ liệu cấp độ nghiên cứu                         | UI tồi tệ, chỉ có trên desktop                                              | Giải pháp mã nguồn mở hiện đại thay thế                                     |
+| **Wanikani**   | Tiến trình kanji dựa trên bộ thủ, siêu trí nhớ                 | Chỉ tiếng Nhật, mang tính áp đặt (opinionated)                              | Concept chuỗi điều kiện tiên quyết (prerequisite) cho mọi môn học           |
+
+### Những Nhu cầu Chưa được Đáp ứng trên Thị trường (2024-2026)
+
+1. **Chưa có ứng dụng SRS nào kết hợp FSRS + AI tạo thẻ + knowledge graph** trong cùng một sản phẩm.
+2. **Trực quan hóa đường cong quên lãng cho từng thẻ** — chỉ Anki làm được qua add-on, không ai làm native.
+3. **Phát hiện tải lượng nhận thức (Cognitive load)** — không ứng dụng nào cảnh báo khi bạn học quá nhiều/kém hiệu quả.
+4. **Học liền mạch đa thiết bị** — bắt đầu trên điện thoại, tiếp tục chính xác vị trí đó trên desktop.
+5. **Ghi nhớ bối cảnh học tập** — "lúc học cái này mình đang nghĩ gì nhỉ?" không bao giờ được ghi lại.
+6. **Lập lịch xen kẽ (Interleaving)** — xáo trộn thẻ từ các deck/môn học khác nhau một cách khoa học (đã được chứng minh là tốt hơn học theo khối).
+7. **AI chấm điểm chất lượng thẻ** — phát hiện thẻ tệ (quá mơ hồ, quá giống nhau, câu hỏi mẹo).
+
+---
+
+## 💡 Đề xuất Tính năng
+
+### Nhóm 1: Thay đổi Cuộc chơi (Ít ai có — tạo competitive moat)
+
+#### 1. 🧠 FSRS Algorithm Engine (Bộ lập lịch Lặp lại Ngắt quãng Miễn phí)
+
+**Mô tả**: Thay thế/bổ sung SM-2 bằng FSRS-5, thuật toán tiên tiến nhất hiện nay của Jarrett Ye (được Anki áp dụng năm 2023). FSRS sử dụng mô hình DSR (Difficulty-Stability-Retrieval) 19 tham số, có thể **huấn luyện cho từng người dùng** — nó học thói quen ghi nhớ của mỗi người dùng từ lịch sử ôn tập và tối ưu hóa khoảng thời gian ngắt quãng dành riêng cho họ.
+
+**Tại sao đột phá**: SM-2 là công nghệ từ năm 1987. FSRS giảm khối lượng ôn tập từ 20-30% so với SM-2 mà vẫn giữ nguyên tỷ lệ ghi nhớ. Chỉ có Anki áp dụng nó (qua add-on, sau đó tích hợp sẵn). Không có ứng dụng SRS web-first nào có FSRS native.
+
+**Bằng chứng**: Ye, J. (2023). "A Stochastic Shortest Path Algorithm for Optimizing Spaced Repetition Scheduling" — được open-source dưới dạng `ts-fsrs` (đã có bản TypeScript trên npm).
+
+**Mức độ khó**: Khó — yêu cầu ghi log lịch sử ôn tập, tối ưu hóa tham số, migrate từ SM-2.
+
+**Ưu tiên**: Bắt buộc phải có (Giai đoạn 2)
+
+**Thay đổi Schema**:
+
+- Bảng mới `review_logs`: `id`, `user_id`, `card_id`, `rating` (1-4), `state` (mới/đang học/ôn tập/học lại), `elapsed_days`, `scheduled_days`, `review_timestamp`, `review_duration_ms`
+- Bảng mới `fsrs_user_params`: `id`, `user_id`, `parameters` (jsonb — 19 số thực float), `trained_at`, `review_count_used`
+- Sửa đổi `study_progress`: thêm `stability` (float), `difficulty` (float), `state` (enum), `last_elapsed_days` (int)
+
+**API endpoints**:
+
+- `POST /study/review` — mở rộng để ghi log vào `review_logs` bên cạnh việc cập nhật tiến độ
+- `POST /study/fsrs/optimize` — kích hoạt huấn luyện tham số FSRS cho người dùng dựa trên lịch sử
+- `GET /study/fsrs/params` — lấy tham số FSRS hiện tại của người dùng
+- `GET /study/card/:cardId/retention` — xác suất ghi nhớ được dự đoán ngay lúc này
+
+**Tương thích**: Thay thế engine SRS trong `srs.engine.ts`. Có thể tồn tại song song như một tùy chọn thuật toán (SM-2 vs FSRS) cho mỗi người dùng. Các hành động ôn tập giữ nguyên (Again/Hard/Good/Easy).
+
+---
+
+#### 2. 🤖 AI Card Factory (Tự động tạo thẻ từ bất kỳ nội dung nào)
+
+**Mô tả**: Người dùng dán văn bản, tải PDF lên, hoặc cung cấp URL → hệ thống dùng LLM trích xuất các khái niệm chính và tạo flashcard khớp với template mà người dùng đã chọn. Hỗ trợ: văn bản thuần, PDF, transcript YouTube, Wikipedia, chương sách giáo khoa.
+
+**Tại sao đột phá**: Tạo thẻ là rào cản #1 trong việc áp dụng SRS. Người dùng Anki tốn nhiều thời gian làm thẻ hơn là học. Chưa có ứng dụng SRS web nào có tính năng tạo thẻ AI đạt chuẩn production mà lại nhận thức được template.
+
+**Mức độ khó**: Trung bình (dùng OpenAI/Claude API) — hệ thống EAV dựa trên template hiện tại làm cho việc này trở nên tinh gọn vì AI chỉ cần điền vào các trường template.
+
+**Ưu tiên**: Bắt buộc phải có (Giai đoạn 2)
+
+**Thay đổi Schema**:
+
+- Bảng mới `ai_generation_jobs`: `id`, `user_id`, `deck_id`, `source_type` (text/url/pdf), `source_content` (text), `source_url` (text nullable), `status` (pending/processing/completed/failed), `cards_generated` (int), `model_used` (text), `tokens_used` (int), `created_at`
+- Không thay đổi schema của card — AI tạo thẻ dùng cấu trúc `cards` + `card_field_values` hiện có
+
+**API endpoints**:
+
+- `POST /ai/generate-cards` — nhận `{ deckId, sourceType, content/url, cardCount? }`, trả về ID job
+- `GET /ai/jobs/:jobId` — poll trạng thái job
+- `POST /ai/generate-cards/preview` — trả về thẻ đã tạo cho người dùng duyệt trước khi lưu
+- `POST /ai/improve-card` — viết lại/cải thiện một thẻ bằng AI
+
+**Bên thứ 3**: OpenAI GPT-4o-mini ($0.15/1M token đầu vào) hoặc Claude 3.5 Haiku ($0.25/1M). Chi phí: ~$0.001-0.005 mỗi mẻ 10 thẻ.
+
+**Tương thích**: Sử dụng hệ thống trường template hiện có — AI nhận định nghĩa trường làm context và sinh ra `fieldValues[]` tương ứng. Tích hợp với hàm `create()` trong cards.service.ts.
+
+---
+
+#### 3. 🔗 Knowledge Graph & Prerequisite Chains (Đồ thị Kiến thức & Chuỗi Tiên quyết)
+
+**Mô tả**: Thẻ có thể được liên kết với nhau bằng các loại quan hệ: `related_to` (liên quan), `prerequisite_of` (tiên quyết cho), `opposite_of` (trái nghĩa), `example_of` (ví dụ của). Người dùng có thể liên kết thủ công hoặc AI tự động phát hiện. Giao diện đồ thị trực quan cho thấy kiến thức kết nối ra sao. Chuỗi tiên quyết bắt buộc thứ tự học — thẻ B sẽ không xuất hiện để ôn tập cho đến khi thẻ A được thành thạo (ease_factor > 2.0, trên 3 lần ôn tập thành công).
+
+**Tại sao đột phá**: RemNote có backlinks nhưng không có chuỗi tiên quyết nhận thức được SRS. Anki không có tính năng liên kết. Không có ứng dụng SRS nào bắt buộc học theo kiểu "học A trước B" một cách thông minh.
+
+**Bằng chứng**: Roediger & Butler (2011) — kiến thức tiên quyết ảnh hưởng mạnh mẽ đến việc ghi nhớ tài liệu mới. Knowledge graph khai thác hiệu ứng "mã hóa tỉ mỉ" (elaborative encoding).
+
+**Mức độ khó**: Khó
+
+**Ưu tiên**: Nên có (Giai đoạn 3)
+
+**Thay đổi Schema**:
+
+- Bảng mới `card_links`: `id`, `source_card_id` (FK→cards), `target_card_id` (FK→cards), `link_type` (enum: related/prerequisite/opposite/example), `created_by` (enum: user/ai), `created_at`
+- Bảng mới `card_concepts`: `id`, `card_id` (FK→cards), `concept` (text), `embedding` (vector(1536) — pgvector), `created_at`
+
+**API endpoints**:
+
+- `POST /cards/:id/links` — tạo liên kết
+- `GET /cards/:id/links` — lấy toàn bộ liên kết của thẻ
+- `DELETE /cards/links/:linkId` — xóa liên kết
+- `GET /decks/:id/graph` — lấy dữ liệu đồ thị (node + edge) để hiển thị
+- `POST /ai/detect-relationships` — AI quét deck và đề xuất liên kết
+- `GET /study/deck/:deckId` — sửa đổi để tôn trọng chuỗi tiên quyết (lọc bỏ thẻ mà thẻ tiên quyết của nó chưa được thành thạo)
+
+---
+
+#### 4. 📊 Forgetting Forecast & Retention Heatmap (Dự báo Quên & Biểu đồ Nhiệt Ghi nhớ)
+
+**Mô tả**: Một widget trên dashboard dự đoán chính xác những thẻ nào bạn sẽ quên trong 7/14/30 ngày tới dựa trên đường cong ổn định (stability curves) hiện tại. Hiển thị một heatmap về xác suất ghi nhớ của tất cả thẻ theo thời gian. Gửi thông báo chủ động: "5 thẻ trong deck IELTS của bạn sắp rớt xuống dưới 80% tỷ lệ ghi nhớ."
+
+**Tại sao đột phá**: Không có ứng dụng SRS nào hiển thị dự báo quên cá nhân hóa. Anki có add-on "dự báo" nhưng chỉ đếm thẻ đến hạn — nó không dự đoán xác suất ghi nhớ thực sự của từng thẻ.
+
+**Bằng chứng**: Đường cong quên Ebbinghaus + mô hình ổn định FSRS cho phép dự đoán khả năng ghi nhớ thẻ ở bất kỳ thời điểm tương lai $t$ nào: $R(t) = e^{-t/S}$ trong đó $S$ là độ ổn định (stability) của thẻ.
+
+**Mức độ khó**: Trung bình (cần dữ liệu stability của FSRS từ Tính năng #1)
+
+**Ưu tiên**: Nên có (Giai đoạn 3)
+
+**API endpoints**:
+
+- `GET /study/forecast?days=N` — Trả về dự báo theo ngày: `{ date, predictedForgotten, predictedRetention, cardsByDeck[] }`
+- `GET /study/retention-heatmap?deckId=X` — Trả về ma trận xác suất ghi nhớ thẻ × thời gian
+- `GET /study/at-risk-cards?threshold=0.8` — Các thẻ được dự đoán sẽ rớt xuống dưới ngưỡng
+
+---
+
+#### 5. 🎯 Interleaved Practice Mode (Chế độ Học Xen kẽ)
+
+**Mô tả**: Thay vì học từng deck một (học theo khối - blocked practice), người dùng có thể vào "Chế độ Xen kẽ" — hệ thống xáo trộn các thẻ đến hạn từ nhiều deck/môn học khác nhau, hiển thị theo thứ tự xen kẽ tối ưu. Xen kẽ cải thiện khả năng phân biệt và ghi nhớ dài hạn đáng kể.
+
+**Tại sao đột phá**: Mọi ứng dụng SRS đều bắt buộc học theo từng deck. Không ứng dụng nào áp dụng phương pháp học xen kẽ đã được khoa học chứng minh này. Đây là khám phá bị bỏ ngỏ nhiều nhất trong khoa học học tập.
+
+**Bằng chứng**: Rohrer, D. (2012). "Interleaving Helps Students Distinguish among Similar Concepts" — cải thiện 43% điểm kiểm tra. Kornell & Bjork (2008) cũng xác nhận lợi ích duy trì ghi nhớ.
+
+**Mức độ khó**: Trung bình
+
+**Ưu tiên**: Bắt buộc phải có (Giai đoạn 2)
+
+**Thay đổi Schema**: Không có (dùng `study_progress` hiện tại trên nhiều deck)
+
+**API endpoints**:
+
+- `GET /study/interleaved?deckIds=a,b,c&limit=50` — Trả về thẻ đến hạn đan xen từ nhiều deck, sắp xếp kết hợp giữa độ cấp bách + luân phiên môn học
+- `GET /study/interleaved/auto` — Hệ thống tự chọn deck để đan xen dựa trên số lượng đến hạn và sự đa dạng môn học
+
+**Tương thích**: Tái sử dụng hạ tầng học hiện tại. Frontend thêm nút "Học Xen kẽ" trên dashboard.
+
+---
+
+### Nhóm 2: Yếu tố Khác biệt Mạnh mẽ
+
+#### 6. 🔍 AI Duplicate & Quality Detection (AI Phát hiện Trùng lặp & Kiểm tra Chất lượng)
+
+**Mô tả**: Khi tạo hoặc import thẻ, AI kiểm tra: thẻ trùng lặp ngữ nghĩa (khác câu chữ, cùng khái niệm), các vấn đề chất lượng (quá mơ hồ, quá dài, câu hỏi mẹo, thiếu ngữ cảnh), và đề xuất cải thiện.
+
+**Mức độ khó**: Trung bình (embedding similarity + LLM evaluation)
+
+**Ưu tiên**: Nên có (Giai đoạn 2)
+
+**Thay đổi Schema**:
+
+- Thêm cột `embedding` (vector(1536)) vào `card_field_values` cho các trường chính
+- Yêu cầu extension pgvector
+
+**API endpoints**:
+
+- `POST /ai/check-duplicates` — `{ deckId, fieldValues[] }` → trả về các thẻ tương tự hiện có kèm điểm tương đồng
+- `POST /ai/quality-score` — chấm điểm thẻ từ 1-10 kèm đề xuất cải thiện
+
+---
+
+#### 7. 💡 AI Tutor (Giải thích khi Thất bại)
+
+**Mô tả**: Khi người dùng ấn "Again" (quên), một bảng gia sư AI sẽ trượt ra kèm theo: mẹo ghi nhớ (mnemonic) cho thẻ đó, giải thích về khái niệm, kết nối với những thẻ khác mà họ đã thuộc, và một câu đố nhỏ (micro-quiz) để củng cố.
+
+**Mức độ khó**: Trung bình
+
+**Ưu tiên**: Nên có (Giai đoạn 3)
+
+**API endpoints**:
+
+- `POST /ai/explain` — `{ cardId, context: 'forgot' }` → trả về giải thích, mẹo ghi nhớ, các thẻ liên quan
+
+---
+
+#### 8. 🏪 Shared Deck Marketplace (Chợ Deck Chia sẻ)
+
+**Mô tả**: Người dùng có thể publish deck lên chợ công cộng. Người khác có thể clone (fork) chúng. Hệ thống đánh giá (1-5 sao), lượt tải, danh mục/tag. Phiên bản hóa deck — khi tác giả cập nhật, người đăng ký sẽ nhận được thông báo.
+
+**Mức độ khó**: Khó
+
+**Ưu tiên**: Nên có (Giai đoạn 3)
+
+**Thay đổi Schema**:
+
+- Bảng mới `published_decks`: `id`, `deck_id`, `author_id`, `title`, `description`, `category`, `tags` (text[]), `card_count`, `rating_avg`, `rating_count`, `download_count`, `version`, `is_public`, `published_at`, `updated_at`
+- Bảng mới `deck_ratings`: `id`, `published_deck_id`, `user_id`, `rating` (1-5), `review_text`, `created_at`
+- Bảng mới `deck_subscriptions`: `id`, `user_id`, `published_deck_id`, `forked_deck_id`, `subscribed_at`
+
+**API endpoints**:
+
+- `POST /marketplace/publish` — publish một deck
+- `GET /marketplace/search?q=&category=&sort=` — tìm kiếm deck trên chợ
+- `POST /marketplace/:id/clone` — fork deck vào thư viện của người dùng
+- `POST /marketplace/:id/rate` — đánh giá deck
+
+---
+
+#### 9. ⏰ Optimal Review Time Prediction (Dự đoán Giờ Ôn tập Tối ưu)
+
+**Mô tả**: Vượt ra ngoài việc lên lịch ngày nào cần ôn tập, dự đoán _giờ_ tối ưu trong ngày dựa trên biểu đồ hiệu suất lịch sử của người dùng. "Bạn ghi nhớ tốt hơn 15% khi học từ vựng lúc 9h sáng so với 11h đêm."
+
+**Bằng chứng**: Nghiên cứu nhịp sinh học chỉ ra rằng quá trình củng cố trí nhớ thay đổi theo thời gian trong ngày (Smarr & Schirmer, 2018).
+
+**Mức độ khó**: Trung bình (cần review_logs có timestamp)
+
+**Ưu tiên**: Có thì tốt (Giai đoạn 4)
+
+**Thay đổi Schema**: Dùng `review_logs` từ Tính năng #1 (đã có `review_timestamp`)
+
+**API endpoints**:
+
+- `GET /study/optimal-time` — trả về giờ học được đề xuất dựa trên tỷ lệ thành công lịch sử theo giờ
+
+---
+
+#### 10. 🧩 Image Occlusion (Che Hình ảnh)
+
+**Mô tả**: Tải ảnh lên (sơ đồ giải phẫu, bản đồ, mạch điện), vẽ các vùng chữ nhật/tự do để "che" (occlude). Khi học, một vùng sẽ bị che đi — người dùng phải nhớ nội dung bên dưới là gì. Tính năng cực kỳ thiết yếu cho sinh viên y, địa lý, các môn học trực quan.
+
+**Mức độ khó**: Khó (vẽ canvas + lưu trữ vùng che + render)
+
+**Ưu tiên**: Nên có (Giai đoạn 3)
+
+**Thay đổi Schema**:
+
+- Thêm field_type mới trong template: `image_occlusion`
+- Dữ liệu vùng che lưu trong `card_field_values.value` dưới dạng jsonb: `{ imageUrl, regions: [{ x, y, w, h, label }] }`
+- Mỗi vùng che trở thành một "thẻ con" riêng biệt cho mục đích tính toán SRS
+
+---
+
+### Nhóm 3: Table Stakes (Yêu cầu cơ bản để cạnh tranh)
+
+#### 11. Import/Export (CSV, Anki, JSON)
+
+**Mức độ khó**: Trung bình — `POST /import/csv`, `POST /import/anki` (parse .apkg SQLite), `GET /export/:deckId?format=csv|json|anki`
+
+#### 12. Browser Extension (Bôi đen → Tạo Thẻ)
+
+**Mức độ khó**: Trung bình — Chrome extension, POST thẳng vào API tạo thẻ hiện tại
+
+#### 13. Mobile-Responsive PWA
+
+**Mức độ khó**: Trung bình — responsive CSS + service worker + manifest.json
+
+#### 14. Password Reset & Email Verification (Đặt lại Mật khẩu & Xác minh Email)
+
+**Mức độ khó**: Dễ — `POST /auth/forgot-password`, `POST /auth/reset-password`, `POST /auth/verify-email`
+
+#### 15. Rate Limiting & CSRF Protection
+
+**Mức độ khó**: Dễ — plugin Elysia rate-limit, CSRF token trong thẻ meta
+
+---
+
+### Nhóm 4: Ý tưởng Đột phá Moonshot (Chưa ai làm)
+
+#### 16. 🌀 "Context Replay" — Ghi lại Bối cảnh Học
+
+Khi học, hệ thống âm thầm ghi lại "bối cảnh học": lúc mấy giờ, môi trường (ồn/yên tĩnh qua mic), tốc độ lật thẻ, kiểu chần chừ. Khi bạn quên một thẻ vài tuần sau, hệ thống có thể báo: "Lần trước bạn học cái này lúc 2h chiều ngày 5 tháng 3, bạn chần chừ 4.2s trước khi lật, và bạn đã trả lời đúng sau khi thấy nó 3 lần." Tính năng này khai thác **tính đặc thù mã hóa (encoding specificity)** (Tulving & Thomson, 1973) — nhớ lại bối cảnh học giúp hồi tưởng nội dung.
+**Chưa có app SRS nào ghi lại hoặc phát lại bối cảnh học.**
+
+#### 17. 🧬 "Memory Fingerprint" — Mô hình Nhận thức Cá nhân hóa
+
+Xây dựng mô hình cá nhân hóa về điểm mạnh/yếu của trí nhớ mỗi người: "Bạn tiếp thu khái niệm trực quan nhanh hơn 40% so với định nghĩa trừu tượng. Tỷ lệ nhớ của bạn giảm mạnh sau phiên học 45 phút. Bạn học tốt hơn 25% vào buổi sáng." Điều này vượt xa FSRS (chỉ mô hình hóa cấp độ thẻ) để mô hình hóa **chính người học**.
+Dùng: phân tích review_logs, theo dõi thời lượng phiên học (đã có focus timer!), hiệu suất theo loại template thẻ, phân tích thời gian trong ngày.
+
+#### 18. 🎭 "Desirable Difficulty" Mode (Chế độ Khó mong muốn)
+
+Tự động đưa ra các biến thể khó hơn của thẻ mà bạn đang thuộc quá dễ: hiển thị định nghĩa → nhớ ra từ (reverse cards), thêm nhiễu/yếu tố gây xao nhãng, loại bỏ dần trường ngữ cảnh, tạo ra câu hỏi tương tự-nhưng-khác. Dựa trên khung "những khó khăn đáng mong đợi" của Bjork (1994).
+
+#### 19. 🌊 "Flow Study" — Thời lượng Phiên học Thích ứng
+
+Thay vì "học 20 thẻ đến hạn", hệ thống tự động điều chỉnh độ dài phiên học dựa trên hiệu suất thời gian thực: nếu bạn đang trong trạng thái "flow" (nhanh, chính xác), nó sẽ cho học tiếp. Nếu độ chính xác giảm (cạn kiệt nhận thức), nó tự động kết thúc phiên kèm tóm tắt. Phát hiện flow qua pattern thời gian phản hồi.
+
+---
+
+## 🗺️ Lộ trình Đề xuất
+
+### Giai đoạn 1: Gia cố MVP (2-4 tuần)
+
+1. **Rate limiting** trên các endpoint auth — Dễ, 2h
+2. **Error boundary** ở frontend — Dễ, 1h
+3. **Đổi mật khẩu** trong Cài đặt — Dễ, 4h
+4. **Endpoint tạo thẻ hàng loạt** — Dễ, 3h
+5. **Endpoint sắp xếp lại thẻ** — Dễ, 2h
+6. **Sửa TanStack Query** — hoặc dùng nó đúng cách, hoặc gỡ bỏ — Trung bình, 4h
+7. **Điều hướng mobile responsive** — Trung bình, 8h
+8. **`@engram/shared`** điền các type dùng chung — Dễ, 2h
+9. **Thêm nút "Easy"** vào SM-2 engine — Dễ, 2h
+10. **Import/Export CSV** — Trung bình, 8h
+
+### Giai đoạn 2: Khác biệt hóa (1-2 tháng)
+
+1. **FSRS Algorithm Engine** (Tính năng #1) — thay SM-2 bằng thuật toán hiện đại
+2. **AI Card Factory** (Tính năng #2) — paste chữ → ra thẻ
+3. **Học Xen kẽ (Interleaved Practice)** (Tính năng #5) — học chéo deck
+4. **AI Duplicate Detection** (Tính năng #6) — chất lượng thẻ
+5. **Ghi log ôn tập (Review logging)** — nền tảng cho mọi tính năng phân tích
+6. **Browser Extension** MVP
+
+### Giai đoạn 3: Xây dựng Rào cản (Moat) (3-6 tháng)
+
+1. **Knowledge Graph** (Tính năng #3) — liên kết thẻ + chuỗi tiên quyết
+2. **Forgetting Forecast** (Tính năng #4) — phân tích dự đoán
+3. **AI Tutor** (Tính năng #7) — giải thích khi quên
+4. **Shared Deck Marketplace** (Tính năng #8) — cộng đồng
+5. **Image Occlusion** (Tính năng #10)
+6. **Dashboard Retention Heatmap**
+
+### Giai đoạn 4: Moonshot (6-12 tháng)
+
+1. **Memory Fingerprint** (Tính năng #17) — mô hình nhận thức theo người dùng
+2. **Desirable Difficulty Mode** (Tính năng #18) — các biến thể thẻ thích ứng
+3. **Flow Study** (Tính năng #19) — thời lượng phiên học thích ứng
+4. **Optimal Review Time** (Tính năng #9) — lên lịch dựa trên nhịp sinh học
+5. **Context Replay** (Tính năng #16) — ghi nhớ môi trường học
+
+---
+
+## ⚙️ Ghi chú Triển khai Kỹ thuật
+
+### Tóm tắt Thay đổi Schema (tất cả các giai đoạn)
+
+| Bảng                 | Mục đích                                                       | Giai đoạn |
+| -------------------- | -------------------------------------------------------------- | --------- |
+| `review_logs`        | Log sự kiện cho mỗi lần ôn tập (nền tảng cho FSRS + analytics) | 2         |
+| `fsrs_user_params`   | Tham số FSRS đã được huấn luyện riêng cho người dùng           | 2         |
+| `ai_generation_jobs` | Hàng đợi (queue) chạy job tạo thẻ AI                           | 2         |
+| `card_links`         | Mối quan hệ giữa các thẻ + chuỗi tiên quyết                    | 3         |
+| `card_concepts`      | Embeddings của khái niệm thẻ (pgvector)                        | 3         |
+| `published_decks`    | Các deck được publish lên marketplace                          | 3         |
+| `deck_ratings`       | Đánh giá marketplace                                           | 3         |
+| `deck_subscriptions` | Lượt đăng ký/fork trên marketplace                             | 3         |
+| Sửa `study_progress` | Thêm cột `stability`, `difficulty`, `state` cho FSRS           | 2         |
+
+### Nhóm API Endpoint Mới
+
+| Nhóm                                                                  | Số lượng    | Giai đoạn |
+| --------------------------------------------------------------------- | ----------- | --------- |
+| `/study/fsrs/*`                                                       | 3 endpoints | 2         |
+| `/ai/*`                                                               | 6 endpoints | 2-3       |
+| `/study/interleaved/*`                                                | 2 endpoints | 2         |
+| `/study/forecast`, `/study/retention-heatmap`, `/study/at-risk-cards` | 3 endpoints | 3         |
+| `/marketplace/*`                                                      | 4 endpoints | 3         |
+| `/import/*`, `/export/*`                                              | 3 endpoints | 1         |
+| `/auth/forgot-password`, `/auth/reset-password`                       | 2 endpoints | 1         |
+
+### Dịch vụ Bên Thứ ba Cần thiết
+
+| Dịch vụ                                  | Mục đích                                                                 | Ước tính Chi phí                                         |
+| ---------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------- |
+| **OpenAI GPT-4o-mini**                   | AI tạo thẻ, chấm điểm chất lượng, giải thích                             | ~$0.15/1M token đầu vào (~$0.005 cho mỗi 10 thẻ sinh ra) |
+| **OpenAI text-embedding-3-small**        | Sinh vector (embedding) cho thẻ để phát hiện trùng lặp & knowledge graph | ~$0.02/1M tokens                                         |
+| **pgvector** (PostgreSQL extension)      | Tìm kiếm độ tương đồng vector cho embeddings                             | Miễn phí (tự host)                                       |
+| **ts-fsrs** (npm package)                | Triển khai thuật toán FSRS                                               | Miễn phí (MIT licensed)                                  |
+| Tùy chọn: **Anthropic Claude 3.5 Haiku** | LLM thay thế để tạo thẻ                                                  | ~$0.25/1M token đầu vào                                  |
+
+### Ước lượng Nỗ lực (Effort)
+
+| Giai đoạn   | Thời gian  | Deliverables Chính                                  |
+| ----------- | ---------- | --------------------------------------------------- |
+| Giai đoạn 1 | 2-4 tuần   | Gia cố MVP, import/export, mobile, sửa lỗi bảo mật  |
+| Giai đoạn 2 | 6-8 tuần   | FSRS, AI tạo thẻ, học xen kẽ, ghi log ôn tập        |
+| Giai đoạn 3 | 10-14 tuần | Knowledge graph, chợ chia sẻ, che hình ảnh, dự báo  |
+| Giai đoạn 4 | 16-24 tuần | Mô hình nhận thức, độ khó thích ứng, phát hiện flow |
+
+### Quyết định Cốt lõi
+
+- **Chọn FSRS thay vì SM-18**: FSRS là mã nguồn mở (ts-fsrs trên npm), được bảo trì tích cực, và đã được kiểm chứng trong Anki. SM-18 là độc quyền.
+- **Chọn OpenAI thay vì LLM local**: Đối với web app, dùng LLM API thực tế hơn nhiều so với việc chạy mô hình local. Chi phí không đáng kể ở quy mô ban đầu.
+- **Chọn pgvector thay vì Pinecone**: Giữ mọi thứ trong PostgreSQL — không cần thêm hạ tầng bên ngoài. pgvector xử lý 100K+ vector dễ dàng.
+- **Học Xen kẽ (Interleaving) đưa vào Giai đoạn 2**: Không phức tạp về code (tái sử dụng hạ tầng học hiện tại), được khoa học chứng minh mạnh mẽ, zero đối thủ cạnh tranh — tính năng mang lại ROI cao nhất.
+- **Ghi log ôn tập làm đầu tiên**: Bảng `review_logs` là nền tảng cho FSRS, thống kê, mô hình nhận thức, và dự đoán giờ học tối ưu. Bắt buộc phải xây dựng ở Giai đoạn 2 trước mọi thứ khác.

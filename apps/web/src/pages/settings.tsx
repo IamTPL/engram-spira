@@ -1,15 +1,24 @@
-import { type Component, Show, createSignal } from 'solid-js';
+import {
+  type Component,
+  Show,
+  For,
+  createSignal,
+  createResource,
+  createEffect,
+} from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
 import { Button } from '@/components/ui/button';
-import { currentUser } from '@/stores/auth.store';
+import { Input } from '@/components/ui/input';
+import { currentUser, updateProfile } from '@/stores/auth.store';
 import {
   theme,
   setTheme,
   resolvedTheme,
   type Theme,
 } from '@/stores/theme.store';
+import { toast } from '@/stores/toast.store';
 import {
   ArrowLeft,
   User,
@@ -19,6 +28,10 @@ import {
   Moon,
   Shield,
   Info,
+  Check,
+  Pencil,
+  X,
+  Loader2,
 } from 'lucide-solid';
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
@@ -27,8 +40,100 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
   { value: 'system', label: 'System', icon: Monitor },
 ];
 
+/** Fetch avatar list from backend (backend reads filesystem, auto-picks up newly added files) */
+async function fetchAvatars(): Promise<string[]> {
+  try {
+    const res = await fetch('http://localhost:3001/users/avatars');
+    const data = await res.json();
+    return data.avatars ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Render the user's avatar: shows the image if set, otherwise falls back to initials */
+const AvatarDisplay: Component<{
+  avatarUrl: string | null;
+  email: string;
+  size?: 'md' | 'lg';
+}> = (props) => {
+  const initials = () => {
+    const name = props.email?.split('@')[0] ?? '?';
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  const sizeClass = () =>
+    props.size === 'lg' ? 'w-25 h-25 text-2xl' : 'w-12 h-12 text-base';
+
+  return (
+    <Show
+      when={props.avatarUrl}
+      fallback={
+        <div
+          class={`${sizeClass()} rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center ring-2 ring-primary/20 shrink-0`}
+        >
+          {initials()}
+        </div>
+      }
+    >
+      <img
+        src={props.avatarUrl!}
+        alt="avatar"
+        class={`${sizeClass()} rounded-full object-contain p-0.5 bg-muted ring-4 ring-primary/20 shrink-0`}
+      />
+    </Show>
+  );
+};
+
 const SettingsPage: Component = () => {
   const navigate = useNavigate();
+
+  // ── Fetch avatar collection ──────────────────────────────────────────
+  const [avatars] = createResource(fetchAvatars);
+
+  // ── Profile edit state ───────────────────────────────────────────────
+  const [displayName, setDisplayName] = createSignal(
+    currentUser()?.displayName ?? '',
+  );
+  const [selectedAvatar, setSelectedAvatar] = createSignal<string | null>(
+    currentUser()?.avatarUrl ?? null,
+  );
+  const [isSaving, setIsSaving] = createSignal(false);
+  const [isDirty, setIsDirty] = createSignal(false);
+
+  // Sync local state when currentUser changes (e.g., after initial app load completes)
+  createEffect(() => {
+    const user = currentUser();
+    if (user) {
+      setDisplayName(user.displayName ?? '');
+      setSelectedAvatar(user.avatarUrl ?? null);
+    }
+  });
+
+  const markDirty = () => setIsDirty(true);
+
+  const handleSaveProfile = async () => {
+    setIsSaving(true);
+    try {
+      await updateProfile({
+        displayName: displayName().trim() || undefined,
+        avatarUrl: selectedAvatar() ?? '',
+      });
+      setIsDirty(false);
+      toast.success('Profile updated!');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelProfile = () => {
+    const user = currentUser();
+    setDisplayName(user?.displayName ?? '');
+    setSelectedAvatar(user?.avatarUrl ?? null);
+    setIsDirty(false);
+  };
 
   return (
     <div class="h-screen flex flex-col">
@@ -39,7 +144,7 @@ const SettingsPage: Component = () => {
         <main class="flex-1 overflow-y-auto">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-8">
-              {/* Header */}
+              {/* ── Page Header ── */}
               <div class="flex items-center gap-3">
                 <Button
                   variant="ghost"
@@ -57,10 +162,166 @@ const SettingsPage: Component = () => {
                 </div>
               </div>
 
-              {/* ── Account Section ── */}
+              {/* ── Profile Section ── */}
               <section class="space-y-4">
                 <div class="flex items-center gap-2">
                   <User class="h-4 w-4 text-muted-foreground" />
+                  <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                    Profile
+                  </h2>
+                </div>
+
+                <div class="border rounded-xl bg-card overflow-hidden">
+                  {/* Current profile preview + display name */}
+                  <div class="px-5 py-5 flex items-center gap-4 border-b">
+                    <AvatarDisplay
+                      avatarUrl={selectedAvatar()}
+                      email={currentUser()?.email ?? ''}
+                      size="lg"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <p class="text-xs text-muted-foreground mb-1.5">
+                        Display name
+                      </p>
+                      <Input
+                        value={displayName()}
+                        onInput={(e) => {
+                          setDisplayName(e.currentTarget.value);
+                          markDirty();
+                        }}
+                        placeholder={
+                          currentUser()?.email?.split('@')[0] ?? 'Your name'
+                        }
+                        maxLength={50}
+                        class="h-9"
+                      />
+                      <p class="text-xs text-muted-foreground mt-1.5">
+                        {currentUser()?.email}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Avatar collection picker */}
+                  <div class="px-5 py-4">
+                    <p class="text-sm font-medium text-foreground mb-3">
+                      Choose an avatar
+                    </p>
+
+                    <Show
+                      when={!avatars.loading}
+                      fallback={
+                        <div class="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                          <Loader2 class="h-4 w-4 animate-spin" />
+                          Loading avatars...
+                        </div>
+                      }
+                    >
+                      <Show
+                        when={(avatars() ?? []).length > 0}
+                        fallback={
+                          <p class="text-sm text-muted-foreground py-2">
+                            No avatars found in collection.
+                          </p>
+                        }
+                      >
+                        <div class="grid grid-cols-8 gap-2">
+                          {/* Option: no avatar (show initials) */}
+                          <button
+                            title="Remove avatar"
+                            class={`relative w-11 h-11 rounded-full border-2 transition-all flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
+                              selectedAvatar() === null
+                                ? 'border-primary ring-2 ring-primary/20'
+                                : 'border-transparent'
+                            }`}
+                            onClick={() => {
+                              setSelectedAvatar(null);
+                              markDirty();
+                            }}
+                          >
+                            <X class="h-4 w-4" />
+                            <Show when={selectedAvatar() === null}>
+                              <span class="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                                <Check class="h-2.5 w-2.5 text-primary-foreground" />
+                              </span>
+                            </Show>
+                          </button>
+
+                          {/* Avatar thumbnails */}
+                          <For each={avatars()}>
+                            {(url) => (
+                              <button
+                                title={url.split('/').pop()}
+                                class={`relative w-11 h-11 rounded-full border-2 transition-all overflow-hidden hover:scale-105 ${
+                                  selectedAvatar() === url
+                                    ? 'border-primary ring-2 ring-primary/20'
+                                    : 'border-transparent hover:border-muted-foreground/30'
+                                }`}
+                                onClick={() => {
+                                  setSelectedAvatar(url);
+                                  markDirty();
+                                }}
+                              >
+                                <img
+                                  src={url}
+                                  alt={url.split('/').pop()}
+                                  class="w-full h-full object-cover"
+                                />
+                                <Show when={selectedAvatar() === url}>
+                                  <span class="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                                    <Check class="h-2.5 w-2.5 text-primary-foreground" />
+                                  </span>
+                                </Show>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </Show>
+
+                    {/* Upload hint */}
+                    <p class="text-xs text-muted-foreground mt-3">
+                      Custom avatar upload coming soon.
+                    </p>
+                  </div>
+
+                  {/* Save / Cancel buttons */}
+                  <Show when={isDirty()}>
+                    <div class="px-5 py-4 border-t bg-muted/30 flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCancelProfile}
+                        disabled={isSaving()}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveProfile}
+                        disabled={isSaving()}
+                      >
+                        <Show
+                          when={isSaving()}
+                          fallback={
+                            <>
+                              <Check class="h-3.5 w-3.5 mr-1.5" />
+                              Save changes
+                            </>
+                          }
+                        >
+                          <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                          Saving...
+                        </Show>
+                      </Button>
+                    </div>
+                  </Show>
+                </div>
+              </section>
+
+              {/* ── Account Section (read-only info) ── */}
+              <section class="space-y-4">
+                <div class="flex items-center gap-2">
+                  <Shield class="h-4 w-4 text-muted-foreground" />
                   <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                     Account
                   </h2>
@@ -77,12 +338,16 @@ const SettingsPage: Component = () => {
                   <div class="px-5 py-4 flex items-center justify-between">
                     <div>
                       <p class="text-sm font-medium text-foreground">
-                        Username
+                        Password
                       </p>
                       <p class="text-sm text-muted-foreground mt-0.5">
-                        {currentUser()?.email?.split('@')[0] ?? '—'}
+                        ••••••••
                       </p>
                     </div>
+                    <Button variant="outline" size="sm" disabled>
+                      <Pencil class="h-3.5 w-3.5 mr-1.5" />
+                      Change
+                    </Button>
                   </div>
                 </div>
               </section>

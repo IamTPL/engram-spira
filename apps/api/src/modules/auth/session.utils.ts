@@ -33,7 +33,12 @@ export async function createSession(userId: string, token: string) {
 export type SessionValidationResult =
   | {
       session: { id: string; userId: string; expiresAt: Date };
-      user: { id: string; email: string };
+      user: {
+        id: string;
+        email: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+      };
     }
   | { session: null; user: null };
 
@@ -52,6 +57,8 @@ export async function validateSession(
       user: {
         id: users.id,
         email: users.email,
+        displayName: users.displayName,
+        avatarUrl: users.avatarUrl,
       },
     })
     .from(sessions)

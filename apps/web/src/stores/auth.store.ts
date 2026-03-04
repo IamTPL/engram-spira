@@ -1,9 +1,11 @@
 import { createSignal } from 'solid-js';
 import { api } from '../api/client';
 
-interface User {
+export interface User {
   id: string;
   email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
 }
 
 const [currentUser, setCurrentUser] = createSignal<User | null>(null);
@@ -16,7 +18,7 @@ export async function fetchCurrentUser() {
   try {
     const { data, error } = await api.auth.me.get();
     if (data?.user) {
-      setCurrentUser(data.user);
+      setCurrentUser(data.user as User);
     } else {
       setCurrentUser(null);
     }
@@ -35,7 +37,7 @@ export async function login(email: string, password: string) {
         ? (error as any).error
         : 'Login failed',
     );
-  if (data?.user) setCurrentUser(data.user);
+  if (data?.user) setCurrentUser(data.user as User);
   return data;
 }
 
@@ -47,11 +49,33 @@ export async function register(email: string, password: string) {
         ? (error as any).error
         : 'Registration failed',
     );
-  if (data?.user) setCurrentUser(data.user);
+  if (data?.user) setCurrentUser(data.user as User);
   return data;
 }
 
 export async function logout() {
   await api.auth.logout.post();
   setCurrentUser(null);
+}
+
+/**
+ * Updates the user profile: display name and/or avatar URL.
+ * Calls PATCH /users/profile, then merges the result into the currentUser signal.
+ */
+export async function updateProfile(data: {
+  displayName?: string;
+  avatarUrl?: string;
+}) {
+  // Using `as any` because Eden Treaty requires a rebuild to pick up newly registered routes
+  const { data: result, error } = await (api as any).users.profile.patch(data);
+  if (error)
+    throw new Error(
+      typeof error === 'object' && 'error' in error
+        ? (error as any).error
+        : 'Failed to update profile',
+    );
+  if (result?.user) {
+    setCurrentUser((prev) => (prev ? { ...prev, ...result.user } : null));
+  }
+  return result;
 }

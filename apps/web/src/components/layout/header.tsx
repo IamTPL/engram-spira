@@ -211,9 +211,20 @@ const Header: Component = () => {
                 }}
               >
                 {/* Avatar circle */}
-                <div class="h-8 w-8 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                  {userInitial()}
-                </div>
+                <Show
+                  when={currentUser()?.avatarUrl}
+                  fallback={
+                    <div class="h-8 w-8 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-bold shadow-sm">
+                      {userInitial()}
+                    </div>
+                  }
+                >
+                  <img
+                    src={currentUser()!.avatarUrl!}
+                    alt="avatar"
+                    class="h-8 w-8 rounded-full object-cover shadow-sm ring-1 ring-border"
+                  />
+                </Show>
                 <ChevronDown
                   class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
                     showUserMenu() ? 'rotate-180' : ''
@@ -230,9 +241,20 @@ const Header: Component = () => {
                   {/* User info */}
                   <div class="px-4 py-3 border-b bg-muted/30">
                     <div class="flex items-center gap-3">
-                      <div class="h-10 w-10 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-base font-bold shadow-sm">
-                        {userInitial()}
-                      </div>
+                      <Show
+                        when={currentUser()?.avatarUrl}
+                        fallback={
+                          <div class="h-10 w-10 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-base font-bold shadow-sm shrink-0">
+                            {userInitial()}
+                          </div>
+                        }
+                      >
+                        <img
+                          src={currentUser()!.avatarUrl!}
+                          alt="avatar"
+                          class="h-10 w-10 rounded-full object-cover shadow-sm ring-1 ring-border shrink-0"
+                        />
+                      </Show>
                       <div class="flex-1 min-w-0">
                         <p class="text-sm font-semibold truncate text-foreground">
                           {currentUser()!.email.split('@')[0]}
