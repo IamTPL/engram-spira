@@ -20,7 +20,7 @@
   --color-blue-900: #1e3a8a;
 
   /* Slate palette (blue-tinted gray for text, borders, backgrounds) */
-  --color-slate-50: #f8fafc;
+  --color-slate-50: #f7fbff;
   --color-slate-100: #f1f5f9;
   --color-slate-200: #e2e8f0;
   --color-slate-300: #cbd5e1;
@@ -42,7 +42,7 @@
   --color-red-600: #dc2626;
 
   /* Background & Surface — two-layer depth without heavy shadows */
-  --color-background: #f8fafc;
+  --color-background: #f7fbff;
   --color-surface: #ffffff;
 
   /* Card */
@@ -109,42 +109,95 @@
 
   /* Animation */
   --animate-fade-in: fade-in 200ms ease forwards;
+
+  /* ── Engram Spira pastel palette (priority: p1 → p7) ── */
+  --color-palette-1: #b2d8f1; /* Sky blue      — highest priority */
+  --color-palette-2: #f0cbf1; /* Lavender pink */
+  --color-palette-3: #afe5e3; /* Teal */
+  --color-palette-4: #e2cffc; /* Soft purple */
+  --color-palette-5: #8eb0fb; /* Periwinkle */
+  --color-palette-6: #fec7e7; /* Pink */
+  --color-palette-7: #abf6d0; /* Mint green    — lowest priority */
+
+  /* ── Subtle card background variants ── */
+  --color-bg-card-mint: #eafdf9; /* Simulate-type sections */
+  --color-bg-card-pink: #fff0f6; /* Evaluate sections */
+  --color-bg-card-lavender: #f3f6fd; /* Remediate sections */
 }
 
-/* Dark Mode */
+/* Dark Mode — Engram Spira redesign
+   Philosophy: Black-silver base (not pure black), palette tones darkened
+   to 30-40% saturation so they feel "at home" on a dark canvas.           */
 .dark {
-  --color-background: #0f172a;
-  --color-surface: #1e293b;
-  --color-card: #1e293b;
-  --color-card-foreground: #e2e8f0;
-  --color-foreground: #e2e8f0;
-  --color-primary: #3b82f6;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #1e293b;
-  --color-secondary-foreground: #94a3b8;
-  --color-muted: #1e293b;
-  --color-muted-foreground: #94a3b8;
-  --color-accent: #1e3a5f;
-  --color-accent-foreground: #60a5fa;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  --color-success: #10b981;
-  --color-success-foreground: #ffffff;
-  --color-border: #334155;
-  --color-input: #334155;
-  --color-ring: #3b82f6;
+  /* ── Layout surfaces ── */
+  --color-background: #222933; /* dark blue-silver, not coal-black */
+  --color-surface: #1e2135;
+  --color-card: #16202e; /* slightly elevated, still dark */
+  --color-card-foreground: #e0e3f1;
 
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.2);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+  /* ── Text ── */
+  --color-foreground: #e3e6f3;
+
+  /* ── Primary — kept as periwinkle-palette to match brand */
+  --color-primary: #8aabf0;
+  --color-primary-foreground: #181b26;
+
+  /* ── Secondary / Muted ── */
+  --color-secondary: #424452;
+  --color-secondary-foreground: #8b90b4;
+  --color-muted: #1e2135;
+  --color-muted-foreground: #8b90b4;
+
+  /* ── Accent — subtle hover overlay ── */
+  --color-accent: #2a2f4e;
+  --color-accent-foreground: #b7c5f3;
+
+  /* ── Semantic ── */
+  --color-destructive: #f07070;
+  --color-destructive-foreground: #181b26;
+  --color-success: #5ad4a0;
+  --color-success-foreground: #181b26;
+
+  /* ── Borders & inputs ── */
+  --color-border: #34447a;
+  --color-input: #6885e4;
+  --color-ring: #8aabf0;
+
+  /* ── Palette — darkened 35% for dark-mode harmony ── */
+  --color-palette-1: #4d8db8; /* sky blue, muted */
+  --color-palette-2: #9f60a3; /* lavender-pink, muted */
+  --color-palette-3: #3f9996; /* teal, muted */
+  --color-palette-4: #7a5ab8; /* soft purple, muted */
+  --color-palette-5: #5e7fd8; /* periwinkle, muted */
+  --color-palette-6: #c0608a; /* pink, muted */
+  --color-palette-7: #3da870; /* mint green, muted */
+
+  /* ── Subtle card backgrounds in dark mode ── */
+  --color-bg-card-mint: #1a2e30;
+  --color-bg-card-pink: #2e1a28;
+  --color-bg-card-lavender: #1e2035;
+
+  /* ── Shadows ── */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
   --shadow-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
+    0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
   --shadow-xl:
-    0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.2);
+    0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.3);
   --shadow-card-study:
-    0 24px 40px -8px rgb(59 130 246 / 0.15), 0 8px 16px -4px rgb(0 0 0 / 0.3);
+    0 24px 40px -8px rgb(100 130 230 / 0.12), 0 8px 16px -4px rgb(0 0 0 / 0.4);
 
   color-scheme: dark;
+}
+
+/* ── Dark mode gradient overrides ── */
+.dark .btn-gradient {
+  background: linear-gradient(90deg, #7498e8 0%, #6dd4a0 100%);
+  color: #181b26;
+}
+.dark .bg-section-gradient {
+  background: linear-gradient(90deg, #1e2340 0%, #18283a 100%);
 }
 
 @layer base {
@@ -307,8 +360,18 @@
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* ── Engram Spira gradient utilities ── */
+  .btn-gradient {
+    background: linear-gradient(90deg, #b5ccff 0%, #abf6d0 100%);
+  }
+
+  .bg-section-gradient {
+    background: linear-gradient(90deg, #e6eefe 0%, #e4faee 100%);
   }
 
   .progress-bar {

@@ -7,7 +7,6 @@ import {
   createEffect,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
 import MobileNav from '@/components/layout/mobile-nav';
 import { Button } from '@/components/ui/button';
@@ -73,7 +72,10 @@ const AvatarDisplay: Component<{
       when={props.avatarUrl}
       fallback={
         <div
-          class={`${sizeClass()} rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center ring-2 ring-primary/20 shrink-0`}
+          class={`${sizeClass()} rounded-full text-slate-800 font-bold flex items-center justify-center ring-2 ring-palette-5 shrink-0`}
+          style={{
+            background: 'linear-gradient(135deg, #B2D8F1 0%, #B5CCFF 100%)',
+          }}
         >
           {initials()}
         </div>
@@ -82,7 +84,7 @@ const AvatarDisplay: Component<{
       <img
         src={props.avatarUrl!}
         alt="avatar"
-        class={`${sizeClass()} rounded-full object-contain p-0.5 bg-muted ring-4 ring-primary/20 shrink-0`}
+        class={`${sizeClass()} rounded-full object-contain p-0.5 bg-muted ring-4 ring-palette-5/20 shrink-0`}
       />
     </Show>
   );
@@ -175,12 +177,10 @@ const SettingsPage: Component = () => {
   };
 
   return (
-    <div class="h-screen flex flex-col">
-      <Header />
-      <MobileNav />
-      <div class="flex flex-1 overflow-hidden">
-        <Sidebar />
-
+    <div class="h-screen flex overflow-hidden">
+      <Sidebar />
+      <div class="flex flex-col flex-1 overflow-hidden">
+        <MobileNav />
         <main class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-8">
@@ -270,7 +270,7 @@ const SettingsPage: Component = () => {
                             title="Remove avatar"
                             class={`relative w-11 h-11 rounded-full border-2 transition-all flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
                               selectedAvatar() === null
-                                ? 'border-primary ring-2 ring-primary/20'
+                                ? 'border-palette-5 ring-2 ring-palette-5/40'
                                 : 'border-transparent'
                             }`}
                             onClick={() => {
@@ -280,8 +280,11 @@ const SettingsPage: Component = () => {
                           >
                             <X class="h-4 w-4" />
                             <Show when={selectedAvatar() === null}>
-                              <span class="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
-                                <Check class="h-2.5 w-2.5 text-primary-foreground" />
+                              <span
+                                class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                style={{ background: '#B5CCFF' }}
+                              >
+                                <Check class="h-2.5 w-2.5 text-slate-800" />
                               </span>
                             </Show>
                           </button>
@@ -293,7 +296,7 @@ const SettingsPage: Component = () => {
                                 title={url.split('/').pop()}
                                 class={`relative w-11 h-11 rounded-full border-2 transition-all overflow-hidden hover:scale-105 ${
                                   selectedAvatar() === url
-                                    ? 'border-primary ring-2 ring-primary/20'
+                                    ? 'border-palette-5 ring-2 ring-palette-5/40'
                                     : 'border-transparent hover:border-muted-foreground/30'
                                 }`}
                                 onClick={() => {
@@ -307,8 +310,11 @@ const SettingsPage: Component = () => {
                                   class="w-full h-full object-cover"
                                 />
                                 <Show when={selectedAvatar() === url}>
-                                  <span class="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
-                                    <Check class="h-2.5 w-2.5 text-primary-foreground" />
+                                  <span
+                                    class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                    style={{ background: '#B5CCFF' }}
+                                  >
+                                    <Check class="h-2.5 w-2.5 text-slate-800" />
                                   </span>
                                 </Show>
                               </button>
@@ -491,7 +497,7 @@ const SettingsPage: Component = () => {
                           <button
                             class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer ${
                               theme() === opt.value
-                                ? 'border-primary bg-primary/5 text-primary'
+                                ? 'border-palette-5 bg-palette-5/10 text-slate-700'
                                 : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
                             }`}
                             onClick={() => setTheme(opt.value)}

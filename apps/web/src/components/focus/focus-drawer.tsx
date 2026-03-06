@@ -105,8 +105,8 @@ const FocusDrawer: Component = () => {
         {/* Header */}
         <div class="flex items-center justify-between px-6 py-4 border-b">
           <div class="flex items-center gap-2">
-            <div class="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
-              <Target class="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <div class="h-8 w-8 rounded-lg bg-palette-1 dark:bg-palette-1/20 flex items-center justify-center">
+              <Target class="h-4 w-4 text-slate-700 dark:text-palette-1" />
             </div>
             <div>
               <h2 class="text-base font-semibold text-foreground">
@@ -167,8 +167,8 @@ const FocusDrawer: Component = () => {
                     x2="100%"
                     y2="100%"
                   >
-                    <stop offset="0%" stop-color="#3b82f6" />
-                    <stop offset="100%" stop-color="#60a5fa" />
+                    <stop offset="0%" stop-color="#B5CCFF" />
+                    <stop offset="100%" stop-color="#ABF6D0" />
                   </linearGradient>
                 </defs>
               </svg>
@@ -253,7 +253,7 @@ const FocusDrawer: Component = () => {
             >
               <button
                 onClick={startFocusSession}
-                class="flex items-center gap-2 px-8 py-3 rounded-xl bg-linear-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-200 active:scale-95"
+                class="btn-gradient flex items-center gap-2 px-8 py-3 rounded-xl text-slate-800 font-semibold text-sm shadow-lg hover:opacity-90 hover:shadow-xl transition-all duration-200 active:scale-95"
               >
                 <Play class="h-4 w-4" />
                 Start Focus
@@ -269,30 +269,30 @@ const FocusDrawer: Component = () => {
           </div>
 
           {/* Stats section */}
-          <div class="border-t px-6 py-5 bg-muted/20">
+          <div class="border-t px-6 py-5 bg-section-gradient">
             <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
               Today's Progress
             </h3>
             <div class="grid grid-cols-3 gap-3">
-              <div class="text-center p-3 rounded-xl bg-card border">
+              <div class="text-center p-3 rounded-xl bg-bg-card-mint dark:bg-bg-card-mint border">
                 <div class="flex items-center justify-center mb-1">
-                  <Clock class="h-4 w-4 text-blue-500" />
+                  <Clock class="h-4 w-4 text-palette-3 dark:text-palette-3" />
                 </div>
                 <p class="text-lg font-bold text-foreground">
                   {stats().todayMinutes}
                 </p>
                 <p class="text-xs text-muted-foreground">Minutes</p>
               </div>
-              <div class="text-center p-3 rounded-xl bg-card border">
+              <div class="text-center p-3 rounded-xl bg-bg-card-pink dark:bg-bg-card-pink border">
                 <div class="flex items-center justify-center mb-1">
-                  <Target class="h-4 w-4 text-green-500" />
+                  <Target class="h-4 w-4 text-palette-2 dark:text-palette-2" />
                 </div>
                 <p class="text-lg font-bold text-foreground">
                   {stats().todaySessions}
                 </p>
                 <p class="text-xs text-muted-foreground">Sessions</p>
               </div>
-              <div class="text-center p-3 rounded-xl bg-card border">
+              <div class="text-center p-3 rounded-xl bg-bg-card-lavender dark:bg-bg-card-lavender border">
                 <div class="flex items-center justify-center mb-1">
                   <Flame class="h-4 w-4 text-orange-500" />
                 </div>

@@ -48,7 +48,7 @@ const StudyControls: Component<StudyControlsProps> = (props) => {
         size="lg"
         onClick={props.onEasy}
         disabled={props.disabled}
-        class="min-w-25 bg-blue-500 hover:bg-blue-600 text-white"
+        class="min-w-25 bg-palette-5 hover:bg-palette-5/80 text-slate-800"
       >
         <span class="mr-2 text-xs opacity-60">{KEYBOARD_SHORTCUTS.EASY}</span>
         Easy

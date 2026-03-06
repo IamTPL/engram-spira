@@ -12,13 +12,13 @@ const colorFor = (type: Toast['type']) => {
   if (type === 'success')
     return 'bg-card border-green-500/30 text-green-700 dark:text-green-400';
   if (type === 'error') return 'bg-card border-destructive/30 text-destructive';
-  return 'bg-card border-primary/30 text-primary';
+  return 'bg-card border-palette-5/30 text-palette-5';
 };
 
 const iconColorFor = (type: Toast['type']) => {
   if (type === 'success') return 'text-green-500';
   if (type === 'error') return 'text-destructive';
-  return 'text-primary';
+  return 'text-palette-5';
 };
 
 const Toaster: Component = () => {

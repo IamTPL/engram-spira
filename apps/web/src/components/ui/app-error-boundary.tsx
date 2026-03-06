@@ -40,7 +40,7 @@ const ErrorBoundaryWrapper: Component<{
             <div class="flex gap-3 justify-center pt-2">
               <button
                 onClick={() => reset()}
-                class="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 rounded-md btn-gradient text-slate-800 text-sm font-medium hover:opacity-90 transition-colors"
               >
                 Try Again
               </button>

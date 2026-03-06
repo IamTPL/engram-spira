@@ -284,7 +284,7 @@ const StudyModePage: Component = () => {
       {/* Progress bar */}
       <div class="h-1 bg-secondary">
         <div
-          class="h-full bg-primary transition-all duration-300"
+          class="h-full bg-palette-5 transition-all duration-300"
           style={{ width: `${progress()}%` }}
         />
       </div>
@@ -378,7 +378,7 @@ const StudyModePage: Component = () => {
                         <p class="text-xs text-muted-foreground mt-0.5">Good</p>
                       </div>
                       <div class="rounded-lg border p-3 bg-card">
-                        <p class="text-2xl font-bold text-blue-500">
+                        <p class="text-2xl font-bold text-palette-5">
                           {stats().easy}
                         </p>
                         <p class="text-xs text-muted-foreground mt-0.5">Easy</p>

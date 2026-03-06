@@ -76,7 +76,7 @@ const Header: Component = () => {
   };
 
   return (
-    <header class="border-b bg-card">
+    <header class=" bg-card">
       <div class="flex items-center justify-between h-14 px-4">
         {/* ── Left: toggle + logo ── */}
         <div class="flex items-center gap-1">
@@ -177,8 +177,8 @@ const Header: Component = () => {
                               class="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left border-b border-border/50 last:border-0"
                               onClick={() => handleDeckClick(deck.deckId)}
                             >
-                              <div class="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
-                                <BookOpen class="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              <div class="h-8 w-8 rounded-lg bg-palette-1 flex items-center justify-center shrink-0">
+                                <BookOpen class="h-4 w-4 text-slate-700" />
                               </div>
                               <div class="flex-1 min-w-0">
                                 <p class="text-sm font-medium truncate">
@@ -215,7 +215,7 @@ const Header: Component = () => {
                 <Show
                   when={currentUser()?.avatarUrl}
                   fallback={
-                    <div class="h-8 w-8 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-bold shadow-sm">
+                    <div class="h-8 w-8 rounded-full bg-linear-to-br from-palette-5 to-palette-3 flex items-center justify-center text-slate-800 text-sm font-bold shadow-sm">
                       {userInitial()}
                     </div>
                   }
@@ -245,7 +245,7 @@ const Header: Component = () => {
                       <Show
                         when={currentUser()?.avatarUrl}
                         fallback={
-                          <div class="h-10 w-10 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-base font-bold shadow-sm shrink-0">
+                          <div class="h-10 w-10 rounded-full bg-linear-to-br from-palette-5 to-palette-3 flex items-center justify-center text-slate-800 text-base font-bold shadow-sm shrink-0">
                             {userInitial()}
                           </div>
                         }

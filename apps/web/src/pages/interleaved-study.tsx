@@ -124,7 +124,7 @@ const InterleavedStudyPage: Component = () => {
         </Button>
         <div class="text-center">
           <div class="flex items-center gap-1.5">
-            <Shuffle class="h-3.5 w-3.5 text-primary" />
+            <Shuffle class="h-3.5 w-3.5 text-palette-5" />
             <p class="text-sm font-medium">Interleaved Study</p>
           </div>
           <Show when={studyData()}>
@@ -149,7 +149,7 @@ const InterleavedStudyPage: Component = () => {
       {/* Progress bar */}
       <div class="h-1 bg-secondary">
         <div
-          class="h-full bg-primary transition-all duration-300"
+          class="h-full bg-palette-5 transition-all duration-300"
           style={{ width: `${progress()}%` }}
         />
       </div>

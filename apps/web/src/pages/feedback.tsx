@@ -1,6 +1,5 @@
 import { type Component, createSignal, Show } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
 import MobileNav from '@/components/layout/mobile-nav';
 import { Button } from '@/components/ui/button';
@@ -91,12 +90,10 @@ const FeedbackPage: Component = () => {
   };
 
   return (
-    <div class="h-screen flex flex-col">
-      <Header />
-      <MobileNav />
-      <div class="flex flex-1 overflow-hidden">
-        <Sidebar />
-
+    <div class="h-screen flex overflow-hidden">
+      <Sidebar />
+      <div class="flex flex-col flex-1 overflow-hidden">
+        <MobileNav />
         <main class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-6">
@@ -153,7 +150,7 @@ const FeedbackPage: Component = () => {
                       <button
                         class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer text-center ${
                           feedbackType() === opt.value
-                            ? 'border-primary bg-primary/5 text-primary'
+                            ? 'border-palette-5 bg-palette-5/10 text-slate-700 dark:text-palette-5'
                             : 'border bg-card text-muted-foreground hover:bg-muted/50 border-border'
                         }`}
                         onClick={() => setFeedbackType(opt.value)}

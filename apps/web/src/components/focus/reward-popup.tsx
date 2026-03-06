@@ -165,14 +165,14 @@ const RewardPopup: Component = () => {
             <Show when={showResult() && rewardDisplay()}>
               {(reward) => (
                 <div class="px-6 pb-4">
-                  <div class="rounded-xl p-4 border animate-fade-in bg-blue-50 border-blue-200 dark:bg-blue-950/60 dark:border-blue-700">
+                  <div class="rounded-xl p-4 border animate-fade-in bg-palette-1/20 border-palette-1/40 dark:bg-palette-1/10 dark:border-palette-1/30">
                     <div class="flex items-center gap-3">
                       <span class="text-3xl">{reward().emoji}</span>
                       <div>
-                        <p class="font-semibold text-blue-900 dark:text-blue-100">
+                        <p class="font-semibold text-slate-800 dark:text-slate-100">
                           {reward().label}
                         </p>
-                        <p class="text-xs text-blue-700 dark:text-blue-300">
+                        <p class="text-xs text-slate-600 dark:text-slate-400">
                           Enjoy your well-deserved break!
                         </p>
                       </div>
@@ -202,7 +202,7 @@ const RewardPopup: Component = () => {
               <button
                 onClick={handleStartNext}
                 disabled={!showResult()}
-                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-linear-to-r from-blue-500 to-blue-600 text-white text-sm font-semibold shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl btn-gradient text-slate-800 text-sm font-semibold shadow-md hover:shadow-lg hover:opacity-90 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Play class="h-3.5 w-3.5" />
                 Next Session

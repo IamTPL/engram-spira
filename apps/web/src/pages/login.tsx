@@ -82,7 +82,7 @@ const LoginPage: Component = () => {
             </Button>
             <p class="text-sm text-muted-foreground">
               Don't have an account?{' '}
-              <A href="/register" class="text-primary underline">
+              <A href="/register" class="text-palette-5 underline">
                 Sign up
               </A>
             </p>

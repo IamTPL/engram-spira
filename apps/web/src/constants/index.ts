@@ -38,12 +38,13 @@ export const STREAK_MESSAGES: { min: number; message: string }[] = [
 ];
 
 // Activity heatmap color levels (cards reviewed → CSS class)
+// Uses Engram Spira pastel palette for intensity levels
 export const HEATMAP_LEVELS = [
   { max: 0, classes: 'bg-muted border border-border/50' },
-  { max: 5, classes: 'bg-blue-200 dark:bg-blue-900/60' },
-  { max: 15, classes: 'bg-blue-400 dark:bg-blue-700' },
-  { max: 50, classes: 'bg-blue-600 dark:bg-blue-500' },
-  { max: Infinity, classes: 'bg-blue-800 dark:bg-blue-300' },
+  { max: 5, classes: 'bg-palette-3/60 dark:bg-teal-900/60' },
+  { max: 15, classes: 'bg-palette-1 dark:bg-sky-700' },
+  { max: 50, classes: 'bg-palette-5 dark:bg-indigo-600' },
+  { max: Infinity, classes: 'bg-palette-4 dark:bg-purple-500' },
 ] as const;
 
 // Notifications polling interval (ms)

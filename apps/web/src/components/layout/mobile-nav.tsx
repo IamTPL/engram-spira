@@ -34,7 +34,7 @@ const MobileNav: Component = () => {
             <button
               class={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
                 isActive()
-                  ? 'text-primary'
+                  ? 'text-palette-5'
                   : 'text-muted-foreground active:text-foreground'
               }`}
               onClick={handleClick}

@@ -1,5 +1,5 @@
----
-## Kế hoạch: Engram Spira — Phân tích Chuyên sâu & Lộ trình Tính năng Đột phá
+# Kế hoạch: Engram Spira — Phân tích Chuyên sâu & Lộ trình Tính năng Đột phá
+
 ---
 
 ## 📊 Phân tích Trạng thái Hiện tại

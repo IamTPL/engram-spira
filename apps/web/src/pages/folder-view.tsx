@@ -9,11 +9,11 @@ import { useParams, useNavigate } from '@solidjs/router';
 import { api } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
 import MobileNav from '@/components/layout/mobile-nav';
 import { toast } from '@/stores/toast.store';
 import { ROUTES } from '@/constants';
+import { resolvedTheme } from '@/stores/theme.store';
 import {
   ArrowLeft,
   BookOpen,
@@ -24,17 +24,28 @@ import {
   Search,
 } from 'lucide-solid';
 
-// ── Gradient presets for deck cards ───────────────────────────────────
-// Harmonize with the project's blue/slate palette
-const DECK_CARD_GRADIENTS = [
-  'from-blue-500 to-blue-700',
-  'from-teal-500 to-teal-700',
-  'from-indigo-500 to-indigo-700',
-  'from-cyan-500 to-cyan-700',
-  'from-blue-600 to-indigo-600',
-  'from-slate-600 to-slate-800',
-  'from-sky-500 to-blue-600',
-  'from-violet-500 to-purple-700',
+// ── Pastel gradient presets for deck cards (palette priority order) ──────────
+const DECK_CARD_COLORS = [
+  'linear-gradient(135deg, #B2D8F1 0%, #AFE5E3 100%)', // sky → teal
+  'linear-gradient(135deg, #F0CBF1 0%, #E2CFFC 100%)', // lavender → purple
+  'linear-gradient(135deg, #B5CCFF 0%, #B2D8F1 100%)', // periwinkle → sky
+  'linear-gradient(135deg, #AFE5E3 0%, #ABF6D0 100%)', // teal → mint
+  'linear-gradient(135deg, #E2CFFC 0%, #FEC7E7 100%)', // purple → pink
+  'linear-gradient(135deg, #FEC7E7 0%, #F0CBF1 100%)', // pink → lavender
+  'linear-gradient(135deg, #ABF6D0 0%, #AFE5E3 100%)', // mint → teal
+  'linear-gradient(135deg, #B5CCFF 0%, #ABF6D0 100%)', // periwinkle → mint
+] as const;
+
+// Dark mode: slightly muted (~15%) versions of the light pastels — same hue, less glare
+const DECK_CARD_COLORS_DARK = [
+  'linear-gradient(135deg, #8CC7E9 0%, #87CECC 100%)', // muted sky → teal
+  'linear-gradient(135deg, #D9A8DA 0%, #C1A7F2 100%)', // muted lavender → purple
+  'linear-gradient(135deg, #8EAAEF 0%, #8CC7E9 100%)', // muted periwinkle → sky
+  'linear-gradient(135deg, #87CECC 0%, #85E3B8 100%)', // muted teal → mint
+  'linear-gradient(135deg, #C1A7F2 0%, #E897CB 100%)', // muted purple → pink
+  'linear-gradient(135deg, #E897CB 0%, #D9A8DA 100%)', // muted pink → lavender
+  'linear-gradient(135deg, #85E3B8 0%, #87CECC 100%)', // muted mint → teal
+  'linear-gradient(135deg, #8EAAEF 0%, #85E3B8 100%)', // muted periwinkle → mint
 ] as const;
 
 interface DeckItem {
@@ -121,19 +132,19 @@ const FolderViewPage: Component = () => {
   };
 
   const getGradient = (index: number) =>
-    DECK_CARD_GRADIENTS[index % DECK_CARD_GRADIENTS.length];
+    resolvedTheme() === 'dark'
+      ? DECK_CARD_COLORS_DARK[index % DECK_CARD_COLORS_DARK.length]!
+      : DECK_CARD_COLORS[index % DECK_CARD_COLORS.length]!;
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
-    <div class="h-screen flex flex-col">
-      <Header />
-      <MobileNav />
-      <div class="flex flex-1 overflow-hidden">
-        <Sidebar />
-
+    <div class="h-screen flex overflow-hidden">
+      <Sidebar />
+      <div class="flex flex-col flex-1 overflow-hidden">
+        <MobileNav />
         <main class="flex-1 overflow-y-auto pb-mobile-nav">
           {/* ── Hero header ── */}
-          <div class="border-b shadow-card-study  px-6 py-4">
+          <div class="border-b px-6 py-4">
             <div class="max-w-5xl mx-auto">
               <div class="flex items-center gap-3 mb-3">
                 <Button
@@ -272,8 +283,11 @@ const FolderViewPage: Component = () => {
                           </p>
                         }
                       >
-                        <div class="inline-flex h-16 w-16 rounded-full bg-muted items-center justify-center mb-4">
-                          <BookOpen class="h-7 w-7 text-muted-foreground" />
+                        <div
+                          class="inline-flex h-16 w-16 rounded-full items-center justify-center mb-4"
+                          style={{ background: '#B2D8F1' }}
+                        >
+                          <BookOpen class="h-7 w-7 text-slate-700" />
                         </div>
                         <p class="text-foreground font-medium mb-1">
                           No decks yet
@@ -300,26 +314,22 @@ const FolderViewPage: Component = () => {
                       {(deck, index) => (
                         <button
                           class="group relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          style={{ background: getGradient(index()) }}
                           onClick={() => navigate(`/deck/${deck.id}`)}
                         >
-                          {/* Gradient background */}
-                          <div
-                            class={`absolute inset-0 bg-linear-to-br ${getGradient(index())} opacity-90`}
-                          />
-
-                          {/* Decorative wave */}
-                          <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/10" />
-                          <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/5" />
+                          {/* Decorative shapes */}
+                          <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25" />
+                          <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15" />
 
                           {/* Content */}
                           <div class="relative z-10 flex flex-col h-full min-h-30">
                             {/* Deck name */}
-                            <h3 class="text-lg font-bold text-white leading-tight mb-1 line-clamp-2">
+                            <h3 class="text-lg font-bold text-slate-800 leading-tight mb-1 line-clamp-2">
                               {deck.name}
                             </h3>
 
                             {/* Card count */}
-                            <p class="text-white/80 text-sm mb-auto">
+                            <p class="text-slate-600 text-sm mb-auto">
                               {deck.cardCount}{' '}
                               {deck.cardCount === 1 ? 'card' : 'cards'}
                             </p>
@@ -327,7 +337,7 @@ const FolderViewPage: Component = () => {
                             {/* Bottom row */}
                             <div class="flex items-center justify-between mt-4">
                               {/* Template badge */}
-                              <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/20 text-white/90 font-medium">
+                              <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 text-slate-700 font-medium">
                                 <Layers class="h-3 w-3" />
                                 <TemplateName
                                   templateId={deck.cardTemplateId}
@@ -336,7 +346,7 @@ const FolderViewPage: Component = () => {
                               </span>
 
                               {/* Arrow */}
-                              <ChevronRight class="h-5 w-5 text-white/60 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                              <ChevronRight class="h-5 w-5 text-slate-500 group-hover:text-slate-800 group-hover:translate-x-0.5 transition-all" />
                             </div>
                           </div>
                         </button>

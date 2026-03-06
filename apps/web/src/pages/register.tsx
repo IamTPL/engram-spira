@@ -107,7 +107,7 @@ const RegisterPage: Component = () => {
             </Button>
             <p class="text-sm text-muted-foreground">
               Already have an account?{' '}
-              <A href="/login" class="text-primary underline">
+              <A href="/login" class="text-palette-5 underline">
                 Sign in
               </A>
             </p>

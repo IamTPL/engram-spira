@@ -6,7 +6,6 @@ import {
   createMemo,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
 import MobileNav from '@/components/layout/mobile-nav';
 import { currentUser } from '@/stores/auth.store';
@@ -224,12 +223,10 @@ const DashboardPage: Component = () => {
   const streakMessage = () => getStreakMessage(streak());
 
   return (
-    <div class="h-screen flex flex-col">
-      <Header />
-      <MobileNav />
-      <div class="flex flex-1 overflow-hidden">
-        <Sidebar />
-
+    <div class="h-screen flex overflow-hidden">
+      <Sidebar />
+      <div class="flex flex-col flex-1 overflow-hidden">
+        <MobileNav />
         <main class="flex-1 p-6 overflow-y-auto pb-mobile-nav">
           <div class="max-w-3xl mx-auto space-y-6">
             {/* ── Greeting ─── */}
@@ -238,7 +235,7 @@ const DashboardPage: Component = () => {
                 Welcome back
                 <Show when={currentUser()?.email}>
                   {', '}
-                  <span class="text-blue-500">
+                  <span class="text-palette-5">
                     {currentUser()!.email.split('@')[0]}
                   </span>
                 </Show>
@@ -338,7 +335,7 @@ const DashboardPage: Component = () => {
                     </span>
                   </div>
                   <button
-                    class="text-xs font-semibold text-blue-500 hover:underline"
+                    class="text-xs font-semibold text-slate-700 hover:underline"
                     onClick={() => {
                       const first = dueDecks()?.[0];
                       if (first) navigate(`/study/${first.deckId}`);
@@ -356,24 +353,24 @@ const DashboardPage: Component = () => {
                 label="Cards reviewed"
                 value={(statsData()?.totalCardsReviewed ?? 0).toLocaleString()}
                 icon={BookOpen}
-                accent="bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400"
+                accent="bg-palette-1 text-slate-700"
               />
               <StatCard
                 label="Study days"
                 value={statsData()?.totalStudyDays ?? 0}
                 icon={CalendarDays}
-                accent="bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400"
+                accent="bg-palette-7 text-slate-700"
               />
               <StatCard
                 label="Longest streak"
                 value={`${streakData()?.longestStreak ?? 0}d`}
                 icon={TrendingUp}
-                accent="bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400"
+                accent="bg-palette-2 text-slate-700"
               />
             </div>
 
             {/* ── Activity Heatmap ─── */}
-            <div class="rounded-xl border bg-card p-5">
+            <div class="rounded-xl border bg-section-gradient p-5">
               <div class="flex items-center justify-between mb-4">
                 <h3 class="text-sm font-semibold">Study Activity</h3>
                 <span class="text-xs text-muted-foreground">Last 91 days</span>
@@ -417,7 +414,7 @@ const DashboardPage: Component = () => {
                                     c().isFuture
                                       ? 'opacity-0'
                                       : c().isToday
-                                        ? `${getHeatmapClass(c().cardsReviewed)} ring-1 ring-blue-500 ring-offset-1`
+                                        ? `${getHeatmapClass(c().cardsReviewed)} ring-1 ring-palette-5 ring-offset-1`
                                         : getHeatmapClass(c().cardsReviewed)
                                   }`}
                                   title={`${c().date}: ${c().cardsReviewed} cards`}
@@ -446,7 +443,7 @@ const DashboardPage: Component = () => {
 
             {/* ── Due Decks ─── */}
             <Show when={(dueDecks() ?? []).length > 0}>
-              <div class="rounded-xl border bg-card p-5">
+              <div class="rounded-xl border bg-section-gradient p-5">
                 <div class="flex items-center justify-between mb-4">
                   <div class="flex items-center gap-2">
                     <Zap class="h-4 w-4 text-yellow-500" />
@@ -460,7 +457,7 @@ const DashboardPage: Component = () => {
                   </div>
                   <Show when={(dueDecks() ?? []).length > 1}>
                     <button
-                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-palette-5/40 text-slate-700 hover:bg-palette-5/60 transition-colors"
                       onClick={() => navigate('/study/interleaved')}
                     >
                       <Shuffle class="h-3.5 w-3.5" />
@@ -475,8 +472,8 @@ const DashboardPage: Component = () => {
                         class="w-full flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors text-left group"
                         onClick={() => navigate(`/study/${deck.deckId}`)}
                       >
-                        <div class="h-9 w-9 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
-                          <BookOpen class="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        <div class="h-9 w-9 rounded-lg bg-palette-1 flex items-center justify-center shrink-0">
+                          <BookOpen class="h-4 w-4 text-slate-700" />
                         </div>
                         <div class="flex-1 min-w-0">
                           <p class="text-sm font-medium truncate">
@@ -488,7 +485,7 @@ const DashboardPage: Component = () => {
                           </p>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
-                          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-palette-6 text-slate-700">
                             {deck.dueCount} due
                           </span>
                           <span class="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
