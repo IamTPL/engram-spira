@@ -83,7 +83,7 @@ const Header: Component = () => {
           <button
             onClick={toggleSidebar}
             title={sidebarCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'}
-            class="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            class="hidden md:flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             <PanelLeft
               class={`h-4 w-4 transition-transform duration-300 ${
@@ -103,7 +103,7 @@ const Header: Component = () => {
               class="h-7 w-auto"
             />
             <span class="text-lg font-bold tracking-tight text-foreground">
-              <span class="text-xl text-blue-500">Engram</span> Spira
+              Engram Spira
             </span>
           </button>
         </div>

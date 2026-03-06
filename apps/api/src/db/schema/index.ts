@@ -17,3 +17,14 @@ export {
 } from './cards';
 export { studyProgress, studyProgressRelations } from './study-progress';
 export { studyDailyLogs, studyDailyLogsRelations } from './study-daily-logs';
+export {
+  passwordResetTokens,
+  passwordResetTokensRelations,
+} from './password-reset-tokens';
+export { reviewLogs, reviewLogsRelations } from './review-logs';
+export {
+  aiGenerationJobs,
+  aiGenerationJobsRelations,
+} from './ai-generation-jobs';
+export { cardLinks, cardLinksRelations } from './card-links';
+export { cardConcepts, cardConceptsRelations } from './card-concepts';

@@ -5,6 +5,7 @@ import {
   createMemo,
   Show,
   For,
+  Index,
 } from 'solid-js';
 import { useParams, useNavigate } from '@solidjs/router';
 import { api } from '@/api/client';
@@ -14,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import ArrayInput from '@/components/ui/array-input';
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
+import MobileNav from '@/components/layout/mobile-nav';
 import { toast } from '@/stores/toast.store';
 import {
   ArrowLeft,
@@ -26,6 +28,12 @@ import {
   Layers,
   Search,
   Hash,
+  Sparkles,
+  Loader2,
+  Save,
+  GripVertical,
+  CheckSquare,
+  Square,
 } from 'lucide-solid';
 
 const WORD_TYPES = [
@@ -157,6 +165,26 @@ const DeckViewPage: Component = () => {
     null,
   );
 
+  // AI generation state
+  const [showAiModal, setShowAiModal] = createSignal(false);
+  const [aiSourceText, setAiSourceText] = createSignal('');
+  const [aiCardCount, setAiCardCount] = createSignal(10);
+  const [aiGenerating, setAiGenerating] = createSignal(false);
+  const [aiPreview, setAiPreview] = createSignal<
+    { front: string; back: string }[] | null
+  >(null);
+  const [aiJobId, setAiJobId] = createSignal<string | null>(null);
+  const [aiSaving, setAiSaving] = createSignal(false);
+
+  // Bulk selection state
+  const [selectMode, setSelectMode] = createSignal(false);
+  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = createSignal(false);
+
+  // Drag-drop reorder state
+  const [dragIndex, setDragIndex] = createSignal<number | null>(null);
+  const [dropIndex, setDropIndex] = createSignal<number | null>(null);
+
   // ── Data ──────────────────────────────────────────────────────────────
   const [deck] = createResource(
     () => params.deckId,
@@ -265,6 +293,150 @@ const DeckViewPage: Component = () => {
     }
   };
 
+  // ── AI handlers ──────────────────────────────────────────────────────
+  const handleAiGenerate = async () => {
+    const text = aiSourceText().trim();
+    if (!text || text.length < 10) {
+      toast.error('Please enter at least 10 characters');
+      return;
+    }
+    setAiGenerating(true);
+    try {
+      const { data, error } = await (api.ai as any).generate.post({
+        deckId: params.deckId,
+        sourceText: text,
+        cardCount: aiCardCount(),
+      });
+      if (error) throw new Error(error.error ?? 'Generation failed');
+      setAiPreview(data.cards);
+      setAiJobId(data.jobId);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'AI generation failed');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleAiSave = async () => {
+    const jobId = aiJobId();
+    const preview = aiPreview();
+    if (!jobId || !preview) return;
+    setAiSaving(true);
+    try {
+      const { error } = await (api.ai as any).jobs({ jobId }).save.post({
+        cards: preview,
+      });
+      if (error) throw new Error(error.error ?? 'Save failed');
+      toast.success(`${preview.length} cards saved!`);
+      setShowAiModal(false);
+      setAiPreview(null);
+      setAiJobId(null);
+      setAiSourceText('');
+      refetchCards();
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to save cards');
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const closeAiModal = () => {
+    setShowAiModal(false);
+    setAiPreview(null);
+    setAiJobId(null);
+    setAiSourceText('');
+    setAiCardCount(10);
+  };
+
+  // ── Bulk selection handlers ──────────────────────────────────────────
+  const toggleSelectMode = () => {
+    if (selectMode()) {
+      setSelectMode(false);
+      setSelectedIds(new Set<string>());
+    } else {
+      setSelectMode(true);
+      setSelectedIds(new Set<string>());
+    }
+  };
+
+  const toggleCardSelection = (cardId: string) => {
+    const s = new Set(selectedIds());
+    if (s.has(cardId)) s.delete(cardId);
+    else s.add(cardId);
+    setSelectedIds(s);
+  };
+
+  const selectAll = () => {
+    const all = filteredCards();
+    setSelectedIds(new Set(all.map((c) => c.id)));
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds()];
+    if (ids.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      await (api.cards['by-deck']({ deckId: params.deckId }) as any)[
+        'batch'
+      ].delete({ cardIds: ids });
+      toast.success(`${ids.length} card${ids.length > 1 ? 's' : ''} deleted`);
+      setSelectedIds(new Set<string>());
+      setSelectMode(false);
+      refetchCards();
+    } catch {
+      toast.error('Failed to delete cards');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  // ── Drag-drop reorder ───────────────────────────────────────────────
+  const handleDragStart = (index: number, e: DragEvent) => {
+    setDragIndex(index);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(index));
+    }
+  };
+
+  const handleDragOver = (index: number, e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    setDropIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  const handleDrop = async (targetIndex: number, e: DragEvent) => {
+    e.preventDefault();
+    const fromIndex = dragIndex();
+    if (fromIndex === null || fromIndex === targetIndex) {
+      handleDragEnd();
+      return;
+    }
+
+    const list = [...filteredCards()];
+    const [moved] = list.splice(fromIndex, 1);
+    list.splice(targetIndex, 0, moved);
+
+    // Optimistic: update card IDs order in the API
+    const cardIds = list.map((c) => c.id);
+    handleDragEnd();
+
+    try {
+      await api.cards['by-deck']({ deckId: params.deckId }).reorder.patch({
+        cardIds,
+      });
+      refetchCards();
+    } catch {
+      toast.error('Failed to reorder cards');
+      refetchCards();
+    }
+  };
+
   // ── Search / filter ──────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = createSignal('');
 
@@ -294,8 +466,8 @@ const DeckViewPage: Component = () => {
 
         <main class="flex-1 overflow-y-auto">
           {/* ── Hero header ── */}
-          <div class="border-b bg-card px-6 py-5">
-            <div class="max-w-4xl mx-auto">
+          <div class="border-b px-6 py-4">
+            <div class="max-w-5xl mx-auto">
               <div class="flex items-center gap-3 mb-3">
                 <Button
                   variant="ghost"
@@ -346,6 +518,22 @@ const DeckViewPage: Component = () => {
                 >
                   <Plus class="h-4 w-4 mr-2" />
                   Add Card
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAiModal(true)}
+                  disabled={showAiModal()}
+                  class="text-primary border-primary/30 hover:bg-primary/10"
+                >
+                  <Sparkles class="h-4 w-4 mr-2" />
+                  AI Generate
+                </Button>
+                <Button
+                  variant={selectMode() ? 'default' : 'outline'}
+                  onClick={toggleSelectMode}
+                >
+                  <CheckSquare class="h-4 w-4 mr-2" />
+                  {selectMode() ? 'Cancel' : 'Select'}
                 </Button>
 
                 {/* Search */}
@@ -407,6 +595,31 @@ const DeckViewPage: Component = () => {
                     </Button>
                   </div>
                 </form>
+              </Show>
+
+              {/* Bulk action bar */}
+              <Show when={selectMode()}>
+                <div class="flex items-center gap-3 p-3 border rounded-xl bg-accent/50">
+                  <Button variant="ghost" size="sm" onClick={selectAll}>
+                    Select All
+                  </Button>
+                  <span class="text-sm text-muted-foreground">
+                    {selectedIds().size} selected
+                  </span>
+                  <div class="ml-auto flex gap-2">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={selectedIds().size === 0 || bulkDeleting()}
+                      onClick={handleBulkDelete}
+                    >
+                      <Trash2 class="h-3.5 w-3.5 mr-1.5" />
+                      {bulkDeleting()
+                        ? 'Deleting...'
+                        : `Delete (${selectedIds().size})`}
+                    </Button>
+                  </div>
+                </div>
               </Show>
 
               {/* Card list */}
@@ -495,10 +708,53 @@ const DeckViewPage: Component = () => {
                         );
 
                         return (
-                          <div class="group border rounded-xl bg-card overflow-hidden hover:shadow-sm transition-shadow">
+                          <div
+                            class={`group border rounded-xl bg-card overflow-hidden transition-shadow ${
+                              dragIndex() === index()
+                                ? 'opacity-40'
+                                : dropIndex() === index()
+                                  ? 'border-primary shadow-md'
+                                  : 'hover:shadow-sm'
+                            }`}
+                            draggable={
+                              !selectMode() && editingCardId() !== card.id
+                            }
+                            onDragStart={(e) => handleDragStart(index(), e)}
+                            onDragOver={(e) => handleDragOver(index(), e)}
+                            onDrop={(e) => handleDrop(index(), e)}
+                            onDragEnd={handleDragEnd}
+                            onDragLeave={() => setDropIndex(null)}
+                          >
                             {/* Normal view */}
                             <Show when={editingCardId() !== card.id}>
-                              <div class="p-4 flex items-start gap-4">
+                              <div class="p-4 flex items-start gap-3">
+                                {/* Drag handle */}
+                                <Show when={!selectMode()}>
+                                  <div
+                                    class="mt-1 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                    title="Drag to reorder"
+                                  >
+                                    <GripVertical class="h-4 w-4" />
+                                  </div>
+                                </Show>
+
+                                {/* Checkbox for bulk select */}
+                                <Show when={selectMode()}>
+                                  <button
+                                    class="mt-1 shrink-0"
+                                    onClick={() => toggleCardSelection(card.id)}
+                                  >
+                                    <Show
+                                      when={selectedIds().has(card.id)}
+                                      fallback={
+                                        <Square class="h-4.5 w-4.5 text-muted-foreground hover:text-foreground" />
+                                      }
+                                    >
+                                      <CheckSquare class="h-4.5 w-4.5 text-primary" />
+                                    </Show>
+                                  </button>
+                                </Show>
+
                                 {/* Card number */}
                                 <span class="text-xs font-mono text-muted-foreground/60 mt-1 shrink-0 w-6 text-right">
                                   {index() + 1}
@@ -704,6 +960,195 @@ const DeckViewPage: Component = () => {
           </div>
         </main>
       </div>
+
+      {/* ── AI Generate Modal ─────────────────────────────────────────── */}
+      <Show when={showAiModal()}>
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAiModal();
+          }}
+        >
+          <div class="bg-card border rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4 animate-fade-in">
+            {/* Header */}
+            <div class="flex items-center justify-between p-5 border-b">
+              <div class="flex items-center gap-2">
+                <Sparkles class="h-5 w-5 text-primary" />
+                <h2 class="text-lg font-semibold">AI Card Generator</h2>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8"
+                onClick={closeAiModal}
+              >
+                <X class="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Body */}
+            <div class="flex-1 overflow-y-auto p-5 space-y-4">
+              <Show when={!aiPreview()}>
+                {/* Input phase */}
+                <div class="space-y-3">
+                  <label class="text-sm font-medium text-foreground">
+                    Paste your notes, text, or describe a topic
+                  </label>
+                  <Textarea
+                    placeholder="Enter or paste text to generate flashcards from... (min 10 characters)"
+                    value={aiSourceText()}
+                    onInput={(e) => setAiSourceText(e.currentTarget.value)}
+                    class="min-h-50 resize-y"
+                  />
+                  <div class="flex items-center gap-3">
+                    <label class="text-sm text-muted-foreground">
+                      Number of cards:
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={aiCardCount()}
+                      onInput={(e) =>
+                        setAiCardCount(
+                          Math.max(
+                            1,
+                            Math.min(50, Number(e.currentTarget.value) || 10),
+                          ),
+                        )
+                      }
+                      class="w-20 h-9"
+                    />
+                  </div>
+                </div>
+              </Show>
+
+              <Show when={aiPreview()}>
+                {/* Preview phase */}
+                <div class="space-y-1">
+                  <p class="text-sm text-muted-foreground">
+                    Review and edit generated cards before saving.
+                  </p>
+                  <p class="text-xs text-muted-foreground">
+                    {aiPreview()!.length} cards generated
+                  </p>
+                </div>
+                <div class="space-y-3">
+                  <Index each={aiPreview()!}>
+                    {(card, idx) => (
+                      <div class="border rounded-lg p-4 space-y-2 bg-background">
+                        <div class="flex items-center justify-between">
+                          <span class="text-xs font-medium text-muted-foreground">
+                            Card {idx + 1}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            class="h-6 w-6 text-destructive"
+                            onClick={() => {
+                              setAiPreview((prev) =>
+                                prev ? prev.filter((_, i) => i !== idx) : null,
+                              );
+                            }}
+                          >
+                            <Trash2 class="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <div>
+                          <label class="text-xs text-muted-foreground">
+                            Front
+                          </label>
+                          <Textarea
+                            value={card().front}
+                            onInput={(e) => {
+                              setAiPreview((prev) => {
+                                if (!prev) return null;
+                                const copy = [...prev];
+                                copy[idx] = {
+                                  ...copy[idx],
+                                  front: e.currentTarget.value,
+                                };
+                                return copy;
+                              });
+                            }}
+                            class="mt-1 min-h-15"
+                          />
+                        </div>
+                        <div>
+                          <label class="text-xs text-muted-foreground">
+                            Back
+                          </label>
+                          <Textarea
+                            value={card().back}
+                            onInput={(e) => {
+                              setAiPreview((prev) => {
+                                if (!prev) return null;
+                                const copy = [...prev];
+                                copy[idx] = {
+                                  ...copy[idx],
+                                  back: e.currentTarget.value,
+                                };
+                                return copy;
+                              });
+                            }}
+                            class="mt-1 min-h-15"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </Index>
+                </div>
+              </Show>
+            </div>
+
+            {/* Footer */}
+            <div class="flex items-center justify-end gap-2 p-5 border-t">
+              <Show when={aiPreview()}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setAiPreview(null);
+                    setAiJobId(null);
+                  }}
+                >
+                  Back to Edit
+                </Button>
+                <Button
+                  onClick={handleAiSave}
+                  disabled={aiSaving() || !aiPreview()?.length}
+                >
+                  <Show
+                    when={aiSaving()}
+                    fallback={<Save class="h-4 w-4 mr-2" />}
+                  >
+                    <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+                  </Show>
+                  {aiSaving()
+                    ? 'Saving...'
+                    : `Save ${aiPreview()?.length ?? 0} Cards`}
+                </Button>
+              </Show>
+              <Show when={!aiPreview()}>
+                <Button variant="outline" onClick={closeAiModal}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleAiGenerate}
+                  disabled={aiGenerating() || aiSourceText().trim().length < 10}
+                >
+                  <Show
+                    when={aiGenerating()}
+                    fallback={<Sparkles class="h-4 w-4 mr-2" />}
+                  >
+                    <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+                  </Show>
+                  {aiGenerating() ? 'Generating...' : 'Generate Cards'}
+                </Button>
+              </Show>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 };

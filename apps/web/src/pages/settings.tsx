@@ -9,6 +9,7 @@ import {
 import { useNavigate } from '@solidjs/router';
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
+import MobileNav from '@/components/layout/mobile-nav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { currentUser, updateProfile } from '@/stores/auth.store';
@@ -19,6 +20,7 @@ import {
   type Theme,
 } from '@/stores/theme.store';
 import { toast } from '@/stores/toast.store';
+import { api } from '@/api/client';
 import {
   ArrowLeft,
   User,
@@ -43,7 +45,8 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
 /** Fetch avatar list from backend (backend reads filesystem, auto-picks up newly added files) */
 async function fetchAvatars(): Promise<string[]> {
   try {
-    const res = await fetch('http://localhost:3001/users/avatars');
+    const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+    const res = await fetch(`${API_URL}/users/avatars`);
     const data = await res.json();
     return data.avatars ?? [];
   } catch {
@@ -101,6 +104,42 @@ const SettingsPage: Component = () => {
   const [isSaving, setIsSaving] = createSignal(false);
   const [isDirty, setIsDirty] = createSignal(false);
 
+  // ── Change password state ─────────────────────────────────────────
+  const [showPwModal, setShowPwModal] = createSignal(false);
+  const [currentPw, setCurrentPw] = createSignal('');
+  const [newPw, setNewPw] = createSignal('');
+  const [confirmPw, setConfirmPw] = createSignal('');
+  const [pwSaving, setPwSaving] = createSignal(false);
+
+  const handleChangePassword = async () => {
+    if (newPw().length < 8) {
+      toast.error('New password must be at least 8 characters');
+      return;
+    }
+    if (newPw() !== confirmPw()) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const { error } = await (api.auth as any)['change-password'].post({
+        currentPassword: currentPw(),
+        newPassword: newPw(),
+      });
+      if (error)
+        throw new Error(error.value?.message ?? 'Failed to change password');
+      toast.success('Password changed successfully!');
+      setShowPwModal(false);
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to change password');
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
   // Sync local state when currentUser changes (e.g., after initial app load completes)
   createEffect(() => {
     const user = currentUser();
@@ -138,10 +177,11 @@ const SettingsPage: Component = () => {
   return (
     <div class="h-screen flex flex-col">
       <Header />
+      <MobileNav />
       <div class="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        <main class="flex-1 overflow-y-auto">
+        <main class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-8">
               {/* ── Page Header ── */}
@@ -344,12 +384,91 @@ const SettingsPage: Component = () => {
                         ••••••••
                       </p>
                     </div>
-                    <Button variant="outline" size="sm" disabled>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowPwModal(true)}
+                    >
                       <Pencil class="h-3.5 w-3.5 mr-1.5" />
                       Change
                     </Button>
                   </div>
                 </div>
+
+                {/* Change password modal */}
+                <Show when={showPwModal()}>
+                  <div
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                    onClick={() => setShowPwModal(false)}
+                  >
+                    <div
+                      class="bg-card border rounded-xl shadow-lg w-full max-w-sm mx-4 p-6 space-y-4"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <h3 class="text-lg font-semibold">Change Password</h3>
+                      <div class="space-y-3">
+                        <div>
+                          <label class="text-sm text-muted-foreground">
+                            Current password
+                          </label>
+                          <Input
+                            type="password"
+                            value={currentPw()}
+                            onInput={(e) => setCurrentPw(e.currentTarget.value)}
+                            class="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <label class="text-sm text-muted-foreground">
+                            New password
+                          </label>
+                          <Input
+                            type="password"
+                            value={newPw()}
+                            onInput={(e) => setNewPw(e.currentTarget.value)}
+                            class="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <label class="text-sm text-muted-foreground">
+                            Confirm new password
+                          </label>
+                          <Input
+                            type="password"
+                            value={confirmPw()}
+                            onInput={(e) => setConfirmPw(e.currentTarget.value)}
+                            class="mt-1"
+                          />
+                        </div>
+                      </div>
+                      <div class="flex justify-end gap-2 pt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowPwModal(false)}
+                          disabled={pwSaving()}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleChangePassword}
+                          disabled={
+                            pwSaving() ||
+                            !currentPw() ||
+                            !newPw() ||
+                            !confirmPw()
+                          }
+                        >
+                          <Show when={pwSaving()} fallback="Save">
+                            <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                            Saving...
+                          </Show>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </Show>
               </section>
 
               {/* ── Appearance Section ── */}

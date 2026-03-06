@@ -32,4 +32,14 @@ export const classesRoutes = new Elysia({ prefix: '/classes' })
   .delete('/:id', async ({ currentUser, params }) => {
     await classesService.remove(params.id, currentUser.id);
     return { success: true };
-  });
+  })
+  .patch(
+    '/reorder',
+    ({ currentUser, body }) =>
+      classesService.reorder(currentUser.id, body.classIds),
+    {
+      body: t.Object({
+        classIds: t.Array(t.String({ format: 'uuid' }), { minItems: 1 }),
+      }),
+    },
+  );

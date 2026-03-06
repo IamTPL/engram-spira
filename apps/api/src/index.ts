@@ -14,6 +14,8 @@ import { studyRoutes } from './modules/study/study.routes';
 import { notificationsRoutes } from './modules/notifications/notifications.routes';
 import { feedbackRoutes } from './modules/feedback/feedback.routes';
 import { usersRoutes } from './modules/users/users.routes';
+import { importExportRoutes } from './modules/import-export/import-export.routes';
+import { aiRoutes } from './modules/ai/ai.routes';
 
 const app = new Elysia({ aot: true })
   .use(
@@ -51,6 +53,8 @@ const app = new Elysia({ aot: true })
   .use(notificationsRoutes)
   .use(feedbackRoutes)
   .use(usersRoutes)
+  .use(importExportRoutes)
+  .use(aiRoutes)
   .listen(ENV.PORT);
 
 console.log(`API server running at http://localhost:${ENV.PORT}`);

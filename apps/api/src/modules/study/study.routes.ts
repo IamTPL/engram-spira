@@ -63,4 +63,45 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
         ),
       }),
     },
+  )
+  // --------------- Reset Progress ---------------
+  .post('/deck/:deckId/reset-progress', ({ currentUser, params }) =>
+    studyService.resetDeckProgress(params.deckId, currentUser.id),
+  )
+  .post('/card/:cardId/reset-progress', ({ currentUser, params }) =>
+    studyService.resetCardProgress(params.cardId, currentUser.id),
+  )
+  // --------------- Interleaved Practice ---------------
+  .post(
+    '/interleaved',
+    ({ currentUser, body }) =>
+      studyService.getInterleavedDueCards(
+        currentUser.id,
+        body.deckIds,
+        body.limit,
+      ),
+    {
+      body: t.Object({
+        deckIds: t.Array(t.String({ format: 'uuid' }), {
+          minItems: 1,
+          maxItems: 20,
+        }),
+        limit: t.Optional(t.Number({ minimum: 1, maximum: 200, default: 50 })),
+      }),
+    },
+  )
+  .get(
+    '/interleaved/auto',
+    ({ currentUser, query }) =>
+      studyService.getAutoInterleavedCards(
+        currentUser.id,
+        query.topN ? Number(query.topN) : 5,
+        query.limit ? Number(query.limit) : 50,
+      ),
+    {
+      query: t.Object({
+        topN: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
+        limit: t.Optional(t.Numeric({ minimum: 1, maximum: 200 })),
+      }),
+    },
   );

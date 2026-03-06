@@ -50,6 +50,62 @@
       "when": 1772615747942,
       "tag": "0006_user_profile_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772695027631,
+      "tag": "0007_colorful_maddog",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1772697751310,
+      "tag": "0008_brief_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1772698140624,
+      "tag": "0009_light_paibok",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1772700650791,
+      "tag": "0010_nebulous_zombie",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1772700700000,
+      "tag": "0011_pgvector_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1772707512523,
+      "tag": "0012_small_scream",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1772765411232,
+      "tag": "0013_flowery_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1772769352081,
+      "tag": "0014_gifted_callisto",
+      "breakpoints": true
     }
   ]
 }

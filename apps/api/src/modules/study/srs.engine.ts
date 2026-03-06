@@ -42,25 +42,28 @@ export function calculateNextReview(
   switch (action) {
     case 'again': {
       // Card forgotten — reset repetitions, penalize ease factor
-      // Set due immediately so user can review again in the same session
+      // Due again after a short relearning delay
       const newEf = Math.max(SM2.MIN_EASE_FACTOR, ef + SM2.AGAIN_EF_DELTA);
+      const relearnMs = SM2.AGAIN_RELEARN_MINUTES * 60 * 1000;
       return {
         boxLevel: 0,
         easeFactor: Math.round(newEf * 100) / 100,
-        intervalDays: 1,
-        nextReviewAt: now, // Due immediately
+        intervalDays: 0,
+        nextReviewAt: new Date(now.getTime() + relearnMs),
       };
     }
 
     case 'hard': {
       // Answered with difficulty — small EF penalty, interval grows slowly
+      // Graduate from "new" (reps 0→1) but don't advance further
       const newEf = Math.max(SM2.MIN_EASE_FACTOR, ef + SM2.HARD_EF_DELTA);
+      const newReps = Math.max(1, reps); // at least graduate to 1
       const newInterval =
-        reps <= 1
+        newReps <= 1
           ? SM2.FIRST_INTERVAL_DAYS
           : Math.max(interval + 1, Math.round(interval * 1.2));
       return {
-        boxLevel: reps, // no progression on HARD
+        boxLevel: newReps,
         easeFactor: Math.round(newEf * 100) / 100,
         intervalDays: newInterval,
         nextReviewAt: new Date(
@@ -81,6 +84,26 @@ export function calculateNextReview(
       return {
         boxLevel: newReps,
         easeFactor: ef, // unchanged on GOOD
+        intervalDays: newInterval,
+        nextReviewAt: new Date(
+          now.getTime() + newInterval * 24 * 60 * 60 * 1000,
+        ),
+      };
+    }
+
+    case 'easy': {
+      // Easy recall — EF bonus + extra interval multiplier
+      const newEf = ef + SM2.EASY_EF_DELTA;
+      const newReps = reps + 1;
+      const newInterval =
+        newReps === 1
+          ? SM2.FIRST_INTERVAL_DAYS
+          : newReps === 2
+            ? Math.round(SM2.SECOND_INTERVAL_DAYS * SM2.EASY_INTERVAL_BONUS)
+            : Math.round(interval * newEf * SM2.EASY_INTERVAL_BONUS);
+      return {
+        boxLevel: newReps,
+        easeFactor: Math.round(newEf * 100) / 100,
         intervalDays: newInterval,
         nextReviewAt: new Date(
           now.getTime() + newInterval * 24 * 60 * 60 * 1000,

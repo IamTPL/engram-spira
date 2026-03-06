@@ -8,6 +8,7 @@ import {
 import { useNavigate } from '@solidjs/router';
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
+import MobileNav from '@/components/layout/mobile-nav';
 import { currentUser } from '@/stores/auth.store';
 import { api } from '@/api/client';
 import {
@@ -22,6 +23,7 @@ import {
   BookOpen,
   Zap,
   CheckCircle2,
+  Shuffle,
 } from 'lucide-solid';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -224,10 +226,11 @@ const DashboardPage: Component = () => {
   return (
     <div class="h-screen flex flex-col">
       <Header />
+      <MobileNav />
       <div class="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        <main class="flex-1 p-6 overflow-y-auto">
+        <main class="flex-1 p-6 overflow-y-auto pb-mobile-nav">
           <div class="max-w-3xl mx-auto space-y-6">
             {/* ── Greeting ─── */}
             <div>
@@ -255,7 +258,7 @@ const DashboardPage: Component = () => {
             <div
               class={`relative rounded-2xl overflow-hidden border ${
                 streak() > 0
-                  ? 'bg-gradient-to-br from-orange-500/10 via-red-500/5 to-yellow-500/10 border-orange-200 dark:border-orange-800/50'
+                  ? 'bg-linear-to-br from-orange-500/10 via-red-500/5 to-yellow-500/10 border-orange-200 dark:border-orange-800/50'
                   : 'bg-muted/30 border-border'
               } p-6`}
             >
@@ -444,15 +447,26 @@ const DashboardPage: Component = () => {
             {/* ── Due Decks ─── */}
             <Show when={(dueDecks() ?? []).length > 0}>
               <div class="rounded-xl border bg-card p-5">
-                <div class="flex items-center gap-2 mb-4">
-                  <Zap class="h-4 w-4 text-yellow-500" />
-                  <h3 class="text-sm font-semibold">
-                    Ready to Review{' '}
-                    <span class="text-muted-foreground font-normal">
-                      ({(dueDecks() ?? []).length} deck
-                      {(dueDecks() ?? []).length !== 1 ? 's' : ''})
-                    </span>
-                  </h3>
+                <div class="flex items-center justify-between mb-4">
+                  <div class="flex items-center gap-2">
+                    <Zap class="h-4 w-4 text-yellow-500" />
+                    <h3 class="text-sm font-semibold">
+                      Ready to Review{' '}
+                      <span class="text-muted-foreground font-normal">
+                        ({(dueDecks() ?? []).length} deck
+                        {(dueDecks() ?? []).length !== 1 ? 's' : ''})
+                      </span>
+                    </h3>
+                  </div>
+                  <Show when={(dueDecks() ?? []).length > 1}>
+                    <button
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      onClick={() => navigate('/study/interleaved')}
+                    >
+                      <Shuffle class="h-3.5 w-3.5" />
+                      Interleaved Study
+                    </button>
+                  </Show>
                 </div>
                 <div class="space-y-2">
                   <For each={dueDecks() ?? []}>

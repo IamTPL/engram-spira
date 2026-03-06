@@ -3,6 +3,7 @@ import { Router, Route, Navigate } from '@solidjs/router';
 import { QueryClientProvider } from '@tanstack/solid-query';
 import { queryClient } from '@/lib/query-client';
 import { currentUser, isLoading, fetchCurrentUser } from '@/stores/auth.store';
+import AppErrorBoundary from '@/components/ui/app-error-boundary';
 import Toaster from '@/components/ui/toaster';
 import FocusDrawer from '@/components/focus/focus-drawer';
 import LoginPage from '@/pages/login';
@@ -15,6 +16,7 @@ import SettingsPage from '@/pages/settings';
 import FeedbackPage from '@/pages/feedback';
 import DocsPage from '@/pages/docs';
 import NotFoundPage from '@/pages/not-found';
+import InterleavedStudyPage from '@/pages/interleaved-study';
 
 const ProtectedRoute: Component<{ children: any }> = (props) => {
   return (
@@ -56,85 +58,95 @@ const App: Component = () => {
   });
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Router>
-        <Route
-          path="/login"
-          component={() => (
-            <GuestRoute>
-              <LoginPage />
-            </GuestRoute>
-          )}
-        />
-        <Route
-          path="/register"
-          component={() => (
-            <GuestRoute>
-              <RegisterPage />
-            </GuestRoute>
-          )}
-        />
-        <Route
-          path="/"
-          component={() => (
-            <ProtectedRoute>
-              <DashboardPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/folder/:folderId"
-          component={() => (
-            <ProtectedRoute>
-              <FolderViewPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/deck/:deckId"
-          component={() => (
-            <ProtectedRoute>
-              <DeckViewPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/study/:deckId"
-          component={() => (
-            <ProtectedRoute>
-              <StudyModePage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/settings"
-          component={() => (
-            <ProtectedRoute>
-              <SettingsPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/feedback"
-          component={() => (
-            <ProtectedRoute>
-              <FeedbackPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/docs"
-          component={() => (
-            <ProtectedRoute>
-              <DocsPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route path="*" component={NotFoundPage} />
-      </Router>
-      <Toaster />
-      <FocusDrawer />
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Router>
+          <Route
+            path="/login"
+            component={() => (
+              <GuestRoute>
+                <LoginPage />
+              </GuestRoute>
+            )}
+          />
+          <Route
+            path="/register"
+            component={() => (
+              <GuestRoute>
+                <RegisterPage />
+              </GuestRoute>
+            )}
+          />
+          <Route
+            path="/"
+            component={() => (
+              <ProtectedRoute>
+                <DashboardPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/folder/:folderId"
+            component={() => (
+              <ProtectedRoute>
+                <FolderViewPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/deck/:deckId"
+            component={() => (
+              <ProtectedRoute>
+                <DeckViewPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/study/interleaved"
+            component={() => (
+              <ProtectedRoute>
+                <InterleavedStudyPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/study/:deckId"
+            component={() => (
+              <ProtectedRoute>
+                <StudyModePage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/settings"
+            component={() => (
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/feedback"
+            component={() => (
+              <ProtectedRoute>
+                <FeedbackPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/docs"
+            component={() => (
+              <ProtectedRoute>
+                <DocsPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route path="*" component={NotFoundPage} />
+        </Router>
+        <Toaster />
+        <FocusDrawer />
+      </QueryClientProvider>
+    </AppErrorBoundary>
   );
 };
 

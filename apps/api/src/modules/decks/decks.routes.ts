@@ -34,4 +34,14 @@ export const decksRoutes = new Elysia({ prefix: '/decks' })
   .delete('/:id', async ({ currentUser, params }) => {
     await decksService.remove(params.id, currentUser.id);
     return { success: true };
-  });
+  })
+  .patch(
+    '/:id/move',
+    ({ currentUser, params, body }) =>
+      decksService.move(params.id, currentUser.id, body.folderId),
+    {
+      body: t.Object({
+        folderId: t.String({ format: 'uuid' }),
+      }),
+    },
+  );

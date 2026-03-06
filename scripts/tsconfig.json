@@ -5,7 +5,12 @@
     "moduleResolution": "bundler",
     "types": ["bun-types"],
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "postgres": ["../apps/api/node_modules/postgres"],
+      "drizzle-orm": ["../apps/api/node_modules/drizzle-orm"],
+      "drizzle-orm/*": ["../apps/api/node_modules/drizzle-orm/*"]
+    }
   },
   "include": ["./**/*.ts"]
 }

@@ -7,10 +7,13 @@ import {
   cardFieldValues,
   templateFields,
   decks,
+  reviewLogs,
 } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
 import { calculateNextReview } from './srs.engine';
 import { STREAK, type ReviewAction } from '../../shared/constants';
+
+// --------------- Helpers ---------------
 
 /**
  * Upsert today's study log for a user, incrementing cards_reviewed by `count`.
@@ -152,7 +155,6 @@ export async function reviewCard(
   action: ReviewAction,
 ) {
   // Verify ownership + get current progress in parallel
-  // Card ownership: cards → decks.userId (single index, no JOIN chain)
   const [[cardResult], [currentProgress]] = await Promise.all([
     db
       .select({ id: cards.id })
@@ -174,14 +176,42 @@ export async function reviewCard(
 
   if (!cardResult) throw new NotFoundError('Card');
 
-  // Pass full SM-2 state so easeFactor and intervalDays are respected
-  const { boxLevel, easeFactor, intervalDays, nextReviewAt } =
-    calculateNextReview(action, {
-      boxLevel: currentProgress?.boxLevel ?? 0,
-      easeFactor: currentProgress?.easeFactor ?? 2.5,
-      intervalDays: currentProgress?.intervalDays ?? 1,
-    });
   const now = new Date();
+
+  // Compute elapsed days for logging
+  const elapsedDays = currentProgress?.lastReviewedAt
+    ? Math.max(
+        0,
+        Math.round(
+          (now.getTime() - currentProgress.lastReviewedAt.getTime()) /
+            (1000 * 60 * 60 * 24),
+        ),
+      )
+    : 0;
+  const prevIntervalDays = currentProgress?.intervalDays ?? 0;
+
+  // Derive card state for review logging
+  const prevBoxLevel = currentProgress?.boxLevel ?? 0;
+  const cardState = !currentProgress
+    ? 'new'
+    : prevBoxLevel === 0
+      ? 'relearning'
+      : prevIntervalDays < 21
+        ? 'learning'
+        : 'review';
+
+  const sm2 = calculateNextReview(action, {
+    boxLevel: currentProgress?.boxLevel ?? 0,
+    easeFactor: currentProgress?.easeFactor ?? 2.5,
+    intervalDays: currentProgress?.intervalDays ?? 1,
+  });
+  const upsertSet = {
+    boxLevel: sm2.boxLevel,
+    easeFactor: sm2.easeFactor,
+    intervalDays: sm2.intervalDays,
+    nextReviewAt: sm2.nextReviewAt,
+    lastReviewedAt: now,
+  };
 
   await Promise.all([
     db
@@ -189,26 +219,30 @@ export async function reviewCard(
       .values({
         userId,
         cardId,
-        boxLevel,
-        easeFactor,
-        intervalDays,
-        nextReviewAt,
-        lastReviewedAt: now,
-      })
+        ...upsertSet,
+      } as typeof studyProgress.$inferInsert)
       .onConflictDoUpdate({
         target: [studyProgress.userId, studyProgress.cardId],
-        set: {
-          boxLevel,
-          easeFactor,
-          intervalDays,
-          nextReviewAt,
-          lastReviewedAt: now,
-        },
+        set: upsertSet,
       }),
     upsertDailyLog(userId, 1),
+    db.insert(reviewLogs).values({
+      userId,
+      cardId,
+      rating: action,
+      state: cardState,
+      elapsedDays,
+      scheduledDays: prevIntervalDays,
+    }),
   ]);
 
-  return { cardId, boxLevel, easeFactor, intervalDays, nextReviewAt };
+  return {
+    cardId,
+    boxLevel: upsertSet.boxLevel,
+    easeFactor: upsertSet.easeFactor,
+    intervalDays: upsertSet.intervalDays,
+    nextReviewAt: upsertSet.nextReviewAt,
+  };
 }
 
 export async function reviewCardBatch(
@@ -220,7 +254,6 @@ export async function reviewCardBatch(
   const cardIds = items.map((i) => i.cardId);
 
   // Verify all cards belong to this user + fetch current progress in parallel
-  // Via decks.userId (denormalized) — avoids folders/classes JOIN
   const [ownedCards, progressRows] = await Promise.all([
     db
       .select({ id: cards.id })
@@ -245,46 +278,88 @@ export async function reviewCardBatch(
   const progressByCard = new Map(progressRows.map((p) => [p.cardId, p]));
   const now = new Date();
 
-  // Compute new progress for each valid card
-  const upsertValues = items
-    .filter((item) => ownedIds.has(item.cardId))
-    .map((item) => {
-      const prev = progressByCard.get(item.cardId);
-      const { boxLevel, easeFactor, intervalDays, nextReviewAt } =
-        calculateNextReview(item.action, {
-          boxLevel: prev?.boxLevel ?? 0,
-          easeFactor: prev?.easeFactor ?? 2.5,
-          intervalDays: prev?.intervalDays ?? 1,
-        });
-      return {
-        userId,
-        cardId: item.cardId,
-        boxLevel,
-        easeFactor,
-        intervalDays,
-        nextReviewAt,
-        lastReviewedAt: now,
-      };
+  const upsertValues: (typeof studyProgress.$inferInsert)[] = [];
+  const logEntries: {
+    userId: string;
+    cardId: string;
+    rating: string;
+    state: string;
+    elapsedDays: number;
+    scheduledDays: number;
+  }[] = [];
+
+  for (const item of items) {
+    if (!ownedIds.has(item.cardId)) continue;
+    const prev = progressByCard.get(item.cardId);
+    const prevIntervalDays = prev?.intervalDays ?? 0;
+
+    const elapsedDays = prev?.lastReviewedAt
+      ? Math.max(
+          0,
+          Math.round(
+            (now.getTime() - prev.lastReviewedAt.getTime()) /
+              (1000 * 60 * 60 * 24),
+          ),
+        )
+      : 0;
+
+    const prevBoxLevel = prev?.boxLevel ?? 0;
+    const cardState = !prev
+      ? 'new'
+      : prevBoxLevel === 0
+        ? 'relearning'
+        : prevIntervalDays < 21
+          ? 'learning'
+          : 'review';
+
+    const sm2 = calculateNextReview(item.action, {
+      boxLevel: prev?.boxLevel ?? 0,
+      easeFactor: prev?.easeFactor ?? 2.5,
+      intervalDays: prev?.intervalDays ?? 1,
     });
+    upsertValues.push({
+      userId,
+      cardId: item.cardId,
+      boxLevel: sm2.boxLevel,
+      easeFactor: sm2.easeFactor,
+      intervalDays: sm2.intervalDays,
+      nextReviewAt: sm2.nextReviewAt,
+      lastReviewedAt: now,
+    });
+    logEntries.push({
+      userId,
+      cardId: item.cardId,
+      rating: item.action,
+      state: cardState,
+      elapsedDays,
+      scheduledDays: prevIntervalDays,
+    });
+  }
 
   if (upsertValues.length === 0) return { reviewed: 0 };
 
-  // Single batch upsert for all cards + log daily activity in parallel
+  // Determine which columns to set on conflict
+  const conflictSet = {
+    boxLevel: sql`excluded.box_level`,
+    easeFactor: sql`excluded.ease_factor`,
+    intervalDays: sql`excluded.interval_days`,
+    nextReviewAt: sql`excluded.next_review_at`,
+    lastReviewedAt: sql`excluded.last_reviewed_at`,
+  };
+
+  // Single batch upsert for all cards + log daily activity + review logs in parallel
   await Promise.all([
     db
       .insert(studyProgress)
       .values(upsertValues)
       .onConflictDoUpdate({
         target: [studyProgress.userId, studyProgress.cardId],
-        set: {
-          boxLevel: sql`excluded.box_level`,
-          easeFactor: sql`excluded.ease_factor`,
-          intervalDays: sql`excluded.interval_days`,
-          nextReviewAt: sql`excluded.next_review_at`,
-          lastReviewedAt: sql`excluded.last_reviewed_at`,
-        },
+        set: conflictSet,
       }),
     upsertDailyLog(userId, upsertValues.length),
+    logEntries.length > 0
+      ? db.insert(reviewLogs).values(logEntries)
+      : Promise.resolve(),
   ]);
 
   return { reviewed: upsertValues.length };
@@ -314,12 +389,17 @@ export async function getDeckSchedule(deckId: string, userId: string) {
   }
 
   const progress = allProgress.map((r) => r.study_progress);
-  const learnedCards = progress.length;
+  // "Learned" = graduated past learning phase (boxLevel > 0)
+  const learnedCards = progress.filter((p) => p.boxLevel > 0).length;
 
   // Group future reviews by day offset
   const buckets = new Map<number, number>();
   let nextReviewDate: string | null = null;
   let nearestMs = Infinity;
+  let dueSoon = 0; // cards due within 1 hour (learning/relearning cards)
+
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
   for (const p of progress) {
     const reviewTime = p.nextReviewAt.getTime();
@@ -331,12 +411,15 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     }
 
     const diffMs = reviewTime - now.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    // Skip cards due today (within 24 hours) from upcoming list
-    // They should appear in the due cards list instead
-    if (diffDays < 1) continue;
+    // Cards due within 1 hour → "due soon" (Again/Hard learning cards)
+    if (diffMs < ONE_HOUR_MS) {
+      dueSoon++;
+      continue;
+    }
 
+    // Round to nearest day so 23h59m → 1 (Tomorrow), not 0
+    const diffDays = Math.max(1, Math.round(diffMs / ONE_DAY_MS));
     buckets.set(diffDays, (buckets.get(diffDays) ?? 0) + 1);
   }
 
@@ -354,6 +437,7 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     totalCards: deckCards.length,
     learnedCards,
     upcoming,
+    dueSoon,
     nextReviewDate,
   };
 }
@@ -481,4 +565,184 @@ export async function getUserStats(userId: string) {
     totalCardsReviewed: row?.totalCardsReviewed ?? 0,
     totalStudyDays: row?.totalStudyDays ?? 0,
   };
+}
+
+// =====================================================================
+// Interleaved Practice Mode
+// =====================================================================
+
+/**
+ * Get due cards from multiple decks, interleaved with urgency-weighted
+ * round-robin. Cards closer to being overdue are prioritized.
+ */
+export async function getInterleavedDueCards(
+  userId: string,
+  deckIds: string[],
+  limit: number = 50,
+) {
+  if (deckIds.length === 0) return { cards: [], total: 0, due: 0 };
+
+  // Verify all decks belong to user
+  const ownedDecks = await db
+    .select({ id: decks.id })
+    .from(decks)
+    .where(and(eq(decks.userId, userId), inArray(decks.id, deckIds)));
+  const validIds = ownedDecks.map((d) => d.id);
+  if (validIds.length === 0) return { cards: [], total: 0, due: 0 };
+
+  const now = new Date();
+
+  // Fetch due cards across all selected decks with urgency ordering
+  // Urgency: overdue cards first (sorted by how overdue), then new cards
+  const dueRows = await db
+    .select({
+      id: cards.id,
+      deckId: cards.deckId,
+      nextReviewAt: studyProgress.nextReviewAt,
+    })
+    .from(cards)
+    .leftJoin(
+      studyProgress,
+      and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
+    )
+    .where(
+      and(
+        inArray(cards.deckId, validIds),
+        or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)),
+      ),
+    )
+    .orderBy(
+      // NULL (new cards) → sort after overdue; overdue → earliest first
+      sql`COALESCE(${studyProgress.nextReviewAt}, NOW() + interval '1 hour') ASC`,
+    )
+    .limit(limit * 2); // Fetch extra for round-robin
+
+  if (dueRows.length === 0) return { cards: [], total: 0, due: 0 };
+
+  // Round-robin interleave by deck
+  const byDeck = new Map<string, typeof dueRows>();
+  for (const row of dueRows) {
+    const bucket = byDeck.get(row.deckId) ?? [];
+    bucket.push(row);
+    byDeck.set(row.deckId, bucket);
+  }
+
+  const interleaved: string[] = [];
+  const deckBuckets = Array.from(byDeck.values());
+  const indices = new Array(deckBuckets.length).fill(0);
+  let added = 0;
+
+  while (added < limit) {
+    let anyAdded = false;
+    for (let i = 0; i < deckBuckets.length && added < limit; i++) {
+      if (indices[i] < deckBuckets[i].length) {
+        interleaved.push(deckBuckets[i][indices[i]].id);
+        indices[i]++;
+        added++;
+        anyAdded = true;
+      }
+    }
+    if (!anyAdded) break;
+  }
+
+  const enrichedCards = await enrichCards(interleaved, userId);
+
+  // Preserve interleaved order
+  const orderMap = new Map(interleaved.map((id, idx) => [id, idx]));
+  enrichedCards.sort(
+    (a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0),
+  );
+
+  return {
+    cards: enrichedCards,
+    total: dueRows.length,
+    due: interleaved.length,
+  };
+}
+
+/**
+ * Auto-select top N decks by due count and return interleaved cards.
+ */
+export async function getAutoInterleavedCards(
+  userId: string,
+  topN: number = 5,
+  limit: number = 50,
+) {
+  const now = new Date();
+
+  // Find decks with most due cards
+  const deckDueCounts = await db
+    .select({
+      deckId: cards.deckId,
+      dueCount: sql<number>`count(*)::int`,
+    })
+    .from(cards)
+    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
+    .leftJoin(
+      studyProgress,
+      and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
+    )
+    .where(or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)))
+    .groupBy(cards.deckId)
+    .orderBy(sql`count(*) DESC`)
+    .limit(topN);
+
+  if (deckDueCounts.length === 0)
+    return { cards: [], total: 0, due: 0, deckIds: [] };
+
+  const deckIds = deckDueCounts.map((d) => d.deckId);
+  const result = await getInterleavedDueCards(userId, deckIds, limit);
+
+  return { ...result, deckIds };
+}
+
+// =====================================================================
+// Reset Progress
+// =====================================================================
+
+/**
+ * Reset all study progress for a deck — deletes study_progress rows,
+ * effectively making all cards "new" again.
+ */
+export async function resetDeckProgress(deckId: string, userId: string) {
+  await verifyDeckOwnership(deckId, userId);
+
+  const deckCardIds = await db
+    .select({ id: cards.id })
+    .from(cards)
+    .where(eq(cards.deckId, deckId));
+
+  if (deckCardIds.length === 0) return { reset: 0 };
+
+  const ids = deckCardIds.map((c) => c.id);
+  await db
+    .delete(studyProgress)
+    .where(
+      and(eq(studyProgress.userId, userId), inArray(studyProgress.cardId, ids)),
+    );
+
+  return { reset: ids.length };
+}
+
+/**
+ * Reset study progress for a single card.
+ */
+export async function resetCardProgress(cardId: string, userId: string) {
+  // Verify ownership
+  const [cardResult] = await db
+    .select({ id: cards.id })
+    .from(cards)
+    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
+    .where(eq(cards.id, cardId))
+    .limit(1);
+
+  if (!cardResult) throw new NotFoundError('Card');
+
+  await db
+    .delete(studyProgress)
+    .where(
+      and(eq(studyProgress.userId, userId), eq(studyProgress.cardId, cardId)),
+    );
+
+  return { reset: true };
 }

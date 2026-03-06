@@ -11,6 +11,8 @@ const ENV = {
   GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
   FEEDBACK_RECIPIENT:
     process.env.FEEDBACK_RECIPIENT || 'tranphilong030201@gmail.com',
+  // ── Google Gemini AI ──────────────────────────────────────
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
 } as const;
 
 // Validate required env vars at startup

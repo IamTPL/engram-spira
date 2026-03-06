@@ -2,6 +2,7 @@ import { type Component, createSignal, Show } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
+import MobileNav from '@/components/layout/mobile-nav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -92,10 +93,11 @@ const FeedbackPage: Component = () => {
   return (
     <div class="h-screen flex flex-col">
       <Header />
+      <MobileNav />
       <div class="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        <main class="flex-1 overflow-y-auto">
+        <main class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-6">
               {/* Header */}

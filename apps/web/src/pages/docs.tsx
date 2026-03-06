@@ -12,6 +12,7 @@ import {
 import { useNavigate } from '@solidjs/router';
 import { marked } from 'marked';
 import Header from '@/components/layout/header';
+import MobileNav from '@/components/layout/mobile-nav';
 import {
   ArrowLeft,
   FileText,
@@ -44,10 +45,30 @@ const TOP_TABS: { id: TopTab; label: string; icon: any }[] = [
 ];
 
 const C4_DIAGRAMS: C4Diagram[] = [
-  { id: 'context',       label: 'System Context',  level: 'Level 1', url: '/docs/c4/01_context.svg'      },
-  { id: 'container',     label: 'Containers',       level: 'Level 2', url: '/docs/c4/02_container.svg'    },
-  { id: 'component-api', label: 'API Server',       level: 'Level 3', url: '/docs/c4/03_component_api.svg'},
-  { id: 'component-spa', label: 'Web SPA',          level: 'Level 3', url: '/docs/c4/04_component_spa.svg'},
+  {
+    id: 'context',
+    label: 'System Context',
+    level: 'Level 1',
+    url: '/docs/c4/01_context.svg',
+  },
+  {
+    id: 'container',
+    label: 'Containers',
+    level: 'Level 2',
+    url: '/docs/c4/02_container.svg',
+  },
+  {
+    id: 'component-api',
+    label: 'API Server',
+    level: 'Level 3',
+    url: '/docs/c4/03_component_api.svg',
+  },
+  {
+    id: 'component-spa',
+    label: 'Web SPA',
+    level: 'Level 3',
+    url: '/docs/c4/04_component_spa.svg',
+  },
 ];
 
 // ── Fetch helpers ──────────────────────────────────────────────────────────
@@ -85,11 +106,21 @@ const PlaceholderCard: Component<{ diagramLabel: string }> = (props) => (
     </p>
     <ol class="text-left text-sm text-muted-foreground space-y-2 max-w-md">
       <li class="flex gap-2">
-        <span class="shrink-0 font-mono text-xs bg-muted px-1.5 py-0.5 rounded h-fit mt-0.5">1</span>
-        <span>Run <code class="bg-muted px-1 rounded text-xs font-mono">bun run docs:export</code> to export all diagrams</span>
+        <span class="shrink-0 font-mono text-xs bg-muted px-1.5 py-0.5 rounded h-fit mt-0.5">
+          1
+        </span>
+        <span>
+          Run{' '}
+          <code class="bg-muted px-1 rounded text-xs font-mono">
+            bun run docs:export
+          </code>{' '}
+          to export all diagrams
+        </span>
       </li>
       <li class="flex gap-2">
-        <span class="shrink-0 font-mono text-xs bg-muted px-1.5 py-0.5 rounded h-fit mt-0.5">2</span>
+        <span class="shrink-0 font-mono text-xs bg-muted px-1.5 py-0.5 rounded h-fit mt-0.5">
+          2
+        </span>
         <span>Refresh this page</span>
       </li>
     </ol>
@@ -163,13 +194,16 @@ const SvgViewer: Component<{ svgContent: string }> = (props) => {
   // Fullscreen
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      containerRef.requestFullscreen().then(() => {
-        setIsFullscreen(true);
-        // In fullscreen the container is 100vw×100vh, re-fit
-        const fs = initScale();
-        setScale(fs);
-        setPan({ x: 0, y: 0 });
-      }).catch(() => {});
+      containerRef
+        .requestFullscreen()
+        .then(() => {
+          setIsFullscreen(true);
+          // In fullscreen the container is 100vw×100vh, re-fit
+          const fs = initScale();
+          setScale(fs);
+          setPan({ x: 0, y: 0 });
+        })
+        .catch(() => {});
     } else {
       document.exitFullscreen();
     }
@@ -242,9 +276,11 @@ const SvgViewer: Component<{ svgContent: string }> = (props) => {
           title={isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'}
           class="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-accent transition-colors"
         >
-          {isFullscreen()
-            ? <Minimize2 class="h-3.5 w-3.5" />
-            : <Move class="h-3.5 w-3.5" />}
+          {isFullscreen() ? (
+            <Minimize2 class="h-3.5 w-3.5" />
+          ) : (
+            <Move class="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
 
@@ -319,9 +355,9 @@ const DocsPage: Component = () => {
   return (
     <div class="h-screen flex flex-col">
       <Header />
-      <main class="flex-1 overflow-y-auto">
+      <MobileNav />
+      <main class="flex-1 overflow-y-auto pb-mobile-nav">
         <div class="p-6 max-w-6xl mx-auto space-y-6">
-
           {/* ── Page header ── */}
           <div class="flex items-center gap-3">
             <button
@@ -434,7 +470,9 @@ const DocsPage: Component = () => {
                     <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider">
                       {activeDiagram().level}
                     </p>
-                    <h2 class="text-sm font-semibold">{activeDiagram().label}</h2>
+                    <h2 class="text-sm font-semibold">
+                      {activeDiagram().label}
+                    </h2>
                   </div>
                   <span class="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
                     C4 Model
@@ -444,7 +482,6 @@ const DocsPage: Component = () => {
               </div>
             </div>
           </Show>
-
         </div>
       </main>
     </div>

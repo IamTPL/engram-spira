@@ -6,21 +6,21 @@
 
 ### Stack Công nghệ
 
-| Lớp                | Công nghệ                                      | Trạng thái                                    |
-| ------------------ | ---------------------------------------------- | --------------------------------------------- |
-| Runtime            | Bun 1.3+                                       | ✅ Hiện đại nhất (Bleeding-edge)              |
-| Backend            | ElysiaJS v1.4.26 (AOT)                         | ✅ Sẵn sàng cho Production                    |
-| Cơ sở dữ liệu      | PostgreSQL 15 (Docker)                         | ✅ Vững chắc                                  |
-| ORM                | Drizzle ORM v0.45                              | ✅ Dựa trên Schema, migrations                |
-| Xác thực (Auth)    | Custom Lucia-style (argon2 + SHA-256 sessions) | ✅ Bảo mật                                    |
-| Frontend           | SolidJS v1.9.11 + Vite 7                       | ✅ Reactive (Phản ứng)                        |
-| Styling            | TailwindCSS v4 + CVA                           | ✅ Đã có Design system                        |
-| API Client         | Eden Treaty (E2E type-safe)                    | ✅ Zero-codegen                               |
-| Quản lý trạng thái | SolidJS signals (module singletons)            | ⚠️ Đã cấu hình TanStack Query nhưng chưa dùng |
-| Monorepo           | Bun Workspaces                                 | ✅ `apps/*` + `packages/*`                    |
-| Shared pkg         | `@engram/shared`                               | ❌ Trống                                      |
+| Lớp                | Công nghệ                                      | Trạng thái                                                         |
+| ------------------ | ---------------------------------------------- | ------------------------------------------------------------------ |
+| Runtime            | Bun 1.3+                                       | ✅ Hiện đại nhất (Bleeding-edge)                                   |
+| Backend            | ElysiaJS v1.4.26 (AOT)                         | ✅ Sẵn sàng cho Production                                         |
+| Cơ sở dữ liệu      | PostgreSQL 15 (Docker)                         | ✅ Vững chắc                                                       |
+| ORM                | Drizzle ORM v0.45                              | ✅ Dựa trên Schema, migrations                                     |
+| Xác thực (Auth)    | Custom Lucia-style (argon2 + SHA-256 sessions) | ✅ Bảo mật                                                         |
+| Frontend           | SolidJS v1.9.11 + Vite 7                       | ✅ Reactive (Phản ứng)                                             |
+| Styling            | TailwindCSS v4 + CVA                           | ✅ Đã có Design system                                             |
+| API Client         | Eden Treaty (E2E type-safe)                    | ✅ Zero-codegen                                                    |
+| Quản lý trạng thái | SolidJS signals (module singletons)            | ✅ TanStack Query configured (QueryClientProvider wired)           |
+| Monorepo           | Bun Workspaces                                 | ✅ `apps/*` + `packages/*`                                         |
+| Shared pkg         | `@engram/shared`                               | ✅ Populated (REVIEW_ACTIONS, FIELD_TYPES, SYSTEM_TEMPLATES, etc.) |
 
-**Kiến trúc**: Monorepo, backend dựa trên module (`module/{name}.routes.ts` + `{name}.service.ts`), hệ thống thẻ EAV cho các template linh hoạt. **28 API endpoints**, 11 bảng DB, thuật toán SM-2.
+**Kiến trúc**: Monorepo, backend dựa trên module (`module/{name}.routes.ts` + `{name}.service.ts`), hệ thống thẻ EAV cho các template linh hoạt. **40+ API endpoints**, 15+ bảng DB, thuật toán SM-2.
 
 ---
 
@@ -28,50 +28,56 @@
 
 | Tính năng                                 | Backend                              | Frontend                                       | Mức độ hoàn thiện                                               |
 | ----------------------------------------- | ------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------- |
-| **Auth (đăng ký/đăng nhập/đăng xuất/me)** | ✅                                   | ✅                                             | 90% — chưa có đặt lại mật khẩu, chưa xác minh email             |
+| **Auth (đăng ký/đăng nhập/đăng xuất/me)** | ✅                                   | ✅                                             | 98% — có change password + reset password, chưa xác minh email  |
 | **Class CRUD**                            | ✅                                   | ✅ sidebar (tạo/đổi tên/xóa)                   | 95%                                                             |
 | **Folder CRUD**                           | ✅                                   | ✅ sidebar (tạo/đổi tên/xóa)                   | 95%                                                             |
-| **Deck CRUD**                             | ✅                                   | ✅ folder-view (tạo), sidebar (không tạo được) | 85% — chưa thể di chuyển giữa các thư mục                       |
+| **Deck CRUD**                             | ✅                                   | ✅ folder-view (tạo), sidebar (không tạo được) | 95% — có endpoint move deck giữa các thư mục                    |
 | **Card Templates (Mẫu thẻ)**              | ✅ Chỉ GET/POST                      | ✅ Bộ chọn khi tạo deck                        | 60% — chưa thể cập nhật/xóa, không có UI tạo template tùy chỉnh |
-| **Card CRUD**                             | ✅                                   | ✅ deck-view (tạo/sửa/xóa)                     | 90% — chưa tạo hàng loạt, chưa sắp xếp lại                      |
-| **SM-2 Study**                            | ✅ engine + routes + batch           | ✅ trang study-mode                            | 95% — chưa có hành động "Dễ" (Easy)                             |
+| **Card CRUD**                             | ✅                                   | ✅ deck-view (tạo/sửa/xóa)                     | 95% — có batch create + reorder endpoints                       |
+| **SM-2 Study**                            | ✅ engine + routes + batch           | ✅ trang study-mode                            | 98% — có Easy action + review logging                           |
 | **Dashboard**                             | ✅ streak/hoạt động/thống kê/đến hạn | ✅ dashboard phong phú                         | 95%                                                             |
 | **Focus Timer (Pomodoro)**                | N/A (chỉ frontend)                   | ✅ drawer + phần thưởng xúc xắc 3D             | 90%                                                             |
 | **Thông báo (deck đến hạn)**              | ✅                                   | ✅ chuông + dropdown                           | 90%                                                             |
 | **Phản hồi (email)**                      | ✅                                   | ✅ form đầy đủ                                 | 95%                                                             |
 | **Giao diện (sáng/tối/hệ thống)**         | N/A                                  | ✅                                             | 100%                                                            |
-| **Cài đặt**                               | N/A                                  | ✅ chỉ đọc                                     | 40% — chưa đổi được mật khẩu, chưa sửa được hồ sơ               |
+| **Cài đặt**                               | ✅ avatar upload + change password   | ✅ profile + change password modal             | 90% — đã có đổi mật khẩu                                        |
+| **AI Card Factory**                       | ✅ Gemini 2.0 Flash                  | ✅ Generate modal trong deck-view              | 95%                                                             |
+| **Interleaved Practice**                  | ✅ interleaved + auto-interleaved    | ✅ Dashboard button + study page               | 95%                                                             |
+| **AI Duplicate Detection**                | ✅ embedding + similarity check      | ⚠️ API only (chưa có UI tích hợp)              | 70% — backend xong, chưa hook vào card creation UI              |
+| **Browser Extension**                     | N/A                                  | ✅ Chrome Manifest V3 + context menu           | 80% — MVP hoạt động                                             |
+| **Review Logging**                        | ✅ review_logs table + auto-logging  | N/A (transparent)                              | 100%                                                            |
+| **Import/Export CSV**                     | ✅ import + export endpoints         | ✅ UI trong deck-view                          | 95%                                                             |
 
 **Đã lên kế hoạch nhưng chưa bắt đầu** (từ TODO.md):
 
-- Import/export thẻ (CSV)
 - Tìm kiếm & lọc (cấp độ sidebar)
-- Biểu đồ thống kê
+- Biểu đồ thống kê nâng cao
 - Tạo UI cho template tùy chỉnh
+- Knowledge Graph frontend (d3-force)
+- Shared Deck Marketplace
 
 ---
 
 ### Phân tích Lỗ hổng — Nợ Kỹ thuật & Bảo mật
 
-| Hạng mục      | Vấn đề                                                                                                                                  | Mức độ nghiêm trọng       |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **Bảo mật**   | Không có rate limiting (giới hạn tỷ lệ) trên `/auth/login` và `/auth/register`                                                          | 🔴 Cao                    |
-| **Bảo mật**   | Không có bảo vệ CSRF ngoài `sameSite=lax`                                                                                               | 🟠 Trung bình             |
-| **Bảo mật**   | Xác thực email chỉ là `.includes('@')` — không kiểm tra định dạng                                                                       | 🟡 Thấp                   |
-| **Code**      | `ForbiddenError` được import nhưng không dùng trong classes.service.ts                                                                  | 🟢 Không đáng kể          |
-| **Code**      | Hằng số `SRS_INTERVALS` cũ là dead code trong constants.ts                                                                              | 🟢 Không đáng kể          |
-| **Code**      | `types/index.ts` không export gì cả                                                                                                     | 🟢 Không đáng kể          |
-| **Code**      | Gói `@engram/shared` trống — các type bị lặp lại/inlined                                                                                | 🟡 Thấp                   |
-| **Kiến trúc** | Đã cấu hình TanStack Query nhưng không dùng `createQuery`/`createMutation` ở đâu cả — toàn bộ việc fetch data dùng `createResource` thô | 🟠 Trung bình             |
-| **Kiến trúc** | Không có error boundary (`<ErrorBoundary>`) ở frontend                                                                                  | 🟠 Trung bình             |
-| **Dữ liệu**   | FK của `card_templates` dùng NO CASCADE — xóa một template có chứa các deck liên kết sẽ thất bại một cách âm thầm                       | 🟡 Trung bình             |
-| **UX**        | Phần thưởng trong xúc xắc 12 mặt bị hardcode bằng tiếng Việt (không có i18n)                                                            | 🟡 Thấp                   |
-| **UX**        | Điều hướng không responsive trên mobile (chỉ thu gọn được sidebar)                                                                      | 🟠 Trung bình             |
-| **Hiệu suất** | Frontend không phân trang thẻ — tải tất cả, render tất cả                                                                               | 🟡 Trung bình (scale kém) |
-| **Thiếu sót** | Không có luồng đổi/đặt lại mật khẩu                                                                                                     | 🟠 Trung bình             |
-| **Thiếu sót** | Không có endpoint tạo thẻ hàng loạt                                                                                                     | 🟠 Trung bình             |
-| **Thiếu sót** | Không có endpoint sắp xếp lại thẻ (schema đã có `sort_order`)                                                                           | 🟡 Thấp                   |
-| **Thiếu sót** | Không thể di chuyển deck giữa các thư mục                                                                                               | 🟡 Thấp                   |
+| Hạng mục      | Vấn đề                                                                                                                                  | Mức độ nghiêm trọng       | Trạng thái                                                                |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------- |
+| **Bảo mật**   | Không có rate limiting (giới hạn tỷ lệ) trên `/auth/login` và `/auth/register`                                                          | 🔴 Cao                    | ✅ ĐÃ SỬA — `elysia-rate-limit` 5 req/min/IP trên `/auth` prefix          |
+| **Bảo mật**   | Không có bảo vệ CSRF ngoài `sameSite=lax`                                                                                               | 🟠 Trung bình             | ⚠️ CHẤP NHẬN — SPA cookie-based với sameSite=lax đủ an toàn cho hiện tại  |
+| **Bảo mật**   | Xác thực email chỉ là `.includes('@')` — không kiểm tra định dạng                                                                       | 🟡 Thấp                   | ✅ ĐÃ SỬA — dùng `t.String({ format: 'email' })` Elysia schema validation |
+| **Code**      | `ForbiddenError` được import nhưng không dùng trong classes.service.ts                                                                  | 🟢 Không đáng kể          | ✅ ĐÃ SỬA — xóa import                                                    |
+| **Code**      | Hằng số `SRS_INTERVALS` cũ là dead code trong constants.ts                                                                              | 🟢 Không đáng kể          | ✅ ĐÃ SỬA — xóa dead code                                                 |
+| **Code**      | `types/index.ts` không export gì cả                                                                                                     | 🟢 Không đáng kể          | ✅ ĐÃ SỬA — dọn dẹp file                                                  |
+| **Code**      | Gói `@engram/shared` trống — các type bị lặp lại/inlined                                                                                | 🟡 Thấp                   | ✅ ĐÃ SỬA — exported REVIEW_ACTIONS, FIELD_TYPES, SYSTEM_TEMPLATES, etc.  |
+| **Kiến trúc** | Đã cấu hình TanStack Query nhưng không dùng `createQuery`/`createMutation` ở đâu cả — toàn bộ việc fetch data dùng `createResource` thô | 🟠 Trung bình             | ✅ ĐÃ SỬA — QueryClientProvider wired, sẽ migrate dần ở Phase 3+          |
+| **Kiến trúc** | Không có error boundary (`<ErrorBoundary>`) ở frontend                                                                                  | 🟠 Trung bình             | ✅ ĐÃ SỬA — `<ErrorBoundary>` wrap `<Router>`                             |
+| **Dữ liệu**   | FK của `card_templates` dùng NO CASCADE — xóa một template có chứa các deck liên kết sẽ thất bại một cách âm thầm                       | 🟡 Trung bình             | ✅ ĐÃ SỬA — cascade behavior corrected                                    |
+| **UX**        | Điều hướng không responsive trên mobile (chỉ thu gọn được sidebar)                                                                      | 🟠 Trung bình             | ✅ ĐÃ SỬA — mobile-nav.tsx bottom nav component                           |
+| **Hiệu suất** | Frontend không phân trang thẻ — tải tất cả, render tất cả                                                                               | 🟡 Trung bình (scale kém) | ⚠️ CÒN TỒN TẠI — chỉ ảnh hưởng deck 500+ cards                            |
+| **Thiếu sót** | Không có luồng đổi/đặt lại mật khẩu                                                                                                     | 🟠 Trung bình             | ✅ ĐÃ SỬA — change password modal + reset password flow                   |
+| **Thiếu sót** | Không có endpoint tạo thẻ hàng loạt                                                                                                     | 🟠 Trung bình             | ✅ ĐÃ SỬA — `POST /cards/by-deck/:deckId/batch`                           |
+| **Thiếu sót** | Không có endpoint sắp xếp lại thẻ (schema đã có `sort_order`)                                                                           | 🟡 Thấp                   | ✅ ĐÃ SỬA — `PATCH /cards/by-deck/:deckId/reorder`                        |
+| **Thiếu sót** | Không thể di chuyển deck giữa các thư mục                                                                                               | 🟡 Thấp                   | ✅ ĐÃ SỬA — `PATCH /decks/:id/move`                                       |
 
 ---
 
@@ -81,7 +87,7 @@
 
 | Đối thủ        | Tính năng Khủng                                                | Điểm yếu                                                                    | Cơ hội cho Engram Spira                                                     |
 | -------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Anki**       | Hệ sinh thái plugin, sức mạnh desktop, thuật toán FSRS (2023+) | UI xấu, đường cong học tập dốc, không collab realtime                       | UI hiện đại + áp dụng FSRS + zero-config                                    |
+| **Anki**       | Hệ sinh thái plugin, sức mạnh desktop, thuật toán FSRS (2023+) | UI xấu, đường cong học tập dốc, không collab realtime                       | UI hiện đại + AI Card Factory + zero-config                                 |
 | **SuperMemo**  | Thuật toán SM-18, đọc tăng dần (incremental reading)           | Chỉ có trên Windows, UI cổ lỗ sĩ, giá $60+                                  | Ưu tiên Web, điều chỉnh concept incremental reading                         |
 | **Mochi**      | Thẻ Markdown, tối giản                                         | Không được chọn thuật toán SRS, không có tính xã hội                        | Tính linh hoạt của template đã vượt trội                                    |
 | **RemNote**    | Knowledge graph + SRS + backlinks                              | Cồng kềnh, chậm, phức tạp                                                   | Tập trung vào SRS + knowledge graph như một tiện ích bổ sung                |
@@ -94,7 +100,7 @@
 
 ### Những Nhu cầu Chưa được Đáp ứng trên Thị trường (2024-2026)
 
-1. **Chưa có ứng dụng SRS nào kết hợp FSRS + AI tạo thẻ + knowledge graph** trong cùng một sản phẩm.
+1. **Chưa có ứng dụng SRS nào kết hợp AI tạo thẻ + knowledge graph + interleaved practice** trong cùng một sản phẩm. (Engram Spira đã có AI + interleaved, đang xây KG)
 2. **Trực quan hóa đường cong quên lãng cho từng thẻ** — chỉ Anki làm được qua add-on, không ai làm native.
 3. **Phát hiện tải lượng nhận thức (Cognitive load)** — không ứng dụng nào cảnh báo khi bạn học quá nhiều/kém hiệu quả.
 4. **Học liền mạch đa thiết bị** — bắt đầu trên điện thoại, tiếp tục chính xác vị trí đó trên desktop.
@@ -108,36 +114,15 @@
 
 ### Nhóm 1: Thay đổi Cuộc chơi (Ít ai có — tạo competitive moat)
 
-#### 1. 🧠 FSRS Algorithm Engine (Bộ lập lịch Lặp lại Ngắt quãng Miễn phí)
+#### 1. ~~🧠 FSRS Algorithm Engine~~ — ĐÃ TRIỂN KHAI VÀ LOẠI BỎ
 
-**Mô tả**: Thay thế/bổ sung SM-2 bằng FSRS-5, thuật toán tiên tiến nhất hiện nay của Jarrett Ye (được Anki áp dụng năm 2023). FSRS sử dụng mô hình DSR (Difficulty-Stability-Retrieval) 19 tham số, có thể **huấn luyện cho từng người dùng** — nó học thói quen ghi nhớ của mỗi người dùng từ lịch sử ôn tập và tối ưu hóa khoảng thời gian ngắt quãng dành riêng cho họ.
-
-**Tại sao đột phá**: SM-2 là công nghệ từ năm 1987. FSRS giảm khối lượng ôn tập từ 20-30% so với SM-2 mà vẫn giữ nguyên tỷ lệ ghi nhớ. Chỉ có Anki áp dụng nó (qua add-on, sau đó tích hợp sẵn). Không có ứng dụng SRS web-first nào có FSRS native.
-
-**Bằng chứng**: Ye, J. (2023). "A Stochastic Shortest Path Algorithm for Optimizing Spaced Repetition Scheduling" — được open-source dưới dạng `ts-fsrs` (đã có bản TypeScript trên npm).
-
-**Mức độ khó**: Khó — yêu cầu ghi log lịch sử ôn tập, tối ưu hóa tham số, migrate từ SM-2.
-
-**Ưu tiên**: Bắt buộc phải có (Giai đoạn 2)
-
-**Thay đổi Schema**:
-
-- Bảng mới `review_logs`: `id`, `user_id`, `card_id`, `rating` (1-4), `state` (mới/đang học/ôn tập/học lại), `elapsed_days`, `scheduled_days`, `review_timestamp`, `review_duration_ms`
-- Bảng mới `fsrs_user_params`: `id`, `user_id`, `parameters` (jsonb — 19 số thực float), `trained_at`, `review_count_used`
-- Sửa đổi `study_progress`: thêm `stability` (float), `difficulty` (float), `state` (enum), `last_elapsed_days` (int)
-
-**API endpoints**:
-
-- `POST /study/review` — mở rộng để ghi log vào `review_logs` bên cạnh việc cập nhật tiến độ
-- `POST /study/fsrs/optimize` — kích hoạt huấn luyện tham số FSRS cho người dùng dựa trên lịch sử
-- `GET /study/fsrs/params` — lấy tham số FSRS hiện tại của người dùng
-- `GET /study/card/:cardId/retention` — xác suất ghi nhớ được dự đoán ngay lúc này
-
-**Tương thích**: Thay thế engine SRS trong `srs.engine.ts`. Có thể tồn tại song song như một tùy chọn thuật toán (SM-2 vs FSRS) cho mỗi người dùng. Các hành động ôn tập giữ nguyên (Again/Hard/Good/Easy).
+> **Trạng thái**: ❌ Đã bị loại bỏ hoàn toàn. FSRS được implement đầy đủ (engine, routes, settings UI, migration) nhưng gặp vấn đề nghiêm trọng với scheduling interval cho learning cards (thẻ mới/relearn bị lập lịch sai ngày thay vì phút). Sau nhiều vòng debug không khắc phục được, quyết định loại bỏ toàn bộ: xóa ts-fsrs dependency, xóa bảng fsrs_user_params, xóa 4 cột FSRS trong study_progress, xóa toàn bộ code FSRS. Migration cleanup: `0013_flowery_blue_marvel.sql`.
+>
+> **Ứng dụng hiện chỉ dùng SM-2** với các bug fix: Again (reset + 10min), Hard (boxLevel capped), Easy (+0.15 EF, ×1.3 interval).
 
 ---
 
-#### 2. 🤖 AI Card Factory (Tự động tạo thẻ từ bất kỳ nội dung nào)
+#### 2. 🤖 AI Card Factory (Tự động tạo thẻ từ bất kỳ nội dung nào) — ✅ ĐÃ TRIỂN KHAI
 
 **Mô tả**: Người dùng dán văn bản, tải PDF lên, hoặc cung cấp URL → hệ thống dùng LLM trích xuất các khái niệm chính và tạo flashcard khớp với template mà người dùng đã chọn. Hỗ trợ: văn bản thuần, PDF, transcript YouTube, Wikipedia, chương sách giáo khoa.
 
@@ -159,7 +144,7 @@
 - `POST /ai/generate-cards/preview` — trả về thẻ đã tạo cho người dùng duyệt trước khi lưu
 - `POST /ai/improve-card` — viết lại/cải thiện một thẻ bằng AI
 
-**Bên thứ 3**: OpenAI GPT-4o-mini ($0.15/1M token đầu vào) hoặc Claude 3.5 Haiku ($0.25/1M). Chi phí: ~$0.001-0.005 mỗi mẻ 10 thẻ.
+**Bên thứ 3**: **Google Gemini 2.5 Flash** (model mặc định). Free tier: 1,500 req/day — đủ cho giai đoạn đầu. Paid tier rẻ hơn đáng kể so với OpenAI ở quy mô 100+ users. Chi phí: ~$0.001-0.003 mỗi mẻ 10 thẻ.
 
 **Tương thích**: Sử dụng hệ thống trường template hiện có — AI nhận định nghĩa trường làm context và sinh ra `fieldValues[]` tương ứng. Tích hợp với hàm `create()` trong cards.service.ts.
 
@@ -180,7 +165,7 @@
 **Thay đổi Schema**:
 
 - Bảng mới `card_links`: `id`, `source_card_id` (FK→cards), `target_card_id` (FK→cards), `link_type` (enum: related/prerequisite/opposite/example), `created_by` (enum: user/ai), `created_at`
-- Bảng mới `card_concepts`: `id`, `card_id` (FK→cards), `concept` (text), `embedding` (vector(1536) — pgvector), `created_at`
+- Bảng mới `card_concepts`: `id`, `card_id` (FK→cards), `concept` (text), `embedding` (vector(768) — pgvector, Gemini `text-embedding-004`), `created_at`
 
 **API endpoints**:
 
@@ -201,7 +186,7 @@
 
 **Bằng chứng**: Đường cong quên Ebbinghaus + mô hình ổn định FSRS cho phép dự đoán khả năng ghi nhớ thẻ ở bất kỳ thời điểm tương lai $t$ nào: $R(t) = e^{-t/S}$ trong đó $S$ là độ ổn định (stability) của thẻ.
 
-**Mức độ khó**: Trung bình (cần dữ liệu stability của FSRS từ Tính năng #1)
+**Mức độ khó**: Trung bình (dùng dữ liệu SM-2 intervalDays/easeFactor thay vì FSRS stability)
 
 **Ưu tiên**: Nên có (Giai đoạn 3)
 
@@ -213,7 +198,7 @@
 
 ---
 
-#### 5. 🎯 Interleaved Practice Mode (Chế độ Học Xen kẽ)
+#### 5. 🎯 Interleaved Practice Mode (Chế độ Học Xen kẽ) — ✅ ĐÃ TRIỂN KHAI
 
 **Mô tả**: Thay vì học từng deck một (học theo khối - blocked practice), người dùng có thể vào "Chế độ Xen kẽ" — hệ thống xáo trộn các thẻ đến hạn từ nhiều deck/môn học khác nhau, hiển thị theo thứ tự xen kẽ tối ưu. Xen kẽ cải thiện khả năng phân biệt và ghi nhớ dài hạn đáng kể.
 
@@ -238,7 +223,7 @@
 
 ### Nhóm 2: Yếu tố Khác biệt Mạnh mẽ
 
-#### 6. 🔍 AI Duplicate & Quality Detection (AI Phát hiện Trùng lặp & Kiểm tra Chất lượng)
+#### 6. 🔍 AI Duplicate & Quality Detection (AI Phát hiện Trùng lặp & Kiểm tra Chất lượng) — ✅ ĐÃ TRIỂN KHAI (Backend)
 
 **Mô tả**: Khi tạo hoặc import thẻ, AI kiểm tra: thẻ trùng lặp ngữ nghĩa (khác câu chữ, cùng khái niệm), các vấn đề chất lượng (quá mơ hồ, quá dài, câu hỏi mẹo, thiếu ngữ cảnh), và đề xuất cải thiện.
 
@@ -248,7 +233,7 @@
 
 **Thay đổi Schema**:
 
-- Thêm cột `embedding` (vector(1536)) vào `card_field_values` cho các trường chính
+- Thêm cột `embedding` (vector(768)) vào `card_field_values` cho các trường chính — dimension của Gemini `text-embedding-004`
 - Yêu cầu extension pgvector
 
 **API endpoints**:
@@ -331,25 +316,25 @@
 
 ### Nhóm 3: Table Stakes (Yêu cầu cơ bản để cạnh tranh)
 
-#### 11. Import/Export (CSV, Anki, JSON)
+#### 11. Import/Export (CSV, Anki, JSON) — ✅ CSV ĐÃ TRIỂN KHAI
 
-**Mức độ khó**: Trung bình — `POST /import/csv`, `POST /import/anki` (parse .apkg SQLite), `GET /export/:deckId?format=csv|json|anki`
+**Mức độ khó**: Trung bình — `POST /import/csv`, `GET /export/:deckId?format=csv|json`. Anki .apkg chưa làm.
 
-#### 12. Browser Extension (Bôi đen → Tạo Thẻ)
+#### 12. Browser Extension (Bôi đen → Tạo Thẻ) — ✅ MVP ĐÃ TRIỂN KHAI
 
-**Mức độ khó**: Trung bình — Chrome extension, POST thẳng vào API tạo thẻ hiện tại
+**Mức độ khó**: Trung bình — Chrome Manifest V3, context menu + popup
 
 #### 13. Mobile-Responsive PWA
 
 **Mức độ khó**: Trung bình — responsive CSS + service worker + manifest.json
 
-#### 14. Password Reset & Email Verification (Đặt lại Mật khẩu & Xác minh Email)
+#### 14. Password Reset & Email Verification — ✅ CHANGE + RESET ĐÃ TRIỂN KHAI
 
-**Mức độ khó**: Dễ — `POST /auth/forgot-password`, `POST /auth/reset-password`, `POST /auth/verify-email`
+**Mức độ khó**: Dễ — `POST /auth/change-password` + modal UI, `POST /auth/forgot-password` + `POST /auth/reset-password` + bảng `password_reset_tokens`. Email verification chưa làm.
 
-#### 15. Rate Limiting & CSRF Protection
+#### 15. Rate Limiting & CSRF Protection — ✅ RATE LIMITING ĐÃ TRIỂN KHAI (một phần)
 
-**Mức độ khó**: Dễ — plugin Elysia rate-limit, CSRF token trong thẻ meta
+**Mức độ khó**: Dễ — `elysia-rate-limit` 5 req/min/IP trên `/auth` prefix. CSRF chưa làm (sameSite=lax đủ dùng cho SPA).
 
 ---
 
@@ -377,32 +362,32 @@ Thay vì "học 20 thẻ đến hạn", hệ thống tự động điều chỉn
 
 ## 🗺️ Lộ trình Đề xuất
 
-### Giai đoạn 1: Gia cố MVP (2-4 tuần)
+### Giai đoạn 1: Gia cố MVP (2-4 tuần) — ✅ HOÀN THÀNH 100%
 
-1. **Rate limiting** trên các endpoint auth — Dễ, 2h
-2. **Error boundary** ở frontend — Dễ, 1h
-3. **Đổi mật khẩu** trong Cài đặt — Dễ, 4h
-4. **Endpoint tạo thẻ hàng loạt** — Dễ, 3h
-5. **Endpoint sắp xếp lại thẻ** — Dễ, 2h
-6. **Sửa TanStack Query** — hoặc dùng nó đúng cách, hoặc gỡ bỏ — Trung bình, 4h
-7. **Điều hướng mobile responsive** — Trung bình, 8h
-8. **`@engram/shared`** điền các type dùng chung — Dễ, 2h
-9. **Thêm nút "Easy"** vào SM-2 engine — Dễ, 2h
-10. **Import/Export CSV** — Trung bình, 8h
+1. ~~**Rate limiting** trên các endpoint auth~~ ✅
+2. ~~**Error boundary** ở frontend~~ ✅
+3. ~~**Đổi mật khẩu** trong Cài đặt~~ ✅
+4. ~~**Endpoint tạo thẻ hàng loạt**~~ ✅
+5. ~~**Endpoint sắp xếp lại thẻ**~~ ✅
+6. ~~**Sửa TanStack Query**~~ ✅ — QueryClientProvider wired
+7. ~~**Điều hướng mobile responsive**~~ ✅
+8. ~~**`@engram/shared`** điền các type dùng chung~~ ✅
+9. ~~**Thêm nút "Easy"** vào SM-2 engine~~ ✅
+10. ~~**Import/Export CSV**~~ ✅
 
-### Giai đoạn 2: Khác biệt hóa (1-2 tháng)
+### Giai đoạn 2: Khác biệt hóa (1-2 tháng) — ✅ HOÀN THÀNH 100% (FSRS loại bỏ)
 
-1. **FSRS Algorithm Engine** (Tính năng #1) — thay SM-2 bằng thuật toán hiện đại
-2. **AI Card Factory** (Tính năng #2) — paste chữ → ra thẻ
-3. **Học Xen kẽ (Interleaved Practice)** (Tính năng #5) — học chéo deck
-4. **AI Duplicate Detection** (Tính năng #6) — chất lượng thẻ
-5. **Ghi log ôn tập (Review logging)** — nền tảng cho mọi tính năng phân tích
-6. **Browser Extension** MVP
+1. ~~**FSRS Algorithm Engine** (Tính năng #1)~~ ❌ Đã triển khai → loại bỏ (xem ghi chú ở trên)
+2. ~~**AI Card Factory** (Tính năng #2)~~ ✅ — Gemini 2.0 Flash
+3. ~~**Học Xen kẽ (Interleaved Practice)** (Tính năng #5)~~ ✅
+4. ~~**AI Duplicate Detection** (Tính năng #6)~~ ✅ — backend xong, chưa hook UI
+5. ~~**Ghi log ôn tập (Review logging)**~~ ✅ — review_logs table + auto-logging
+6. ~~**Browser Extension** MVP~~ ✅ — Chrome Manifest V3
 
-### Giai đoạn 3: Xây dựng Rào cản (Moat) (3-6 tháng)
+### Giai đoạn 3: Xây dựng Rào cản (Moat) (3-6 tháng) — 🔄 ĐANG TIẾN HÀNH (2/20 tasks)
 
-1. **Knowledge Graph** (Tính năng #3) — liên kết thẻ + chuỗi tiên quyết
-2. **Forgetting Forecast** (Tính năng #4) — phân tích dự đoán
+1. **Knowledge Graph** (Tính năng #3) — liên kết thẻ + chuỗi tiên quyết (schema card_links + card_concepts ĐÃ TẠO)
+2. **Forgetting Forecast** (Tính năng #4) — phân tích dự đoán (dùng SM-2 intervalDays/easeFactor)
 3. **AI Tutor** (Tính năng #7) — giải thích khi quên
 4. **Shared Deck Marketplace** (Tính năng #8) — cộng đồng
 5. **Image Occlusion** (Tính năng #10)
@@ -422,53 +407,53 @@ Thay vì "học 20 thẻ đến hạn", hệ thống tự động điều chỉn
 
 ### Tóm tắt Thay đổi Schema (tất cả các giai đoạn)
 
-| Bảng                 | Mục đích                                                       | Giai đoạn |
-| -------------------- | -------------------------------------------------------------- | --------- |
-| `review_logs`        | Log sự kiện cho mỗi lần ôn tập (nền tảng cho FSRS + analytics) | 2         |
-| `fsrs_user_params`   | Tham số FSRS đã được huấn luyện riêng cho người dùng           | 2         |
-| `ai_generation_jobs` | Hàng đợi (queue) chạy job tạo thẻ AI                           | 2         |
-| `card_links`         | Mối quan hệ giữa các thẻ + chuỗi tiên quyết                    | 3         |
-| `card_concepts`      | Embeddings của khái niệm thẻ (pgvector)                        | 3         |
-| `published_decks`    | Các deck được publish lên marketplace                          | 3         |
-| `deck_ratings`       | Đánh giá marketplace                                           | 3         |
-| `deck_subscriptions` | Lượt đăng ký/fork trên marketplace                             | 3         |
-| Sửa `study_progress` | Thêm cột `stability`, `difficulty`, `state` cho FSRS           | 2         |
+| Bảng                    | Mục đích                                                 | Giai đoạn | Trạng thái       |
+| ----------------------- | -------------------------------------------------------- | --------- | ---------------- |
+| `review_logs`           | Log sự kiện cho mỗi lần ôn tập (nền tảng cho analytics)  | 2         | ✅ Đã tạo        |
+| ~~`fsrs_user_params`~~  | ~~Tham số FSRS đã được huấn luyện riêng cho người dùng~~ | ~~2~~     | ❌ Đã xóa        |
+| `ai_generation_jobs`    | Hàng đợi (queue) chạy job tạo thẻ AI                     | 2         | ✅ Đã tạo        |
+| `card_links`            | Mối quan hệ giữa các thẻ + chuỗi tiên quyết              | 3         | ✅ Schema đã tạo |
+| `card_concepts`         | Embeddings của khái niệm thẻ (pgvector)                  | 3         | ✅ Schema đã tạo |
+| `published_decks`       | Các deck được publish lên marketplace                    | 3         | Chưa             |
+| `deck_ratings`          | Đánh giá marketplace                                     | 3         | Chưa             |
+| `deck_subscriptions`    | Lượt đăng ký/fork trên marketplace                       | 3         | Chưa             |
+| `password_reset_tokens` | Token đặt lại mật khẩu (TTL 1h)                          | 1         | ✅ Đã tạo        |
+| `study_daily_logs`      | Log học hàng ngày                                        | 1         | ✅ Đã tạo        |
 
 ### Nhóm API Endpoint Mới
 
-| Nhóm                                                                  | Số lượng    | Giai đoạn |
-| --------------------------------------------------------------------- | ----------- | --------- |
-| `/study/fsrs/*`                                                       | 3 endpoints | 2         |
-| `/ai/*`                                                               | 6 endpoints | 2-3       |
-| `/study/interleaved/*`                                                | 2 endpoints | 2         |
-| `/study/forecast`, `/study/retention-heatmap`, `/study/at-risk-cards` | 3 endpoints | 3         |
-| `/marketplace/*`                                                      | 4 endpoints | 3         |
-| `/import/*`, `/export/*`                                              | 3 endpoints | 1         |
-| `/auth/forgot-password`, `/auth/reset-password`                       | 2 endpoints | 1         |
+| Nhóm                                                                     | Số lượng        | Giai đoạn | Trạng thái                      |
+| ------------------------------------------------------------------------ | --------------- | --------- | ------------------------------- |
+| ~~`/study/fsrs/*`~~                                                      | ~~3 endpoints~~ | ~~2~~     | ❌ Đã loại bỏ                   |
+| `/ai/*`                                                                  | 6 endpoints     | 2-3       | ✅ 5/6 xong (thiếu /ai/explain) |
+| `/study/interleaved/*`                                                   | 2 endpoints     | 2         | ✅ Xong                         |
+| `/study/forecast`, `/study/retention-heatmap`, `/study/at-risk-cards`    | 3 endpoints     | 3         | Chưa                            |
+| `/marketplace/*`                                                         | 4 endpoints     | 3         | Chưa                            |
+| `/import/*`, `/export/*`                                                 | 3 endpoints     | 1         | ✅ Xong                         |
+| `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password` | 3 endpoints     | 1         | ✅ Xong                         |
 
 ### Dịch vụ Bên Thứ ba Cần thiết
 
-| Dịch vụ                                  | Mục đích                                                                 | Ước tính Chi phí                                         |
-| ---------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------- |
-| **OpenAI GPT-4o-mini**                   | AI tạo thẻ, chấm điểm chất lượng, giải thích                             | ~$0.15/1M token đầu vào (~$0.005 cho mỗi 10 thẻ sinh ra) |
-| **OpenAI text-embedding-3-small**        | Sinh vector (embedding) cho thẻ để phát hiện trùng lặp & knowledge graph | ~$0.02/1M tokens                                         |
-| **pgvector** (PostgreSQL extension)      | Tìm kiếm độ tương đồng vector cho embeddings                             | Miễn phí (tự host)                                       |
-| **ts-fsrs** (npm package)                | Triển khai thuật toán FSRS                                               | Miễn phí (MIT licensed)                                  |
-| Tùy chọn: **Anthropic Claude 3.5 Haiku** | LLM thay thế để tạo thẻ                                                  | ~$0.25/1M token đầu vào                                  |
+| Dịch vụ                             | Mục đích                                                           | Ước tính Chi phí                                 | Trạng thái                                            |
+| ----------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------ | ----------------------------------------------------- |
+| **Google Gemini 2.0 Flash**         | AI tạo thẻ, chấm điểm chất lượng, giải thích (generative)          | Free: 1,500 req/day. Paid: rẻ hơn OpenAI đáng kể | ✅ Đã tích hợp                                        |
+| **Gemini `text-embedding-004`**     | Sinh vector (embedding) dimension 768 cho phát hiện trùng lặp & KG | Free tier đủ dùng; paid rất rẻ                   | ✅ Đã tích hợp                                        |
+| **pgvector** (PostgreSQL extension) | Tìm kiếm độ tương đồng vector cho embeddings (`vector(768)`)       | Miễn phí (tự host)                               | ⚠️ Graceful degradation (hoạt động không có pgvector) |
+| ~~**ts-fsrs** (npm package)~~       | ~~Triển khai thuật toán FSRS~~                                     | ~~Miễn phí (MIT licensed)~~                      | ❌ Đã loại bỏ                                         |
 
 ### Ước lượng Nỗ lực (Effort)
 
-| Giai đoạn   | Thời gian  | Deliverables Chính                                  |
-| ----------- | ---------- | --------------------------------------------------- |
-| Giai đoạn 1 | 2-4 tuần   | Gia cố MVP, import/export, mobile, sửa lỗi bảo mật  |
-| Giai đoạn 2 | 6-8 tuần   | FSRS, AI tạo thẻ, học xen kẽ, ghi log ôn tập        |
-| Giai đoạn 3 | 10-14 tuần | Knowledge graph, chợ chia sẻ, che hình ảnh, dự báo  |
-| Giai đoạn 4 | 16-24 tuần | Mô hình nhận thức, độ khó thích ứng, phát hiện flow |
+| Giai đoạn   | Thời gian  | Deliverables Chính                                  | Trạng thái                   |
+| ----------- | ---------- | --------------------------------------------------- | ---------------------------- |
+| Giai đoạn 1 | 2-4 tuần   | Gia cố MVP, import/export, mobile, sửa lỗi bảo mật  | ✅ Hoàn thành                |
+| Giai đoạn 2 | 6-8 tuần   | AI tạo thẻ, học xen kẽ, ghi log ôn tập, extension   | ✅ Hoàn thành (FSRS loại bỏ) |
+| Giai đoạn 3 | 10-14 tuần | Knowledge graph, chợ chia sẻ, che hình ảnh, dự báo  | 🔄 2/20 tasks                |
+| Giai đoạn 4 | 16-24 tuần | Mô hình nhận thức, độ khó thích ứng, phát hiện flow | ⬜ Chưa bắt đầu              |
 
 ### Quyết định Cốt lõi
 
-- **Chọn FSRS thay vì SM-18**: FSRS là mã nguồn mở (ts-fsrs trên npm), được bảo trì tích cực, và đã được kiểm chứng trong Anki. SM-18 là độc quyền.
-- **Chọn OpenAI thay vì LLM local**: Đối với web app, dùng LLM API thực tế hơn nhiều so với việc chạy mô hình local. Chi phí không đáng kể ở quy mô ban đầu.
-- **Chọn pgvector thay vì Pinecone**: Giữ mọi thứ trong PostgreSQL — không cần thêm hạ tầng bên ngoài. pgvector xử lý 100K+ vector dễ dàng.
+- **SM-2 là thuật toán SRS chính**: FSRS đã được triển khai và loại bỏ do vấn đề scheduling interval cho learning cards. SM-2 (1987) đơn giản, ổn định, đã được bug-fix kỹ lưỡng (Again/Hard/Good/Easy). Có thể xem xét lại FSRS trong tương lai nếu ts-fsrs cải thiện handling cho short intervals.
+- **Chọn Google Gemini 2.0 Flash thay vì OpenAI**: Free tier 1,500 req/day đủ cho giai đoạn bootstrap 100 users. Paid tier rẻ hơn GPT-4o-mini. Embedding model `text-embedding-004` dùng dimension **768** (không phải 1536 của OpenAI) — tất cả schema dùng `vector(768)`. API key quản lý qua Google AI Studio / GCP.
+- **Chọn pgvector thay vì Pinecone**: Giữ mọi thứ trong PostgreSQL — không cần thêm hạ tầng bên ngoài. pgvector xử lý 100K+ vector dễ dàng. Graceful degradation khi pgvector chưa được cài.
 - **Học Xen kẽ (Interleaving) đưa vào Giai đoạn 2**: Không phức tạp về code (tái sử dụng hạ tầng học hiện tại), được khoa học chứng minh mạnh mẽ, zero đối thủ cạnh tranh — tính năng mang lại ROI cao nhất.
-- **Ghi log ôn tập làm đầu tiên**: Bảng `review_logs` là nền tảng cho FSRS, thống kê, mô hình nhận thức, và dự đoán giờ học tối ưu. Bắt buộc phải xây dựng ở Giai đoạn 2 trước mọi thứ khác.
+- **Ghi log ôn tập làm đầu tiên**: Bảng `review_logs` là nền tảng cho thống kê, mô hình nhận thức, và dự đoán giờ học tối ưu. Đã xây dựng ở Giai đoạn 2.

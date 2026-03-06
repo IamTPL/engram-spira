@@ -1,0 +1,13 @@
+{
+  "name": "@engram/browser-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Engram Spira Chrome Extension - Create flashcards from highlighted text",
+  "scripts": {
+    "build": "bun build src/popup.ts src/content.ts src/background.ts --outdir=dist --target=browser --minify",
+    "dev": "bun build src/popup.ts src/content.ts src/background.ts --outdir=dist --target=browser --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.37"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Engram Spira",
+  "version": "0.1.0",
+  "description": "Create flashcards by highlighting text on any webpage",
+  "permissions": ["contextMenus", "storage", "activeTab"],
+  "host_permissions": ["http://localhost:3001/*"],
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

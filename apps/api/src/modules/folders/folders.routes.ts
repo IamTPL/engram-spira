@@ -33,4 +33,14 @@ export const foldersRoutes = new Elysia({ prefix: '/folders' })
   .delete('/:id', async ({ currentUser, params }) => {
     await foldersService.remove(params.id, currentUser.id);
     return { success: true };
-  });
+  })
+  .patch(
+    '/by-class/:classId/reorder',
+    ({ currentUser, params, body }) =>
+      foldersService.reorder(params.classId, currentUser.id, body.folderIds),
+    {
+      body: t.Object({
+        folderIds: t.Array(t.String({ format: 'uuid' }), { minItems: 1 }),
+      }),
+    },
+  );

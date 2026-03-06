@@ -43,4 +43,47 @@ export const cardsRoutes = new Elysia({ prefix: '/cards' })
   .delete('/:id', async ({ currentUser, params }) => {
     await cardsService.remove(params.id, currentUser.id);
     return { success: true };
-  });
+  })
+  .delete(
+    '/by-deck/:deckId/batch',
+    ({ currentUser, params, body }) =>
+      cardsService.removeBatch(params.deckId, currentUser.id, body.cardIds),
+    {
+      body: t.Object({
+        cardIds: t.Array(t.String({ format: 'uuid' }), {
+          minItems: 1,
+          maxItems: 200,
+        }),
+      }),
+    },
+  )
+  .post(
+    '/by-deck/:deckId/batch',
+    ({ currentUser, params, body }) =>
+      cardsService.createBatch(params.deckId, currentUser.id, body.cards),
+    {
+      body: t.Object({
+        cards: t.Array(
+          t.Object({
+            fieldValues: t.Array(
+              t.Object({
+                templateFieldId: t.String({ format: 'uuid' }),
+                value: t.Unknown(),
+              }),
+            ),
+          }),
+          { minItems: 1, maxItems: 100 },
+        ),
+      }),
+    },
+  )
+  .patch(
+    '/by-deck/:deckId/reorder',
+    ({ currentUser, params, body }) =>
+      cardsService.reorder(params.deckId, currentUser.id, body.cardIds),
+    {
+      body: t.Object({
+        cardIds: t.Array(t.String({ format: 'uuid' }), { minItems: 1 }),
+      }),
+    },
+  );

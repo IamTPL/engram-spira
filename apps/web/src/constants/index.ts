@@ -3,6 +3,7 @@ export const REVIEW_ACTIONS = {
   AGAIN: 'again',
   HARD: 'hard',
   GOOD: 'good',
+  EASY: 'easy',
 } as const;
 
 // Keyboard shortcuts
@@ -11,6 +12,7 @@ export const KEYBOARD_SHORTCUTS = {
   AGAIN: '1',
   HARD: '2',
   GOOD: '3',
+  EASY: '4',
 } as const;
 
 // Route paths

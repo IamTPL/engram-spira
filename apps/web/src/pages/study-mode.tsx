@@ -2,6 +2,7 @@ import {
   type Component,
   createSignal,
   createResource,
+  createEffect,
   onMount,
   onCleanup,
   Show,
@@ -21,6 +22,7 @@ import {
   Calendar,
   BookOpen,
   RefreshCw,
+  Timer,
 } from 'lucide-solid';
 
 const StudyModePage: Component = () => {
@@ -31,9 +33,16 @@ const StudyModePage: Component = () => {
   const [isFlipped, setIsFlipped] = createSignal(false);
   const [reviewing, setReviewing] = createSignal(false);
   const [studyMode, setStudyMode] = createSignal<'due' | 'all'>('due');
+  const [checkingMore, setCheckingMore] = createSignal(false);
 
   // Session stats
-  const [stats, setStats] = createSignal({ again: 0, hard: 0, good: 0 });
+  const [stats, setStats] = createSignal({
+    again: 0,
+    hard: 0,
+    good: 0,
+    easy: 0,
+  });
+  const [studyError, setStudyError] = createSignal<string | null>(null);
 
   // Fetch deck name
   const [deck] = createResource(
@@ -47,9 +56,16 @@ const StudyModePage: Component = () => {
   const [studyData, { refetch }] = createResource(
     () => ({ deckId: params.deckId, mode: studyMode() }),
     async ({ deckId, mode }) => {
-      const { data } = await (api.study.deck as any)[deckId].get({
+      const { data, error } = await (api.study.deck as any)[deckId].get({
         query: mode === 'all' ? { mode: 'all' } : {},
       });
+      if (error || !data) {
+        setStudyError(
+          'Failed to load study cards. Please go back and try again.',
+        );
+        return null;
+      }
+      setStudyError(null);
       return data as {
         cards: {
           id: string;
@@ -82,6 +98,7 @@ const StudyModePage: Component = () => {
         totalCards: number;
         learnedCards: number;
         upcoming: { daysFromNow: number; count: number; date: string }[];
+        dueSoon: number;
         nextReviewDate: string | null;
       } | null;
     },
@@ -116,9 +133,26 @@ const StudyModePage: Component = () => {
         again: action === REVIEW_ACTIONS.AGAIN ? s.again + 1 : s.again,
         hard: action === REVIEW_ACTIONS.HARD ? s.hard + 1 : s.hard,
         good: action === REVIEW_ACTIONS.GOOD ? s.good + 1 : s.good,
+        easy: action === REVIEW_ACTIONS.EASY ? s.easy + 1 : s.easy,
       }));
       setIsFlipped(false);
-      setCurrentIndex((i) => i + 1);
+
+      const nextIndex = currentIndex() + 1;
+      setCurrentIndex(nextIndex);
+
+      // If we just reviewed the last card in this batch, auto-refetch
+      // to pick up learning/relearning cards that became due during the session
+      const data = studyData();
+      if (data && nextIndex >= data.cards.length && studyMode() === 'due') {
+        setCheckingMore(true);
+        // Brief delay for SM-2 learning cards to become due
+        await new Promise((r) => setTimeout(r, 1500));
+        const result = await refetch();
+        if (result && result.cards.length > 0) {
+          setCurrentIndex(0); // continue with new batch seamlessly
+        }
+        setCheckingMore(false);
+      }
     } finally {
       setReviewing(false);
     }
@@ -126,7 +160,15 @@ const StudyModePage: Component = () => {
 
   const handleRestart = () => {
     setCurrentIndex(0);
-    setStats({ again: 0, hard: 0, good: 0 });
+    setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+    setIsFlipped(false);
+    setStudyMode('due');
+    refetch();
+  };
+
+  // Continue session without resetting stats (used by countdown timer)
+  const handleContinue = () => {
+    setCurrentIndex(0);
     setIsFlipped(false);
     setStudyMode('due');
     refetch();
@@ -134,9 +176,22 @@ const StudyModePage: Component = () => {
 
   const handleReviewAll = () => {
     setCurrentIndex(0);
-    setStats({ again: 0, hard: 0, good: 0 });
+    setStats({ again: 0, hard: 0, good: 0, easy: 0 });
     setIsFlipped(false);
     setStudyMode('all');
+  };
+
+  const handleResetProgress = async () => {
+    try {
+      await (api.study.deck as any)[params.deckId]['reset-progress'].post();
+      setCurrentIndex(0);
+      setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+      setIsFlipped(false);
+      setStudyMode('due');
+      refetch();
+    } catch {
+      // ignore
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -149,11 +204,50 @@ const StudyModePage: Component = () => {
       handleReview(REVIEW_ACTIONS.HARD);
     } else if (e.key === KEYBOARD_SHORTCUTS.GOOD && isFlipped()) {
       handleReview(REVIEW_ACTIONS.GOOD);
+    } else if (e.key === KEYBOARD_SHORTCUTS.EASY && isFlipped()) {
+      handleReview(REVIEW_ACTIONS.EASY);
     }
   };
 
+  // Countdown timer: auto-refetch when next due-soon card becomes due
+  const [countdown, setCountdown] = createSignal('');
+  let countdownTimer: ReturnType<typeof setInterval> | undefined;
+
+  createEffect(() => {
+    // Clear any existing timer first
+    if (countdownTimer) clearInterval(countdownTimer);
+
+    const sched = schedule();
+    if (!sched || !sched.nextReviewDate || sched.dueSoon === 0) {
+      setCountdown('');
+      return;
+    }
+
+    const nextDue = new Date(sched.nextReviewDate).getTime();
+
+    const tick = () => {
+      const remaining = nextDue - Date.now();
+      if (remaining <= 0) {
+        setCountdown('');
+        if (countdownTimer) clearInterval(countdownTimer);
+        // Auto-continue when cards become due (keep stats)
+        handleContinue();
+        return;
+      }
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      setCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
+    };
+
+    tick();
+    countdownTimer = setInterval(tick, 1000);
+  });
+
   onMount(() => document.addEventListener('keydown', handleKeyDown));
-  onCleanup(() => document.removeEventListener('keydown', handleKeyDown));
+  onCleanup(() => {
+    document.removeEventListener('keydown', handleKeyDown);
+    if (countdownTimer) clearInterval(countdownTimer);
+  });
 
   return (
     <div class="min-h-screen flex flex-col">
@@ -197,144 +291,224 @@ const StudyModePage: Component = () => {
 
       {/* Main content */}
       <div class="flex-1 flex flex-col items-center justify-center p-8">
-        <Show
-          when={!studyData.loading}
-          fallback={<p class="text-muted-foreground">Loading cards...</p>}
-        >
+        <Show when={studyError()}>
+          <div class="text-center space-y-4 max-w-sm">
+            <p class="text-destructive font-medium">{studyError()}</p>
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/deck/${params.deckId}`)}
+            >
+              <ArrowLeft class="h-4 w-4 mr-2" />
+              Back to Deck
+            </Button>
+          </div>
+        </Show>
+        <Show when={!studyError()}>
           <Show
-            when={currentCard()}
+            when={!studyData.loading && !checkingMore()}
             fallback={
-              <div class="text-center space-y-6 max-w-sm w-full">
-                <CheckCircle class="h-16 w-16 text-green-500 mx-auto" />
-
-                {/* Title changes based on whether a session was just completed */}
-                <Show
-                  when={stats().again + stats().hard + stats().good > 0}
-                  fallback={
-                    <div>
-                      <h2 class="text-2xl font-bold">All caught up!</h2>
-                      <p class="text-muted-foreground mt-1">
-                        No cards are due right now.
-                      </p>
-                    </div>
-                  }
-                >
-                  <div>
-                    <h2 class="text-2xl font-bold">Session Complete!</h2>
-                    <p class="text-muted-foreground mt-1">
-                      You've reviewed all due cards.
-                    </p>
-                  </div>
-                </Show>
-
-                {/* Session stats — only shown when a session was completed */}
-                <Show when={stats().again + stats().hard + stats().good > 0}>
-                  <div class="grid grid-cols-3 gap-3 text-center">
-                    <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold text-destructive">
-                        {stats().again}
-                      </p>
-                      <p class="text-xs text-muted-foreground mt-0.5">Again</p>
-                    </div>
-                    <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold text-amber-500">
-                        {stats().hard}
-                      </p>
-                      <p class="text-xs text-muted-foreground mt-0.5">Hard</p>
-                    </div>
-                    <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold text-green-500">
-                        {stats().good}
-                      </p>
-                      <p class="text-xs text-muted-foreground mt-0.5">Good</p>
-                    </div>
-                  </div>
-                </Show>
-
-                {/* Deck progress */}
-                <Show when={schedule()}>
-                  <div class="rounded-lg border bg-card p-3 flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-2 text-muted-foreground">
-                      <BookOpen class="h-4 w-4" />
-                      <span class="text-sm">Cards learned</span>
-                    </div>
-                    <span class="text-sm font-semibold">
-                      {schedule()!.learnedCards} / {schedule()!.totalCards}
-                    </span>
-                  </div>
-                </Show>
-
-                {/* Upcoming review schedule */}
-                <Show when={schedule() && schedule()!.upcoming.length > 0}>
-                  <div class="space-y-2 w-full text-left">
-                    <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                      <Calendar class="h-4 w-4" />
-                      <span>Upcoming reviews</span>
-                    </div>
-                    <div class="space-y-1.5">
-                      <For each={schedule()!.upcoming.slice(0, 5)}>
-                        {(item) => (
-                          <div class="flex items-center justify-between rounded-lg border px-3 py-2 bg-card">
-                            <span class="text-sm text-muted-foreground">
-                              {item.daysFromNow === 1
-                                ? 'Tomorrow'
-                                : `In ${item.daysFromNow} days`}
-                            </span>
-                            <span class="text-sm font-semibold">
-                              {item.count} {item.count === 1 ? 'word' : 'words'}
-                            </span>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </div>
-                </Show>
-
-                {/* No upcoming cards at all */}
-                <Show
-                  when={
-                    schedule() &&
-                    schedule()!.upcoming.length === 0 &&
-                    schedule()!.learnedCards > 0
-                  }
-                >
-                  <p class="text-sm text-muted-foreground">
-                    🎉 All {schedule()!.learnedCards} cards are fully mastered!
-                  </p>
-                </Show>
-
-                <div class="flex flex-col gap-2 justify-center w-full">
-                  <Show when={studyData()?.total && studyData()!.total > 0}>
-                    <Button class="w-full" onClick={handleReviewAll}>
-                      <RefreshCw class="h-4 w-4 mr-2" />
-                      Review All Cards ({studyData()?.total ?? 0})
-                    </Button>
-                  </Show>
-                  <div class="flex gap-2 justify-center">
-                    <Button
-                      variant="outline"
-                      onClick={() => navigate(`/deck/${params.deckId}`)}
-                    >
-                      Back to Deck
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              <p class="text-muted-foreground">
+                {checkingMore()
+                  ? 'Checking for more cards...'
+                  : 'Loading cards...'}
+              </p>
             }
           >
-            <Flashcard
-              fields={currentCard()!.fields}
-              isFlipped={isFlipped()}
-              onFlip={() => setIsFlipped((f) => !f)}
-            />
+            <Show
+              when={currentCard()}
+              fallback={
+                <div class="text-center space-y-6 max-w-sm w-full">
+                  <CheckCircle class="h-16 w-16 text-green-500 mx-auto" />
 
-            <Show when={isFlipped()}>
-              <StudyControls
-                onAgain={() => handleReview(REVIEW_ACTIONS.AGAIN)}
-                onHard={() => handleReview(REVIEW_ACTIONS.HARD)}
-                onGood={() => handleReview(REVIEW_ACTIONS.GOOD)}
-                disabled={reviewing()}
+                  {/* Title changes based on whether a session was just completed */}
+                  <Show
+                    when={
+                      stats().again +
+                        stats().hard +
+                        stats().good +
+                        stats().easy >
+                      0
+                    }
+                    fallback={
+                      <div>
+                        <h2 class="text-2xl font-bold">All caught up!</h2>
+                        <p class="text-muted-foreground mt-1">
+                          No cards are due right now.
+                        </p>
+                      </div>
+                    }
+                  >
+                    <div>
+                      <h2 class="text-2xl font-bold">Session Complete!</h2>
+                      <p class="text-muted-foreground mt-1">
+                        You've reviewed all due cards.
+                      </p>
+                    </div>
+                  </Show>
+
+                  {/* Session stats — only shown when a session was completed */}
+                  <Show
+                    when={
+                      stats().again +
+                        stats().hard +
+                        stats().good +
+                        stats().easy >
+                      0
+                    }
+                  >
+                    <div class="grid grid-cols-4 gap-3 text-center">
+                      <div class="rounded-lg border p-3 bg-card">
+                        <p class="text-2xl font-bold text-destructive">
+                          {stats().again}
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-0.5">
+                          Again
+                        </p>
+                      </div>
+                      <div class="rounded-lg border p-3 bg-card">
+                        <p class="text-2xl font-bold text-amber-500">
+                          {stats().hard}
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-0.5">Hard</p>
+                      </div>
+                      <div class="rounded-lg border p-3 bg-card">
+                        <p class="text-2xl font-bold text-green-500">
+                          {stats().good}
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-0.5">Good</p>
+                      </div>
+                      <div class="rounded-lg border p-3 bg-card">
+                        <p class="text-2xl font-bold text-blue-500">
+                          {stats().easy}
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-0.5">Easy</p>
+                      </div>
+                    </div>
+                  </Show>
+
+                  {/* Deck progress */}
+                  <Show when={schedule()}>
+                    <div class="rounded-lg border bg-card p-3 flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-2 text-muted-foreground">
+                        <BookOpen class="h-4 w-4" />
+                        <span class="text-sm">Cards learned</span>
+                      </div>
+                      <span class="text-sm font-semibold">
+                        {schedule()!.learnedCards} / {schedule()!.totalCards}
+                      </span>
+                    </div>
+                  </Show>
+
+                  {/* Upcoming review schedule */}
+                  <Show when={schedule() && schedule()!.upcoming.length > 0}>
+                    <div class="space-y-2 w-full text-left">
+                      <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                        <Calendar class="h-4 w-4" />
+                        <span>Upcoming reviews</span>
+                      </div>
+                      <div class="space-y-1.5">
+                        <For each={schedule()!.upcoming.slice(0, 5)}>
+                          {(item) => (
+                            <div class="flex items-center justify-between rounded-lg border px-3 py-2 bg-card">
+                              <span class="text-sm text-muted-foreground">
+                                {item.daysFromNow === 1
+                                  ? 'Tomorrow'
+                                  : `In ${item.daysFromNow} days`}
+                              </span>
+                              <span class="text-sm font-semibold">
+                                {item.count}{' '}
+                                {item.count === 1 ? 'word' : 'words'}
+                              </span>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
+
+                  {/* Cards due soon (within ~1 hour) — with countdown */}
+                  <Show when={schedule() && schedule()!.dueSoon > 0}>
+                    <div class="rounded-lg border bg-amber-500/10 border-amber-500/30 p-3 space-y-2">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                          <Timer class="h-4 w-4" />
+                          <span class="text-sm font-medium">
+                            {schedule()!.dueSoon}{' '}
+                            {schedule()!.dueSoon === 1 ? 'card' : 'cards'}{' '}
+                            coming back soon
+                          </span>
+                        </div>
+                        <Show when={countdown()}>
+                          <span class="text-sm font-mono font-semibold text-amber-600 dark:text-amber-400">
+                            {countdown()}
+                          </span>
+                        </Show>
+                      </div>
+                      <p class="text-xs text-muted-foreground">
+                        Cards you struggled with will reappear automatically.
+                      </p>
+                    </div>
+                  </Show>
+
+                  {/* Fully mastered — only when no upcoming AND no due soon */}
+                  <Show
+                    when={
+                      schedule() &&
+                      schedule()!.upcoming.length === 0 &&
+                      schedule()!.dueSoon === 0 &&
+                      schedule()!.learnedCards > 0
+                    }
+                  >
+                    <p class="text-sm text-muted-foreground">
+                      🎉 All {schedule()!.learnedCards} cards are fully
+                      mastered!
+                    </p>
+                  </Show>
+
+                  <div class="flex flex-col gap-2 justify-center w-full">
+                    <Show when={studyData()?.total && studyData()!.total > 0}>
+                      <Button class="w-full" onClick={handleReviewAll}>
+                        <RefreshCw class="h-4 w-4 mr-2" />
+                        Review All Cards ({studyData()?.total ?? 0})
+                      </Button>
+                    </Show>
+                    <Show when={studyData()?.total && studyData()!.total > 0}>
+                      <Button
+                        variant="outline"
+                        class="w-full text-destructive hover:text-destructive"
+                        onClick={handleResetProgress}
+                      >
+                        <RotateCcw class="h-4 w-4 mr-2" />
+                        Reset All Progress
+                      </Button>
+                    </Show>
+                    <div class="flex gap-2 justify-center">
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate(`/deck/${params.deckId}`)}
+                      >
+                        Back to Deck
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              }
+            >
+              <Flashcard
+                fields={currentCard()!.fields}
+                isFlipped={isFlipped()}
+                onFlip={() => setIsFlipped((f) => !f)}
               />
+
+              <Show when={isFlipped()}>
+                <StudyControls
+                  onAgain={() => handleReview(REVIEW_ACTIONS.AGAIN)}
+                  onHard={() => handleReview(REVIEW_ACTIONS.HARD)}
+                  onGood={() => handleReview(REVIEW_ACTIONS.GOOD)}
+                  onEasy={() => handleReview(REVIEW_ACTIONS.EASY)}
+                  disabled={reviewing()}
+                />
+              </Show>
             </Show>
           </Show>
         </Show>

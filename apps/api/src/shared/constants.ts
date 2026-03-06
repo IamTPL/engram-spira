@@ -3,22 +3,10 @@ export const REVIEW_ACTIONS = {
   AGAIN: 'again',
   HARD: 'hard',
   GOOD: 'good',
+  EASY: 'easy',
 } as const;
 
 export type ReviewAction = (typeof REVIEW_ACTIONS)[keyof typeof REVIEW_ACTIONS];
-
-// SRS intervals (in minutes)
-export const SRS_INTERVALS = {
-  AGAIN_MINUTES: 10,
-  HARD_DAYS: 1,
-  GOOD_LEVEL_DAYS: {
-    1: 1,
-    2: 3,
-    3: 7,
-    4: 14,
-  } as Record<number, number>,
-  GOOD_DEFAULT_DAYS: 30, // Level 5+
-} as const;
 
 // SM-2 Algorithm constants
 // easeFactor controls how fast intervals grow per card (adaptive per-user-per-card)
@@ -29,6 +17,8 @@ export const SM2 = {
   AGAIN_EF_DELTA: -0.2, // penalty for forgetting
   HARD_EF_DELTA: -0.15, // penalty for difficulty
   GOOD_EF_DELTA: 0, // neutral (no change)
+  EASY_EF_DELTA: 0.15, // bonus for easy recall
+  EASY_INTERVAL_BONUS: 1.3, // extra multiplier on interval for easy
   // Initial intervals (repetitions 1 and 2 use fixed values like classic SM-2)
   FIRST_INTERVAL_DAYS: 1,
   SECOND_INTERVAL_DAYS: 6,

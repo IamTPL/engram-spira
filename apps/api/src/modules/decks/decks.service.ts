@@ -81,3 +81,19 @@ export async function remove(id: string, userId: string) {
   await getById(id, userId);
   await db.delete(decks).where(eq(decks.id, id));
 }
+
+/**
+ * Move a deck to a different folder (must belong to the same user).
+ */
+export async function move(id: string, userId: string, folderId: string) {
+  await getById(id, userId);
+  await verifyFolderOwnership(folderId, userId);
+
+  const [updated] = await db
+    .update(decks)
+    .set({ folderId })
+    .where(eq(decks.id, id))
+    .returning();
+
+  return updated;
+}

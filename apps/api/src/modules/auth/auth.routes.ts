@@ -1,9 +1,11 @@
 import Elysia, { t } from 'elysia';
+import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from './auth.middleware';
 import { validateSession } from './session.utils';
 import * as authService from './auth.service';
 import { ENV } from '../../config/env';
 import { SESSION } from '../../shared/constants';
+import { sendPasswordResetEmail } from '../../shared/email';
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -14,6 +16,17 @@ const COOKIE_OPTIONS = {
 };
 
 export const authRoutes = new Elysia({ prefix: '/auth' })
+  .use(
+    rateLimit({
+      scoping: 'scoped',
+      duration: 60 * 1000,
+      max: 5,
+      errorResponse: new Response(
+        JSON.stringify({ error: 'Too many requests, please try again later' }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } },
+      ),
+    }),
+  )
   .post(
     '/register',
     async ({ body, cookie }) => {
@@ -31,7 +44,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     },
     {
       body: t.Object({
-        email: t.String(),
+        email: t.String({ format: 'email' }),
         password: t.String(),
       }),
     },
@@ -53,7 +66,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     },
     {
       body: t.Object({
-        email: t.String(),
+        email: t.String({ format: 'email' }),
         password: t.String(),
       }),
     },
@@ -76,4 +89,51 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return { user: null };
     }
     return { user: result.user };
-  });
+  })
+  .post(
+    '/forgot-password',
+    async ({ body }) => {
+      const result = await authService.forgotPassword(body.email);
+      // Send email if token was generated (user exists)
+      if (result.token) {
+        try {
+          await sendPasswordResetEmail(body.email, result.token);
+        } catch (e) {
+          console.error('[auth] Failed to send reset email:', e);
+        }
+      }
+      // Always return success to prevent email enumeration
+      return { success: true };
+    },
+    {
+      body: t.Object({
+        email: t.String({ format: 'email' }),
+      }),
+    },
+  )
+  .post(
+    '/reset-password',
+    ({ body }) => authService.resetPassword(body.token, body.newPassword),
+    {
+      body: t.Object({
+        token: t.String({ minLength: 1 }),
+        newPassword: t.String({ minLength: 8, maxLength: 128 }),
+      }),
+    },
+  )
+  .use(requireAuth)
+  .post(
+    '/change-password',
+    ({ currentUser, body }) =>
+      authService.changePassword(
+        currentUser.id,
+        body.currentPassword,
+        body.newPassword,
+      ),
+    {
+      body: t.Object({
+        currentPassword: t.String({ minLength: 1 }),
+        newPassword: t.String({ minLength: 8, maxLength: 128 }),
+      }),
+    },
+  );

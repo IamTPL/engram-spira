@@ -2,6 +2,7 @@ import { eq, and, inArray, desc, sql, count } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
+import { embedCardFields } from '../ai/ai.service';
 
 // Ownership check: decks.userId is denormalized — no JOIN chain needed
 async function verifyDeckOwnership(deckId: string, userId: string) {
@@ -121,6 +122,9 @@ export async function create(
     );
   }
 
+  // Fire-and-forget: generate embedding for duplicate detection
+  embedCardFields(card.id).catch(() => {});
+
   return card;
 }
 
@@ -169,4 +173,101 @@ export async function remove(cardId: string, userId: string) {
 
   if (!cardResult) throw new NotFoundError('Card');
   await db.delete(cards).where(eq(cards.id, cardId));
+}
+
+export async function removeBatch(
+  deckId: string,
+  userId: string,
+  cardIds: string[],
+) {
+  await verifyDeckOwnership(deckId, userId);
+
+  const deckCards = await db
+    .select({ id: cards.id })
+    .from(cards)
+    .where(and(eq(cards.deckId, deckId), inArray(cards.id, cardIds)));
+
+  if (deckCards.length !== cardIds.length) {
+    throw new NotFoundError('Card');
+  }
+
+  await db.delete(cards).where(inArray(cards.id, cardIds));
+  return { deleted: cardIds.length };
+}
+
+/**
+ * Batch create multiple cards in a single deck (within a transaction).
+ */
+export async function createBatch(
+  deckId: string,
+  userId: string,
+  cardsData: { fieldValues: { templateFieldId: string; value: unknown }[] }[],
+) {
+  await verifyDeckOwnership(deckId, userId);
+
+  const existing = await db
+    .select({ sortOrder: cards.sortOrder })
+    .from(cards)
+    .where(eq(cards.deckId, deckId))
+    .orderBy(desc(cards.sortOrder))
+    .limit(1);
+
+  let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
+
+  const createdCards = [];
+
+  for (const cardData of cardsData) {
+    const [card] = await db
+      .insert(cards)
+      .values({ deckId, sortOrder: nextOrder++ })
+      .returning();
+
+    if (cardData.fieldValues.length > 0) {
+      await db.insert(cardFieldValues).values(
+        cardData.fieldValues.map((fv) => ({
+          cardId: card.id,
+          templateFieldId: fv.templateFieldId,
+          value: fv.value,
+        })),
+      );
+    }
+
+    createdCards.push(card);
+  }
+
+  return { created: createdCards.length, cards: createdCards };
+}
+
+/**
+ * Reorder cards within a deck.
+ * Receives an array of cardIds in the desired order and updates sort_order accordingly.
+ */
+export async function reorder(
+  deckId: string,
+  userId: string,
+  cardIds: string[],
+) {
+  await verifyDeckOwnership(deckId, userId);
+
+  // Verify all cards belong to the deck
+  const deckCards = await db
+    .select({ id: cards.id })
+    .from(cards)
+    .where(eq(cards.deckId, deckId));
+
+  const deckCardIds = new Set(deckCards.map((c) => c.id));
+  for (const id of cardIds) {
+    if (!deckCardIds.has(id)) {
+      throw new NotFoundError('Card');
+    }
+  }
+
+  // Batch update sort_order
+  const updates = cardIds.map((id, index) =>
+    db.update(cards).set({ sortOrder: index }).where(eq(cards.id, id)),
+  );
+
+  await Promise.all(updates);
+
+  return { reordered: cardIds.length };
 }

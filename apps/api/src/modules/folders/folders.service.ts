@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 import { db } from '../../db';
 import { folders, classes } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
@@ -15,7 +15,11 @@ async function verifyClassOwnership(classId: string, userId: string) {
 
 export async function listByClass(classId: string, userId: string) {
   await verifyClassOwnership(classId, userId);
-  return db.select().from(folders).where(eq(folders.classId, classId));
+  return db
+    .select()
+    .from(folders)
+    .where(eq(folders.classId, classId))
+    .orderBy(asc(folders.sortOrder));
 }
 
 export async function getById(id: string, userId: string) {
@@ -60,4 +64,32 @@ export async function update(
 export async function remove(id: string, userId: string) {
   await getById(id, userId);
   await db.delete(folders).where(eq(folders.id, id));
+}
+
+export async function reorder(
+  classId: string,
+  userId: string,
+  folderIds: string[],
+) {
+  await verifyClassOwnership(classId, userId);
+
+  const classFolders = await db
+    .select({ id: folders.id })
+    .from(folders)
+    .where(eq(folders.classId, classId));
+
+  const classFolderIds = new Set(classFolders.map((f) => f.id));
+  for (const id of folderIds) {
+    if (!classFolderIds.has(id)) {
+      throw new NotFoundError('Folder');
+    }
+  }
+
+  const updates = folderIds.map((id, index) =>
+    db.update(folders).set({ sortOrder: index }).where(eq(folders.id, id)),
+  );
+
+  await Promise.all(updates);
+
+  return { reordered: folderIds.length };
 }

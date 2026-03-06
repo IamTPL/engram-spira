@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import Header from '@/components/layout/header';
 import Sidebar from '@/components/layout/sidebar';
+import MobileNav from '@/components/layout/mobile-nav';
 import { toast } from '@/stores/toast.store';
 import { ROUTES } from '@/constants';
 import {
@@ -126,12 +127,13 @@ const FolderViewPage: Component = () => {
   return (
     <div class="h-screen flex flex-col">
       <Header />
+      <MobileNav />
       <div class="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        <main class="flex-1 overflow-y-auto">
+        <main class="flex-1 overflow-y-auto pb-mobile-nav">
           {/* ── Hero header ── */}
-          <div class="border-b bg-card px-6 py-5">
+          <div class="border-b shadow-card-study  px-6 py-4">
             <div class="max-w-5xl mx-auto">
               <div class="flex items-center gap-3 mb-3">
                 <Button
