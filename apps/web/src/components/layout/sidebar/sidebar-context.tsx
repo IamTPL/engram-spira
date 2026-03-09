@@ -1,0 +1,338 @@
+import {
+  createContext,
+  useContext,
+  createSignal,
+  createResource,
+  type Accessor,
+  type Setter,
+  type Resource,
+} from 'solid-js';
+import { api } from '@/api/client';
+import { currentUser } from '@/stores/auth.store';
+import { toast } from '@/stores/toast.store';
+import {
+  foldersByClass,
+  updateFoldersForClass,
+  removeClassFromCache,
+  ensureClassExpanded,
+  type FolderItem,
+} from '@/stores/sidebar.store';
+
+export interface ClassItem {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+interface SidebarContextType {
+  classes: Resource<ClassItem[]>;
+  refetchClasses: (info?: unknown) => void;
+  showNewClass: Accessor<boolean>;
+  setShowNewClass: Setter<boolean>;
+  newClassName: Accessor<string>;
+  setNewClassName: Setter<string>;
+  creatingFolderForClass: Accessor<string | null>;
+  setCreatingFolderForClass: Setter<string | null>;
+  newFolderName: Accessor<string>;
+  setNewFolderName: Setter<string>;
+  renamingId: Accessor<string | null>;
+  renamingType: Accessor<'class' | 'folder' | null>;
+  renameValue: Accessor<string>;
+  setRenameValue: Setter<string>;
+  confirmDeleteId: Accessor<string | null>;
+  setConfirmDeleteId: Setter<string | null>;
+  dragType: Accessor<'class' | 'folder' | null>;
+  dragId: Accessor<string | null>;
+  dropTargetId: Accessor<string | null>;
+
+  handleClassDragStart: (classId: string, e: DragEvent) => void;
+  handleClassDragOver: (classId: string, e: DragEvent) => void;
+  handleClassDrop: (targetClassId: string, e: DragEvent) => Promise<void>;
+  handleFolderDragStart: (classId: string, folderId: string, e: DragEvent) => void;
+  handleFolderDragOver: (folderId: string, e: DragEvent) => void;
+  handleFolderDrop: (targetClassId: string, targetFolderId: string, e: DragEvent) => Promise<void>;
+  handleDragEnd: () => void;
+
+  handleCreateClass: (e: Event) => Promise<void>;
+  handleCreateFolder: (e: Event, classId: string) => Promise<void>;
+  openNewFolder: (e: Event, classId: string) => void;
+
+  startRename: (e: Event, type: 'class' | 'folder', id: string, currentName: string, context?: string) => void;
+  cancelRename: () => void;
+  submitRename: (id: string) => Promise<void>;
+
+  handleDeleteClass: (e: Event, id: string) => Promise<void>;
+  handleDeleteFolder: (e: Event, classId: string, folderId: string) => Promise<void>;
+}
+
+const SidebarContext = createContext<SidebarContextType>();
+
+export function SidebarProvider(props: { children: any }) {
+  const [classes, { refetch: refetchClasses, mutate: mutateClasses }] = createResource(
+    () => currentUser()?.id,
+    async () => {
+      const { data } = await api.classes.get();
+      return (data ?? []) as ClassItem[];
+    },
+  );
+
+  const [showNewClass, setShowNewClass] = createSignal(false);
+  const [newClassName, setNewClassName] = createSignal('');
+  const [creatingFolderForClass, setCreatingFolderForClass] = createSignal<string | null>(null);
+  const [newFolderName, setNewFolderName] = createSignal('');
+
+  const [renamingId, setRenamingId] = createSignal<string | null>(null);
+  const [renamingType, setRenamingType] = createSignal<'class' | 'folder' | null>(null);
+  const [renamingContext, setRenamingContext] = createSignal<string | null>(null);
+  const [renameValue, setRenameValue] = createSignal('');
+
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
+
+  const [dragType, setDragType] = createSignal<'class' | 'folder' | null>(null);
+  const [dragId, setDragId] = createSignal<string | null>(null);
+  const [dragClassContext, setDragClassContext] = createSignal<string | null>(null);
+  const [dropTargetId, setDropTargetId] = createSignal<string | null>(null);
+
+  const resetDrag = () => {
+    setDragType(null);
+    setDragId(null);
+    setDragClassContext(null);
+    setDropTargetId(null);
+  };
+
+  const handleClassDragStart = (classId: string, e: DragEvent) => {
+    setDragType('class');
+    setDragId(classId);
+    e.dataTransfer!.effectAllowed = 'move';
+    e.dataTransfer!.setData('text/plain', classId);
+  };
+
+  const handleClassDragOver = (classId: string, e: DragEvent) => {
+    if (dragType() !== 'class' || dragId() === classId) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'move';
+    setDropTargetId(classId);
+  };
+
+  const handleClassDrop = async (targetClassId: string, e: DragEvent) => {
+    e.preventDefault();
+    const sourceId = dragId();
+    if (!sourceId || sourceId === targetClassId || dragType() !== 'class') return;
+
+    const list = classes() ?? [];
+    const fromIdx = list.findIndex((c) => c.id === sourceId);
+    const toIdx = list.findIndex((c) => c.id === targetClassId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const reordered = [...list];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+
+    mutateClasses(reordered);
+    resetDrag();
+
+    try {
+      await api.classes.reorder.patch({ classIds: reordered.map((c) => c.id) });
+    } catch {
+      refetchClasses();
+      toast.error('Failed to reorder classes');
+    }
+  };
+
+  const handleFolderDragStart = (classId: string, folderId: string, e: DragEvent) => {
+    setDragType('folder');
+    setDragId(folderId);
+    setDragClassContext(classId);
+    e.dataTransfer!.effectAllowed = 'move';
+    e.dataTransfer!.setData('text/plain', folderId);
+  };
+
+  const handleFolderDragOver = (folderId: string, e: DragEvent) => {
+    if (dragType() !== 'folder' || dragId() === folderId) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'move';
+    setDropTargetId(folderId);
+  };
+
+  const handleFolderDrop = async (targetClassId: string, targetFolderId: string, e: DragEvent) => {
+    e.preventDefault();
+    const sourceId = dragId();
+    const sourceClassId = dragClassContext();
+    if (!sourceId || !sourceClassId || sourceId === targetFolderId || dragType() !== 'folder') return;
+    if (sourceClassId !== targetClassId) {
+      resetDrag();
+      return;
+    }
+
+    const list = foldersByClass()[sourceClassId] ?? [];
+    const fromIdx = list.findIndex((f) => f.id === sourceId);
+    const toIdx = list.findIndex((f) => f.id === targetFolderId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const reordered = [...list];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+
+    updateFoldersForClass(sourceClassId, reordered);
+    resetDrag();
+
+    try {
+      await api.folders['by-class']({ classId: sourceClassId }).reorder.patch({
+        folderIds: reordered.map((f) => f.id),
+      });
+    } catch {
+      const { data } = await api.folders['by-class']({ classId: sourceClassId }).get();
+      updateFoldersForClass(sourceClassId, (data ?? []) as FolderItem[]);
+      toast.error('Failed to reorder folders');
+    }
+  };
+
+  const handleDragEnd = () => resetDrag();
+
+  const handleCreateClass = async (e: Event) => {
+    e.preventDefault();
+    const name = newClassName().trim();
+    if (!name) return;
+    await api.classes.post({ name });
+    setNewClassName('');
+    setShowNewClass(false);
+    refetchClasses();
+  };
+
+  const handleCreateFolder = async (e: Event, classId: string) => {
+    e.preventDefault();
+    const name = newFolderName().trim();
+    if (!name) return;
+    await api.folders['by-class']({ classId }).post({ name });
+    const { data } = await api.folders['by-class']({ classId }).get();
+    updateFoldersForClass(classId, (data ?? []) as FolderItem[]);
+    setNewFolderName('');
+    setCreatingFolderForClass(null);
+  };
+
+  const openNewFolder = (e: Event, classId: string) => {
+    e.stopPropagation();
+    setCreatingFolderForClass(classId);
+    setNewFolderName('');
+    ensureClassExpanded(classId);
+  };
+
+  const startRename = (e: Event, type: 'class' | 'folder', id: string, currentName: string, context?: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setRenamingId(id);
+    setRenamingType(type);
+    setRenamingContext(context ?? null);
+    setRenameValue(currentName);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenamingType(null);
+    setRenamingContext(null);
+    setRenameValue('');
+  };
+
+  const submitRename = async (id: string) => {
+    const name = renameValue().trim();
+    if (!name) {
+      cancelRename();
+      return;
+    }
+    const type = renamingType();
+    const context = renamingContext();
+    try {
+      if (type === 'class') {
+        await (api.classes as any)[id].patch({ name });
+        refetchClasses();
+      } else if (type === 'folder') {
+        await (api.folders as any)[id].patch({ name });
+        if (context) {
+          updateFoldersForClass(
+            context,
+            (foldersByClass()[context] ?? []).map((f) => (f.id === id ? { ...f, name } : f)),
+          );
+        }
+      }
+    } finally {
+      cancelRename();
+    }
+  };
+
+  const handleDeleteClass = async (e: Event, id: string) => {
+    e.stopPropagation();
+    try {
+      await (api.classes as any)[id].delete();
+      setConfirmDeleteId(null);
+      removeClassFromCache(id);
+      refetchClasses();
+      toast.success('Class deleted');
+    } catch {
+      toast.error('Failed to delete class');
+    }
+  };
+
+  const handleDeleteFolder = async (e: Event, classId: string, folderId: string) => {
+    e.stopPropagation();
+    try {
+      await (api.folders as any)[folderId].delete();
+      setConfirmDeleteId(null);
+      updateFoldersForClass(
+        classId,
+        (foldersByClass()[classId] ?? []).filter((f) => f.id !== folderId),
+      );
+      toast.success('Folder deleted');
+    } catch {
+      toast.error('Failed to delete folder');
+    }
+  };
+
+  return (
+    <SidebarContext.Provider
+      value={{
+        classes,
+        refetchClasses,
+        showNewClass,
+        setShowNewClass,
+        newClassName,
+        setNewClassName,
+        creatingFolderForClass,
+        setCreatingFolderForClass,
+        newFolderName,
+        setNewFolderName,
+        renamingId,
+        renamingType,
+        renameValue,
+        setRenameValue,
+        confirmDeleteId,
+        setConfirmDeleteId,
+        dragType,
+        dragId,
+        dropTargetId,
+        handleClassDragStart,
+        handleClassDragOver,
+        handleClassDrop,
+        handleFolderDragStart,
+        handleFolderDragOver,
+        handleFolderDrop,
+        handleDragEnd,
+        handleCreateClass,
+        handleCreateFolder,
+        openNewFolder,
+        startRename,
+        cancelRename,
+        submitRename,
+        handleDeleteClass,
+        handleDeleteFolder,
+      }}
+    >
+      {props.children}
+    </SidebarContext.Provider>
+  );
+}
+
+export function useSidebar() {
+  const ctx = useContext(SidebarContext);
+  if (!ctx) throw new Error('useSidebar must be used within SidebarProvider');
+  return ctx;
+}

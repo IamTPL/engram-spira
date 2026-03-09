@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "elysiajs": {
+      "source": "elysiajs/skills",
+      "sourceType": "github",
+      "computedHash": "55268e69a2c766ed67e56a0db57544f60cc52dba0c7f024a974baf965e525e1b"
+    },
+    "solid-js-best-practices": {
+      "source": "richardcarls/solid-js-best-practices",
+      "sourceType": "github",
+      "computedHash": "c9c4ac6ee25f469fdf229ef4382eabf56a4acc49feb04dded05e5792be6aa0a9"
+    }
+  }
+}
