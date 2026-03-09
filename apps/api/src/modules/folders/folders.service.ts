@@ -74,9 +74,10 @@ export async function reorder(
   await verifyClassOwnership(classId, userId);
 
   const classFolders = await db
-    .select({ id: folders.id })
+    .select({ id: folders.id, sortOrder: folders.sortOrder })
     .from(folders)
-    .where(eq(folders.classId, classId));
+    .where(eq(folders.classId, classId))
+    .orderBy(asc(folders.sortOrder));
 
   const classFolderIds = new Set(classFolders.map((f) => f.id));
   for (const id of folderIds) {
@@ -85,11 +86,20 @@ export async function reorder(
     }
   }
 
-  const updates = folderIds.map((id, index) =>
-    db.update(folders).set({ sortOrder: index }).where(eq(folders.id, id)),
-  );
+  const indexMap = new Map(folderIds.map((id, i) => [id, i]));
+  let nextOrder = folderIds.length;
 
-  await Promise.all(updates);
+  await db.transaction(async (tx) => {
+    const updates = classFolders.map((f) => {
+      let newOrder = indexMap.get(f.id);
+      if (newOrder === undefined) {
+        newOrder = nextOrder++;
+      }
+      return tx.update(folders).set({ sortOrder: newOrder }).where(eq(folders.id, f.id));
+    });
+
+    await Promise.all(updates);
+  });
 
   return { reordered: folderIds.length };
 }

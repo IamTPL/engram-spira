@@ -18,16 +18,20 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
   .get('/deck/:deckId/schedule', ({ currentUser, params }) =>
     studyService.getDeckSchedule(params.deckId, currentUser.id),
   )
-  .get('/streak', ({ currentUser }) =>
-    studyService.getUserStreak(currentUser.id),
-  )
+  .get('/streak', ({ currentUser, headers }) => {
+    const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+    return studyService.getUserStreak(currentUser.id, tzOffset);
+  })
   .get(
     '/activity',
-    ({ currentUser, query }) =>
-      studyService.getUserActivity(
+    ({ currentUser, query, headers }) => {
+      const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+      return studyService.getUserActivity(
         currentUser.id,
         Number(query.days ?? STREAK.ACTIVITY_DEFAULT_DAYS),
-      ),
+        tzOffset
+      );
+    },
     {
       query: t.Object({
         days: t.Optional(
@@ -39,8 +43,10 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
   .get('/stats', ({ currentUser }) => studyService.getUserStats(currentUser.id))
   .post(
     '/review',
-    ({ currentUser, body }) =>
-      studyService.reviewCard(body.cardId, currentUser.id, body.action),
+    ({ currentUser, body, headers }) => {
+      const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+      return studyService.reviewCard(body.cardId, currentUser.id, body.action, tzOffset);
+    },
     {
       body: t.Object({
         cardId: t.String({ format: 'uuid' }),
@@ -50,8 +56,10 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
   )
   .post(
     '/review-batch',
-    ({ currentUser, body }) =>
-      studyService.reviewCardBatch(currentUser.id, body.items),
+    ({ currentUser, body, headers }) => {
+      const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+      return studyService.reviewCardBatch(currentUser.id, body.items, tzOffset);
+    },
     {
       body: t.Object({
         items: t.Array(

@@ -97,7 +97,7 @@ export function calculateNextReview(
       const newReps = reps + 1;
       const newInterval =
         newReps === 1
-          ? SM2.FIRST_INTERVAL_DAYS
+          ? 4 // Boost interval for easy recall on first review
           : newReps === 2
             ? Math.round(SM2.SECOND_INTERVAL_DAYS * SM2.EASY_INTERVAL_BONUS)
             : Math.round(interval * newEf * SM2.EASY_INTERVAL_BONUS);

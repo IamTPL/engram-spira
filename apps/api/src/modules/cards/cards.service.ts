@@ -1,4 +1,4 @@
-import { eq, and, inArray, desc, sql, count } from 'drizzle-orm';
+import { eq, and, inArray, desc, sql, count, asc } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
@@ -214,26 +214,28 @@ export async function createBatch(
 
   let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
 
-  const createdCards = [];
+  const createdCards: (typeof cards.$inferSelect)[] = [];
 
-  for (const cardData of cardsData) {
-    const [card] = await db
-      .insert(cards)
-      .values({ deckId, sortOrder: nextOrder++ })
-      .returning();
+  await db.transaction(async (tx) => {
+    for (const cardData of cardsData) {
+      const [card] = await tx
+        .insert(cards)
+        .values({ deckId, sortOrder: nextOrder++ })
+        .returning();
 
-    if (cardData.fieldValues.length > 0) {
-      await db.insert(cardFieldValues).values(
-        cardData.fieldValues.map((fv) => ({
-          cardId: card.id,
-          templateFieldId: fv.templateFieldId,
-          value: fv.value,
-        })),
-      );
+      if (cardData.fieldValues.length > 0) {
+        await tx.insert(cardFieldValues).values(
+          cardData.fieldValues.map((fv) => ({
+            cardId: card.id,
+            templateFieldId: fv.templateFieldId,
+            value: fv.value,
+          })),
+        );
+      }
+
+      createdCards.push(card);
     }
-
-    createdCards.push(card);
-  }
+  });
 
   return { created: createdCards.length, cards: createdCards };
 }
@@ -251,9 +253,10 @@ export async function reorder(
 
   // Verify all cards belong to the deck
   const deckCards = await db
-    .select({ id: cards.id })
+    .select({ id: cards.id, sortOrder: cards.sortOrder })
     .from(cards)
-    .where(eq(cards.deckId, deckId));
+    .where(eq(cards.deckId, deckId))
+    .orderBy(asc(cards.sortOrder));
 
   const deckCardIds = new Set(deckCards.map((c) => c.id));
   for (const id of cardIds) {
@@ -262,12 +265,20 @@ export async function reorder(
     }
   }
 
-  // Batch update sort_order
-  const updates = cardIds.map((id, index) =>
-    db.update(cards).set({ sortOrder: index }).where(eq(cards.id, id)),
-  );
+  const indexMap = new Map(cardIds.map((id, i) => [id, i]));
+  let nextOrder = cardIds.length;
 
-  await Promise.all(updates);
+  await db.transaction(async (tx) => {
+    const updates = deckCards.map((c) => {
+      let newOrder = indexMap.get(c.id);
+      if (newOrder === undefined) {
+        newOrder = nextOrder++;
+      }
+      return tx.update(cards).set({ sortOrder: newOrder }).where(eq(cards.id, c.id));
+    });
+
+    await Promise.all(updates);
+  });
 
   return { reordered: cardIds.length };
 }

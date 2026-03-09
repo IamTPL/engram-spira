@@ -55,9 +55,10 @@ export async function remove(id: string, userId: string) {
 export async function reorder(userId: string, classIds: string[]) {
   // Verify all classes belong to user
   const userClasses = await db
-    .select({ id: classes.id })
+    .select({ id: classes.id, sortOrder: classes.sortOrder })
     .from(classes)
-    .where(eq(classes.userId, userId));
+    .where(eq(classes.userId, userId))
+    .orderBy(asc(classes.sortOrder));
 
   const userClassIds = new Set(userClasses.map((c) => c.id));
   for (const id of classIds) {
@@ -66,11 +67,20 @@ export async function reorder(userId: string, classIds: string[]) {
     }
   }
 
-  const updates = classIds.map((id, index) =>
-    db.update(classes).set({ sortOrder: index }).where(eq(classes.id, id)),
-  );
+  const indexMap = new Map(classIds.map((id, i) => [id, i]));
+  let nextOrder = classIds.length;
 
-  await Promise.all(updates);
+  await db.transaction(async (tx) => {
+    const updates = userClasses.map((c) => {
+      let newOrder = indexMap.get(c.id);
+      if (newOrder === undefined) {
+        newOrder = nextOrder++;
+      }
+      return tx.update(classes).set({ sortOrder: newOrder }).where(eq(classes.id, c.id));
+    });
+    
+    await Promise.all(updates);
+  });
 
   return { reordered: classIds.length };
 }

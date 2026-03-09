@@ -23,7 +23,7 @@ const app = new Elysia({ aot: true })
       origin:
         ENV.NODE_ENV === 'production' ? false : /^http:\/\/localhost:\d+$/,
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-timezone-offset'],
     }),
   )
   .onError(({ error, set }) => {

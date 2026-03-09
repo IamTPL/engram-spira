@@ -1,4 +1,4 @@
-import { type Component, Show, createSignal, createEffect } from 'solid-js';
+import { type Component, Show, For, createSignal, createEffect } from 'solid-js';
 import {
   showReward,
   closeReward,
@@ -115,19 +115,21 @@ const RewardPopup: Component = () => {
 
         {/* Confetti */}
         <div class="absolute inset-0 pointer-events-none overflow-hidden">
-          {confettiPieces().map((piece) => (
-            <div
-              class="absolute top-0 animate-confetti-fall"
-              style={{
-                left: `${piece.left}%`,
-                'animation-delay': `${piece.delay}s`,
-                width: `${piece.size}px`,
-                height: `${piece.size}px`,
-                'background-color': piece.color,
-                'border-radius': piece.borderRadius,
-              }}
-            />
-          ))}
+          <For each={confettiPieces()}>
+            {(piece) => (
+              <div
+                class="absolute top-0 animate-confetti-fall"
+                style={{
+                  left: `${piece.left}%`,
+                  'animation-delay': `${piece.delay}s`,
+                  width: `${piece.size}px`,
+                  height: `${piece.size}px`,
+                  'background-color': piece.color,
+                  'border-radius': piece.borderRadius,
+                }}
+              />
+            )}
+          </For>
         </div>
 
         {/* Main content */}
