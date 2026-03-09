@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Tell Tailwind v4 to use class-based dark mode instead of @media prefers-color-scheme */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ENGRAM SPIRA — Design System
    Palette: White · Blue · Slate | Font: Inter (variable, 300–800) */
 

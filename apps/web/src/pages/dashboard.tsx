@@ -322,7 +322,7 @@ const DashboardPage: Component = () => {
                     </span>
                   </div>
                   <button
-                    class="text-xs font-semibold text-slate-700 hover:underline"
+                    class="text-xs font-semibold text-slate-700 dark:text-slate-400 hover:underline"
                     onClick={() => {
                       const first = dueDecks()?.[0];
                       if (first) navigate(`/study/${first.deckId}`);
