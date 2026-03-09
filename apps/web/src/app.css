@@ -225,6 +225,7 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    cursor: default;
     font-family: var(--font-sans);
     font-size: 0.9375rem; /* 15px */
     line-height: 1.6;
@@ -311,6 +312,13 @@
   select {
     font-family: inherit;
     font-size: inherit;
+  }
+
+  /* Restore text cursor for editable elements */
+  input,
+  textarea,
+  [contenteditable='true'] {
+    cursor: text;
   }
 
   /* Prevent layout shift on load */

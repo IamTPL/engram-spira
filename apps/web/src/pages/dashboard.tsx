@@ -14,6 +14,7 @@ import {
   STREAK_MESSAGES,
   HEATMAP_LEVELS,
   NOTIFICATIONS_POLL_MS,
+  MONTHS,
 } from '@/constants';
 import {
   Flame,
@@ -116,20 +117,6 @@ function buildHeatmapGrid(activity: ActivityRow[]): {
 function buildMonthLabels(grid: { date: string }[]): string[] {
   // One label per column (7 days), use the start date of each column
   const labels: string[] = [];
-  const MONTHS = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
   let lastMonth = -1;
   for (let col = 0; col < 13; col++) {
     const cell = grid[col * 7];

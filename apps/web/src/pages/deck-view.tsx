@@ -35,20 +35,7 @@ import {
   Square,
 } from 'lucide-solid';
 
-const WORD_TYPES = [
-  { value: 'noun', label: 'Noun (n)' },
-  { value: 'verb', label: 'Verb (v)' },
-  { value: 'adj', label: 'Adjective (adj)' },
-  { value: 'adv', label: 'Adverb (adv)' },
-  { value: 'prep', label: 'Preposition (prep)' },
-  { value: 'conj', label: 'Conjunction (conj)' },
-  { value: 'pron', label: 'Pronoun (pron)' },
-  { value: 'det', label: 'Determiner (det)' },
-  { value: 'intj', label: 'Interjection (intj)' },
-  { value: 'phrasal verb', label: 'Phrasal verb' },
-  { value: 'idiom', label: 'Idiom' },
-  { value: 'phrase', label: 'Phrase' },
-] as const;
+import { WORD_TYPES } from '@/constants';
 
 interface TemplateField {
   id: string;

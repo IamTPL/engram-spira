@@ -456,10 +456,10 @@ const Sidebar: Component = () => {
         class={
           compact
             ? 'mt-auto pt-2 border-t border-border w-full flex flex-col items-center gap-1.5'
-            : 'border-t border-border p-3 shrink-0'
+            : 'border-t border-border p-3 shrink-0 flex items-center justify-between gap-1'
         }
       >
-        <div class={compact ? 'relative' : 'relative w-full'}>
+        <div class={compact ? 'relative' : 'relative shrink-0'}>
           <Button
             variant="ghost"
             size="icon"
@@ -468,7 +468,7 @@ const Sidebar: Component = () => {
               setShowNotifications(!showNotifications());
               setShowUserMenu(false);
             }}
-            class={compact ? 'h-8 w-8 relative' : 'relative'}
+            class={compact ? 'h-8 w-8 relative' : 'relative h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent'}
           >
             <Bell class="h-4 w-4" />
             <Show when={hasDue()}>
@@ -485,7 +485,7 @@ const Sidebar: Component = () => {
             />
             <div
               class={`fixed z-40 w-80 max-w-[90vw] rounded-xl border bg-card shadow-xl overflow-hidden ${
-                compact ? 'left-14 bottom-14' : 'left-64 bottom-14'
+                compact ? 'left-14 bottom-14' : 'left-64 bottom-2'
               }`}
             >
               <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
@@ -552,7 +552,7 @@ const Sidebar: Component = () => {
           </Show>
         </div>
 
-        <div class={compact ? 'relative' : 'relative w-full'}>
+        <div class={compact ? 'relative' : 'relative flex-1 min-w-0 order-first'}>
           <button
             class={
               compact
@@ -571,7 +571,7 @@ const Sidebar: Component = () => {
                   class={
                     compact
                       ? 'h-8 w-8 rounded-full bg-linear-to-br from-palette-5 to-palette-3 flex items-center justify-center text-slate-800 text-sm font-bold shadow-sm'
-                      : 'h-8 w-8 rounded-full bg-linear-to-br from-palette-5 to-palette-3 flex items-center justify-center text-slate-800 text-sm font-bold shadow-sm'
+                      : 'h-8 w-8 rounded-full flex shrink-0 items-center justify-center text-slate-800 text-sm font-bold shadow-sm bg-linear-to-br from-palette-5 to-palette-3 '
                   }
                 >
                   {userInitial()}
@@ -581,7 +581,7 @@ const Sidebar: Component = () => {
               <img
                 src={currentUser()!.avatarUrl!}
                 alt="avatar"
-                class="h-8 w-8 rounded-full object-cover shadow-sm ring-1 ring-border"
+                class="h-8 w-8 rounded-full object-cover shadow-sm ring-1 ring-border shrink-0"
               />
             </Show>
             <Show when={!compact}>
@@ -594,12 +594,13 @@ const Sidebar: Component = () => {
                 </p>
               </div>
               <ChevronDown
-                class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
+                class={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${
                   showUserMenu() ? 'rotate-180' : ''
                 }`}
               />
             </Show>
           </button>
+
 
           <Show when={showUserMenu()}>
             <div
@@ -926,7 +927,7 @@ const Sidebar: Component = () => {
                                   <ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
                                 </Show>
                                 <Layers class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span class="truncate font-semibold text-[15px]">
+                                <span class="truncate font-semibold">
                                   {cls.name}
                                 </span>
                               </button>
@@ -1101,7 +1102,7 @@ const Sidebar: Component = () => {
                                         }
                                       >
                                         <FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                        <span class="truncate text-[15px]">
+                                        <span class="truncate">
                                           {folder.name}
                                         </span>
                                       </button>
@@ -1347,7 +1348,7 @@ const Sidebar: Component = () => {
                                   <ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
                                 </Show>
                                 <Layers class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span class="truncate font-semibold text-[15px]">
+                                <span class="truncate font-semibold">
                                   {cls.name}
                                 </span>
                               </button>
@@ -1366,7 +1367,7 @@ const Sidebar: Component = () => {
                                         }
                                       >
                                         <FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                        <span class="truncate text-[15px]">
+                                        <span class="truncate">
                                           {folder.name}
                                         </span>
                                       </button>
