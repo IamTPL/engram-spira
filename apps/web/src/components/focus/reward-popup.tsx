@@ -4,7 +4,7 @@ import {
   closeReward,
   startFocusSession,
 } from '@/stores/focus.store';
-import DodecahedronDice, { type Reward, REWARDS } from './dodecahedron-dice';
+import CubeDice, { type Reward, REWARDS } from './dodecahedron-dice';
 import { playDiceRollSound, playRewardRevealSound } from './focus-sounds';
 import { X, RotateCcw, Play } from 'lucide-solid';
 
@@ -156,7 +156,7 @@ const RewardPopup: Component = () => {
 
             {/* 3D Dice */}
             <div class="px-6 py-4">
-              <DodecahedronDice
+              <CubeDice
                 onResult={handleResult}
                 rolling={rolling()}
                 onRollingChange={handleRollingChange}
@@ -169,7 +169,14 @@ const RewardPopup: Component = () => {
                 <div class="px-6 pb-4">
                   <div class="rounded-xl p-4 border animate-fade-in bg-palette-1/20 border-palette-1/40 dark:bg-palette-1/10 dark:border-palette-1/30">
                     <div class="flex items-center gap-3">
-                      <span class="text-3xl">{reward().emoji}</span>
+                      <span class="text-3xl text-palette-5">
+                        <Show when={reward()}>
+                          {(r) => {
+                            const Icon = r().icon;
+                            return <Icon class="h-8 w-8" />;
+                          }}
+                        </Show>
+                      </span>
                       <div>
                         <p class="font-semibold text-slate-800 dark:text-slate-100">
                           {reward().label}
