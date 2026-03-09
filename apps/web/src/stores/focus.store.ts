@@ -32,9 +32,9 @@ const MAX_PERSISTED_SESSIONS = 200;
 interface PersistedState {
   durationMin: number;
   sessions: FocusSession[];
-  /** If a session was running when page closed, we store the start time */
   activeStart: number | null;
   activeDurationMs: number | null;
+  rewardLabels?: string[];
 }
 
 function load(): PersistedState {
@@ -49,6 +49,7 @@ function load(): PersistedState {
     sessions: [],
     activeStart: null,
     activeDurationMs: null,
+    rewardLabels: undefined,
   };
 }
 
@@ -85,6 +86,20 @@ const [sessions, setSessions] = createSignal<FocusSession[]>(initial.sessions);
 
 /** Show reward popup after session completes */
 const [showReward, setShowReward] = createSignal(false);
+
+const DEFAULT_LABELS = [
+  'Play a game',
+  'Watch a movie',
+  'Browse short videos',
+  'Go outside for fresh air',
+  'Free break',
+  'Listen to favorite music',
+];
+
+/** Custom rewards set by user */
+const [rewardLabels, setRewardLabelsSignal] = createSignal<string[]>(
+  initial.rewardLabels || DEFAULT_LABELS
+);
 
 /** Timer tick interval id */
 let tickInterval: ReturnType<typeof setInterval> | null = null;
@@ -174,6 +189,7 @@ function completeSession() {
     sessions: sessions(),
     activeStart: null,
     activeDurationMs: null,
+    rewardLabels: rewardLabels(),
   });
 }
 
@@ -194,6 +210,7 @@ export function setDurationMin(min: number) {
     sessions: sessions(),
     activeStart: sessionStart(),
     activeDurationMs: sessionStart() ? durationMin() * 60_000 : null,
+    rewardLabels: rewardLabels(),
   });
 }
 
@@ -209,6 +226,7 @@ export function startFocusSession() {
     sessions: sessions(),
     activeStart: now,
     activeDurationMs: durationMin() * 60_000,
+    rewardLabels: rewardLabels(),
   });
 }
 
@@ -223,6 +241,20 @@ export function stopFocusSession() {
     sessions: sessions(),
     activeStart: null,
     activeDurationMs: null,
+    rewardLabels: rewardLabels(),
+  });
+}
+
+export function updateRewardLabel(index: number, newLabel: string) {
+  const updated = [...rewardLabels()];
+  updated[index] = newLabel;
+  setRewardLabelsSignal(updated);
+  save({
+    durationMin: durationMin(),
+    sessions: sessions(),
+    activeStart: sessionStart(),
+    activeDurationMs: sessionStart() ? durationMin() * 60_000 : null,
+    rewardLabels: updated,
   });
 }
 
@@ -239,6 +271,7 @@ export {
   remainingSeconds,
   sessions,
   showReward,
+  rewardLabels,
 };
 
 // ── Boot: resume running session if page was refreshed ────────

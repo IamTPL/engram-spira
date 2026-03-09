@@ -18,20 +18,25 @@ import {
    - Guarantees perfectly smooth rotation with exact landing at 4s.
    ══════════════════════════════════════════════════════════════ */
 
+import { rewardLabels } from '@/stores/focus.store';
+
 export interface Reward {
   id: number;
   icon: Component<{ class?: string }>;
   label: string;
 }
 
-export const REWARDS: Reward[] = [
-  { id: 0, icon: Dice1, label: 'Play a game' },
-  { id: 1, icon: Dice2, label: 'Watch a movie' },
-  { id: 2, icon: Dice3, label: 'Browse short videos' },
-  { id: 3, icon: Dice4, label: 'Go outside for fresh air' },
-  { id: 4, icon: Dice5, label: 'Free break' },
-  { id: 5, icon: Dice6, label: 'Listen to favorite music' },
-];
+export const getRewards = (): Reward[] => {
+  const labels = rewardLabels();
+  return [
+    { id: 0, icon: Dice1, label: labels[0] || 'Play a game' },
+    { id: 1, icon: Dice2, label: labels[1] || 'Watch a movie' },
+    { id: 2, icon: Dice3, label: labels[2] || 'Browse short videos' },
+    { id: 3, icon: Dice4, label: labels[3] || 'Go outside for fresh air' },
+    { id: 4, icon: Dice5, label: labels[4] || 'Free break' },
+    { id: 5, icon: Dice6, label: labels[5] || 'Listen to favorite music' },
+  ];
+};
 
 interface Props {
   onResult: (reward: Reward) => void;
@@ -186,7 +191,7 @@ const CubeDice: Component<Props> = (props) => {
     function settleNow() {
       isRolling = false;
       props.onRollingChange(false);
-      props.onResult(REWARDS[selectedFaceIdx]);
+      props.onResult(getRewards()[selectedFaceIdx]);
 
       // Set exact final rotation
       mesh.quaternion.copy(targetFaceQuat);

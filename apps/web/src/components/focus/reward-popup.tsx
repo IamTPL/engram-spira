@@ -4,7 +4,7 @@ import {
   closeReward,
   startFocusSession,
 } from '@/stores/focus.store';
-import CubeDice, { type Reward, REWARDS } from './dodecahedron-dice';
+import CubeDice, { type Reward } from './dodecahedron-dice';
 import { playDiceRollSound, playRewardRevealSound } from './focus-sounds';
 import { X, RotateCcw, Play } from 'lucide-solid';
 

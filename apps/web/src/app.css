@@ -111,7 +111,7 @@
   --animate-fade-in: fade-in 200ms ease forwards;
 
   /* ── Engram Spira pastel palette (priority: p1 → p7) ── */
-  --color-palette-1: #b2d8f1; /* Sky blue      — highest priority */
+  --color-palette-1: #8dccf5; /* Sky blue      — highest priority */
   --color-palette-2: #f0cbf1; /* Lavender pink */
   --color-palette-3: #afe5e3; /* Teal */
   --color-palette-4: #e2cffc; /* Soft purple */

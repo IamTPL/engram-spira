@@ -10,6 +10,8 @@ import {
   stopFocusSession,
   getStats,
   showReward,
+  rewardLabels,
+  updateRewardLabel,
 } from '@/stores/focus.store';
 import {
   playBreakTimeChime,
@@ -26,8 +28,15 @@ import {
   Target,
   Minus,
   Plus,
+  Settings2,
+  Dice1,
+  Dice2,
+  Dice3,
+  Dice4,
+  Dice5,
+  Dice6,
 } from 'lucide-solid';
-import { onCleanup } from 'solid-js';
+import { onCleanup, createSignal, For, type Accessor } from 'solid-js';
 
 /* ══════════════════════════════════════════════════════════════
    FOCUS DRAWER
@@ -86,12 +95,16 @@ const FocusDrawer: Component = () => {
   // Circle progress (SVG)
   const circumference = 2 * Math.PI * 90; // radius = 90
 
+  const [showSettings, setShowSettings] = createSignal(false);
+  
+  const DICE_ICONS = [Dice1, Dice2, Dice3, Dice4, Dice5, Dice6];
+
   return (
     <>
       {/* Backdrop */}
       <Show when={isDrawerOpen()}>
         <div
-          class="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity"
+          class="fixed inset-0 z-40 bg-black/50 transition-opacity"
           onClick={closeFocusDrawer}
         />
       </Show>
@@ -117,12 +130,21 @@ const FocusDrawer: Component = () => {
               </p>
             </div>
           </div>
-          <button
-            onClick={closeFocusDrawer}
-            class="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <X class="h-4 w-4" />
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              onClick={() => setShowSettings(!showSettings())}
+              class="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              title="Customize Rewards"
+            >
+              <Settings2 class="h-4 w-4" />
+            </button>
+            <button
+              onClick={closeFocusDrawer}
+              class="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <X class="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -267,6 +289,40 @@ const FocusDrawer: Component = () => {
                 : 'Set your focus duration and start. You can study on the app or work on anything outside.'}
             </p>
           </div>
+
+          {/* Reward Settings Panel */}
+          <Show when={showSettings()}>
+            <div class="border-t px-6 py-5 bg-card animate-in slide-in-from-top-4 fade-in duration-300">
+              <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
+                Customize 6-Sided Dice Rewards
+              </h3>
+              <div class="space-y-3">
+                <For each={rewardLabels()}>
+                  {(label: string, idx: Accessor<number>) => {
+                    const Icon = DICE_ICONS[idx()];
+                    return (
+                      <div class="flex items-center gap-3">
+                        <div class="h-8 w-8 rounded bg-blue-700/10 flex items-center justify-center text-blue-700 shrink-0 border border-blue-700/20">
+                          <Icon class="h-5 w-5" />
+                        </div>
+                        <input
+                          type="text"
+                          value={label}
+                          onInput={(e) => updateRewardLabel(idx(), e.currentTarget.value)}
+                          placeholder={`Reward ${idx() + 1}`}
+                          class="flex-1 bg-transparent border-b border-border/50 focus:border-blue-700 pb-1 text-sm text-foreground outline-none transition-colors"
+                          maxLength={40}
+                        />
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+              <p class="text-[10px] text-muted-foreground mt-4 text-center">
+                These exactly map to the dice faces rolled after a session.
+              </p>
+            </div>
+          </Show>
 
           {/* Stats section */}
           <div class="border-t px-6 py-5 bg-section-gradient">
