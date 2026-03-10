@@ -74,6 +74,14 @@ const LoginPage: Component = () => {
                 onInput={(e) => setPassword(e.currentTarget.value)}
                 required
               />
+              <div class="text-right">
+                <A
+                  href="/reset-password"
+                  class="text-xs text-palette-5 underline"
+                >
+                  Forgot password?
+                </A>
+              </div>
             </div>
           </CardContent>
           <CardFooter class="flex-col gap-2">

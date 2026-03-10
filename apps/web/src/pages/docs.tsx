@@ -77,7 +77,7 @@ async function fetchMarkdown(): Promise<string> {
   const res = await fetch('/docs/srs/srs.md');
   if (!res.ok) throw new Error('Failed to load SRS document');
   const md = await res.text();
-  return marked.parse(md) as string;
+  return sanitizeHtml(marked.parse(md) as string);
 }
 
 async function fetchSvg(url: string): Promise<string> {
@@ -88,7 +88,66 @@ async function fetchSvg(url: string): Promise<string> {
   if (text.includes('Export from Structurizr Lite')) {
     throw new Error('placeholder');
   }
-  return text;
+  return sanitizeSvg(text);
+}
+
+function sanitizeHtml(html: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  doc
+    .querySelectorAll('script, iframe, object, embed, link, meta')
+    .forEach((el) => {
+      el.remove();
+    });
+
+  const all = doc.body.querySelectorAll('*');
+  for (const el of all) {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        (name === 'href' || name === 'src') &&
+        value.startsWith('javascript:')
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+
+  return doc.body.innerHTML;
+}
+
+function sanitizeSvg(svgText: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgText, 'image/svg+xml');
+
+  doc.querySelectorAll('script, foreignObject').forEach((el) => el.remove());
+
+  const all = doc.querySelectorAll('*');
+  for (const el of all) {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        (name === 'href' || name === 'xlink:href') &&
+        value.startsWith('javascript:')
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+
+  const svg = doc.querySelector('svg');
+  return svg ? svg.outerHTML : '';
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────

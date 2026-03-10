@@ -10,12 +10,7 @@ import Sidebar from '@/components/layout/sidebar';
 import MobileNav from '@/components/layout/mobile-nav';
 import { currentUser } from '@/stores/auth.store';
 import { api } from '@/api/client';
-import {
-  STREAK_MESSAGES,
-  HEATMAP_LEVELS,
-  NOTIFICATIONS_POLL_MS,
-  MONTHS,
-} from '@/constants';
+import { STREAK_MESSAGES, HEATMAP_LEVELS, MONTHS } from '@/constants';
 import {
   Flame,
   TrendingUp,
@@ -162,51 +157,29 @@ const DashboardPage: Component = () => {
   const navigate = useNavigate();
 
   // ── Data fetching ───────────────────────────────────────
-  const [streakData] = createResource(
+  const [dashboard] = createResource(
     () => currentUser()?.id,
     async () => {
-      const { data } = await (api.study as any).streak.get();
-      return data as StreakData | null;
-    },
-  );
-
-  const [activityData] = createResource(
-    () => currentUser()?.id,
-    async () => {
-      const { data } = await (api.study as any).activity.get({
-        query: { days: 91 },
-      });
-      return (
-        (data as { activity: ActivityRow[]; days: number } | null)?.activity ??
-        []
-      );
-    },
-  );
-
-  const [statsData] = createResource(
-    () => currentUser()?.id,
-    async () => {
-      const { data } = await (api.study as any).stats.get();
-      return data as StatsData | null;
-    },
-  );
-
-  const [dueDecks] = createResource(
-    () => currentUser()?.id,
-    async () => {
-      const { data } = await (api.notifications as any)['due-decks'].get();
-      return (data ?? []) as DueDeck[];
+      const { data } = await (api.study as any)['dashboard-snapshot'].get();
+      return (data ?? null) as {
+        streak: StreakData;
+        activity: ActivityRow[];
+        stats: StatsData;
+        dueDecks: DueDeck[];
+      } | null;
     },
   );
 
   // ── Computed ─────────────────────────────────────────────
-  const heatmapGrid = createMemo(() => buildHeatmapGrid(activityData() ?? []));
+  const heatmapGrid = createMemo(() =>
+    buildHeatmapGrid(dashboard()?.activity ?? []),
+  );
   const monthLabels = createMemo(() => buildMonthLabels(heatmapGrid()));
   const totalDue = createMemo(() =>
-    (dueDecks() ?? []).reduce((s, d) => s + d.dueCount, 0),
+    (dashboard()?.dueDecks ?? []).reduce((s, d) => s + d.dueCount, 0),
   );
 
-  const streak = () => streakData()?.currentStreak ?? 0;
+  const streak = () => dashboard()?.streak.currentStreak ?? 0;
   const streakMessage = () => getStreakMessage(streak());
 
   return (
@@ -282,7 +255,7 @@ const DashboardPage: Component = () => {
                   {/* Studied today indicator */}
                   <div class="flex items-center gap-2 mt-3">
                     <Show
-                      when={streakData()?.studiedToday}
+                      when={dashboard()?.streak.studiedToday}
                       fallback={
                         <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span class="h-2 w-2 rounded-full bg-muted-foreground/40 animate-pulse" />
@@ -299,10 +272,10 @@ const DashboardPage: Component = () => {
                 </div>
 
                 {/* Longest streak badge */}
-                <Show when={(streakData()?.longestStreak ?? 0) > 0}>
+                <Show when={(dashboard()?.streak.longestStreak ?? 0) > 0}>
                   <div class="shrink-0 text-center border rounded-xl px-4 py-3 bg-card">
                     <p class="text-2xl font-black">
-                      {streakData()!.longestStreak}
+                      {dashboard()!.streak.longestStreak}
                     </p>
                     <p class="text-xs text-muted-foreground mt-0.5">
                       best streak
@@ -324,7 +297,7 @@ const DashboardPage: Component = () => {
                   <button
                     class="text-xs font-semibold text-slate-700 dark:text-slate-400 hover:underline"
                     onClick={() => {
-                      const first = dueDecks()?.[0];
+                      const first = dashboard()?.dueDecks?.[0];
                       if (first) navigate(`/study/${first.deckId}`);
                     }}
                   >
@@ -338,19 +311,21 @@ const DashboardPage: Component = () => {
             <div class="grid grid-cols-3 gap-3">
               <StatCard
                 label="Cards reviewed"
-                value={(statsData()?.totalCardsReviewed ?? 0).toLocaleString()}
+                value={(
+                  dashboard()?.stats.totalCardsReviewed ?? 0
+                ).toLocaleString()}
                 icon={BookOpen}
                 accent="bg-palette-1 text-slate-700"
               />
               <StatCard
                 label="Study days"
-                value={statsData()?.totalStudyDays ?? 0}
+                value={dashboard()?.stats.totalStudyDays ?? 0}
                 icon={CalendarDays}
                 accent="bg-palette-7 text-slate-700"
               />
               <StatCard
                 label="Longest streak"
-                value={`${streakData()?.longestStreak ?? 0}d`}
+                value={`${dashboard()?.streak.longestStreak ?? 0}d`}
                 icon={TrendingUp}
                 accent="bg-palette-2 text-slate-700"
               />
@@ -429,7 +404,7 @@ const DashboardPage: Component = () => {
             </div>
 
             {/* ── Due Decks ─── */}
-            <Show when={(dueDecks() ?? []).length > 0}>
+            <Show when={(dashboard()?.dueDecks ?? []).length > 0}>
               <div class="rounded-xl border bg-section-gradient p-5">
                 <div class="flex items-center justify-between mb-4">
                   <div class="flex items-center gap-2">
@@ -437,12 +412,12 @@ const DashboardPage: Component = () => {
                     <h3 class="text-sm font-semibold">
                       Ready to Review{' '}
                       <span class="text-muted-foreground font-normal">
-                        ({(dueDecks() ?? []).length} deck
-                        {(dueDecks() ?? []).length !== 1 ? 's' : ''})
+                        ({(dashboard()?.dueDecks ?? []).length} deck
+                        {(dashboard()?.dueDecks ?? []).length !== 1 ? 's' : ''})
                       </span>
                     </h3>
                   </div>
-                  <Show when={(dueDecks() ?? []).length > 1}>
+                  <Show when={(dashboard()?.dueDecks ?? []).length > 1}>
                     <button
                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-palette-5/40 text-slate-700 hover:bg-palette-5/60 transition-colors"
                       onClick={() => navigate('/study/interleaved')}
@@ -453,7 +428,7 @@ const DashboardPage: Component = () => {
                   </Show>
                 </div>
                 <div class="space-y-2">
-                  <For each={dueDecks() ?? []}>
+                  <For each={dashboard()?.dueDecks ?? []}>
                     {(deck) => (
                       <button
                         class="w-full flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors text-left group"
@@ -489,9 +464,9 @@ const DashboardPage: Component = () => {
             {/* ── Empty state ─── */}
             <Show
               when={
-                !dueDecks.loading &&
-                (dueDecks() ?? []).length === 0 &&
-                (statsData()?.totalCardsReviewed ?? 0) === 0
+                !dashboard.loading &&
+                (dashboard()?.dueDecks ?? []).length === 0 &&
+                (dashboard()?.stats.totalCardsReviewed ?? 0) === 0
               }
             >
               <div class="rounded-xl border bg-card/50 p-8 text-center text-muted-foreground">

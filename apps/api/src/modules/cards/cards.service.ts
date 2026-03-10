@@ -95,35 +95,46 @@ export async function create(
   userId: string,
   data: { fieldValues: { templateFieldId: string; value: unknown }[] },
 ) {
-  const deck = await verifyDeckOwnership(deckId, userId);
+  await verifyDeckOwnership(deckId, userId);
 
-  // Get max sort order
-  const existing = await db
-    .select({ sortOrder: cards.sortOrder })
-    .from(cards)
-    .where(eq(cards.deckId, deckId))
-    .orderBy(desc(cards.sortOrder))
-    .limit(1);
+  const card = await db.transaction(async (tx) => {
+    // Lock deck row to serialize sort order assignment per deck.
+    await tx.execute(sql`SELECT id FROM decks WHERE id = ${deckId} FOR UPDATE`);
 
-  const nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
+    const existing = await tx
+      .select({ sortOrder: cards.sortOrder })
+      .from(cards)
+      .where(eq(cards.deckId, deckId))
+      .orderBy(desc(cards.sortOrder))
+      .limit(1);
 
-  const [card] = await db
-    .insert(cards)
-    .values({ deckId, sortOrder: nextOrder })
-    .returning();
+    const nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
 
-  if (data.fieldValues.length > 0) {
-    await db.insert(cardFieldValues).values(
-      data.fieldValues.map((fv) => ({
-        cardId: card.id,
-        templateFieldId: fv.templateFieldId,
-        value: fv.value,
-      })),
-    );
-  }
+    const [createdCard] = await tx
+      .insert(cards)
+      .values({ deckId, sortOrder: nextOrder })
+      .returning();
+
+    if (data.fieldValues.length > 0) {
+      await tx.insert(cardFieldValues).values(
+        data.fieldValues.map((fv) => ({
+          cardId: createdCard.id,
+          templateFieldId: fv.templateFieldId,
+          value: fv.value,
+        })),
+      );
+    }
+
+    return createdCard;
+  });
 
   // Fire-and-forget: generate embedding for duplicate detection
-  embedCardFields(card.id).catch(() => {});
+  embedCardFields(card.id).catch((err) => {
+    console.error('[cards] Failed to embed card fields', {
+      cardId: card.id,
+      err,
+    });
+  });
 
   return card;
 }
@@ -205,18 +216,21 @@ export async function createBatch(
 ) {
   await verifyDeckOwnership(deckId, userId);
 
-  const existing = await db
-    .select({ sortOrder: cards.sortOrder })
-    .from(cards)
-    .where(eq(cards.deckId, deckId))
-    .orderBy(desc(cards.sortOrder))
-    .limit(1);
-
-  let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
-
   const createdCards: (typeof cards.$inferSelect)[] = [];
 
   await db.transaction(async (tx) => {
+    // Lock deck row to serialize sort order assignment per deck.
+    await tx.execute(sql`SELECT id FROM decks WHERE id = ${deckId} FOR UPDATE`);
+
+    const existing = await tx
+      .select({ sortOrder: cards.sortOrder })
+      .from(cards)
+      .where(eq(cards.deckId, deckId))
+      .orderBy(desc(cards.sortOrder))
+      .limit(1);
+
+    let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
+
     for (const cardData of cardsData) {
       const [card] = await tx
         .insert(cards)
@@ -274,7 +288,10 @@ export async function reorder(
       if (newOrder === undefined) {
         newOrder = nextOrder++;
       }
-      return tx.update(cards).set({ sortOrder: newOrder }).where(eq(cards.id, c.id));
+      return tx
+        .update(cards)
+        .set({ sortOrder: newOrder })
+        .where(eq(cards.id, c.id));
     });
 
     await Promise.all(updates);

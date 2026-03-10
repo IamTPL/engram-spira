@@ -8,6 +8,7 @@ import Toaster from '@/components/ui/toaster';
 import FocusDrawer from '@/components/focus/focus-drawer';
 import LoginPage from '@/pages/login';
 import RegisterPage from '@/pages/register';
+import ResetPasswordPage from '@/pages/reset-password';
 import DashboardPage from '@/pages/dashboard';
 import StudyModePage from '@/pages/study-mode';
 import DeckViewPage from '@/pages/deck-view';
@@ -77,6 +78,7 @@ const App: Component = () => {
               </GuestRoute>
             )}
           />
+          <Route path="/reset-password" component={ResetPasswordPage} />
           <Route
             path="/"
             component={() => (

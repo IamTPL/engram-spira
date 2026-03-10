@@ -1,8 +1,19 @@
 import Elysia, { t } from 'elysia';
+import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from '../auth/auth.middleware';
 import * as aiService from './ai.service';
 
 export const aiRoutes = new Elysia({ prefix: '/ai' })
+  .use(
+    rateLimit({
+      duration: 60 * 1000,
+      max: 20,
+      errorResponse: new Response(
+        JSON.stringify({ error: 'Too many AI requests, please retry later' }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } },
+      ),
+    }),
+  )
   .use(requireAuth)
 
   // Generate flashcards from text (returns preview)

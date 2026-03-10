@@ -1,7 +1,9 @@
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError, ValidationError } from '../../shared/errors';
+
+const MAX_IMPORT_ROWS = 10_000;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -110,6 +112,9 @@ export async function importCSV(
       'CSV must have a header row and at least one data row',
     );
   }
+  if (rows.length - 1 > MAX_IMPORT_ROWS) {
+    throw new ValidationError(`CSV exceeds maximum rows (${MAX_IMPORT_ROWS}).`);
+  }
 
   const [headerRow, ...dataRows] = rows;
 
@@ -128,50 +133,54 @@ export async function importCSV(
     );
   }
 
-  // Get current max sort order
-  const existing = await db
-    .select({ sortOrder: cards.sortOrder })
-    .from(cards)
-    .where(eq(cards.deckId, deckId))
-    .orderBy(desc(cards.sortOrder))
-    .limit(1);
-
-  let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
-
   let created = 0;
   const skippedRows: number[] = [];
 
-  for (let i = 0; i < dataRows.length; i++) {
-    const row = dataRows[i];
-    const fieldValues: { templateFieldId: string; value: unknown }[] = [];
+  await db.transaction(async (tx) => {
+    // Lock deck row to serialize sort order assignment per deck.
+    await tx.execute(sql`SELECT id FROM decks WHERE id = ${deckId} FOR UPDATE`);
 
-    for (let col = 0; col < columnToFieldId.length; col++) {
-      const fieldId = columnToFieldId[col];
-      if (fieldId && row[col] !== undefined && row[col] !== '') {
-        fieldValues.push({ templateFieldId: fieldId, value: row[col] });
+    const existing = await tx
+      .select({ sortOrder: cards.sortOrder })
+      .from(cards)
+      .where(eq(cards.deckId, deckId))
+      .orderBy(desc(cards.sortOrder))
+      .limit(1);
+
+    let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
+
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      const fieldValues: { templateFieldId: string; value: unknown }[] = [];
+
+      for (let col = 0; col < columnToFieldId.length; col++) {
+        const fieldId = columnToFieldId[col];
+        if (fieldId && row[col] !== undefined && row[col] !== '') {
+          fieldValues.push({ templateFieldId: fieldId, value: row[col] });
+        }
       }
+
+      if (fieldValues.length === 0) {
+        skippedRows.push(i + 2); // +2 for 1-based + header
+        continue;
+      }
+
+      const [card] = await tx
+        .insert(cards)
+        .values({ deckId, sortOrder: nextOrder++ })
+        .returning();
+
+      await tx.insert(cardFieldValues).values(
+        fieldValues.map((fv) => ({
+          cardId: card.id,
+          templateFieldId: fv.templateFieldId,
+          value: fv.value,
+        })),
+      );
+
+      created++;
     }
-
-    if (fieldValues.length === 0) {
-      skippedRows.push(i + 2); // +2 for 1-based + header
-      continue;
-    }
-
-    const [card] = await db
-      .insert(cards)
-      .values({ deckId, sortOrder: nextOrder++ })
-      .returning();
-
-    await db.insert(cardFieldValues).values(
-      fieldValues.map((fv) => ({
-        cardId: card.id,
-        templateFieldId: fv.templateFieldId,
-        value: fv.value,
-      })),
-    );
-
-    created++;
-  }
+  });
 
   return { created, skipped: skippedRows.length, skippedRows };
 }

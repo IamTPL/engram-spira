@@ -114,10 +114,7 @@ export async function sendPasswordResetEmail(
   resetToken: string,
 ): Promise<void> {
   // In development, use localhost; in production, this should be the real frontend URL
-  const baseUrl =
-    ENV.NODE_ENV === 'production'
-      ? 'https://engram-spira.app'
-      : 'http://localhost:5173';
+  const baseUrl = ENV.FRONTEND_URL;
   const resetLink = `${baseUrl}/reset-password?token=${resetToken}`;
 
   const html = `

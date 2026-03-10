@@ -12,6 +12,7 @@ import {
 import { NotFoundError } from '../../shared/errors';
 import { calculateNextReview } from './srs.engine';
 import { STREAK, type ReviewAction } from '../../shared/constants';
+import * as notificationsService from '../notifications/notifications.service';
 
 // --------------- Helpers ---------------
 
@@ -19,9 +20,16 @@ import { STREAK, type ReviewAction } from '../../shared/constants';
  * Upsert today's study log for a user, incrementing cards_reviewed by `count`.
  * Uses a single SQL upsert to avoid race conditions.
  */
-async function upsertDailyLog(userId: string, count: number, tzOffset = 0) {
-  const today = new Date(Date.now() - tzOffset * 60000).toISOString().slice(0, 10); // 'YYYY-MM-DD'
-  await db
+async function upsertDailyLog(
+  executor: any,
+  userId: string,
+  count: number,
+  tzOffset = 0,
+) {
+  const today = new Date(Date.now() - tzOffset * 60000)
+    .toISOString()
+    .slice(0, 10); // 'YYYY-MM-DD'
+  await executor
     .insert(studyDailyLogs)
     .values({ userId, studyDate: today, cardsReviewed: count })
     .onConflictDoUpdate({
@@ -153,7 +161,7 @@ export async function reviewCard(
   cardId: string,
   userId: string,
   action: ReviewAction,
-  tzOffset = 0
+  tzOffset = 0,
 ) {
   // Verify ownership + get current progress in parallel
   const [[cardResult], [currentProgress]] = await Promise.all([
@@ -214,8 +222,8 @@ export async function reviewCard(
     lastReviewedAt: now,
   };
 
-  await Promise.all([
-    db
+  await db.transaction(async (tx) => {
+    await tx
       .insert(studyProgress)
       .values({
         userId,
@@ -225,17 +233,19 @@ export async function reviewCard(
       .onConflictDoUpdate({
         target: [studyProgress.userId, studyProgress.cardId],
         set: upsertSet,
-      }),
-    upsertDailyLog(userId, 1, tzOffset),
-    db.insert(reviewLogs).values({
+      });
+
+    await upsertDailyLog(tx, userId, 1, tzOffset);
+
+    await tx.insert(reviewLogs).values({
       userId,
       cardId,
       rating: action,
       state: cardState,
       elapsedDays,
       scheduledDays: prevIntervalDays,
-    }),
-  ]);
+    });
+  });
 
   return {
     cardId,
@@ -249,7 +259,7 @@ export async function reviewCard(
 export async function reviewCardBatch(
   userId: string,
   items: { cardId: string; action: ReviewAction }[],
-  tzOffset = 0
+  tzOffset = 0,
 ) {
   if (items.length === 0) return { reviewed: 0 };
 
@@ -349,20 +359,21 @@ export async function reviewCardBatch(
     lastReviewedAt: sql`excluded.last_reviewed_at`,
   };
 
-  // Single batch upsert for all cards + log daily activity + review logs in parallel
-  await Promise.all([
-    db
+  await db.transaction(async (tx) => {
+    await tx
       .insert(studyProgress)
       .values(upsertValues)
       .onConflictDoUpdate({
         target: [studyProgress.userId, studyProgress.cardId],
         set: conflictSet,
-      }),
-    upsertDailyLog(userId, upsertValues.length, tzOffset),
-    logEntries.length > 0
-      ? db.insert(reviewLogs).values(logEntries)
-      : Promise.resolve(),
-  ]);
+      });
+
+    await upsertDailyLog(tx, userId, upsertValues.length, tzOffset);
+
+    if (logEntries.length > 0) {
+      await tx.insert(reviewLogs).values(logEntries);
+    }
+  });
 
   return { reviewed: upsertValues.length };
 }
@@ -477,7 +488,9 @@ export async function getUserStreak(userId: string, tzOffset = 0) {
 
   // Build a set of study date strings for O(1) lookup
   const studyDates = new Set(rows.map((r) => r.studyDate));
-  const today = new Date(Date.now() - tzOffset * 60000).toISOString().slice(0, 10);
+  const today = new Date(Date.now() - tzOffset * 60000)
+    .toISOString()
+    .slice(0, 10);
 
   const studiedToday = studyDates.has(today);
 
@@ -526,7 +539,11 @@ export async function getUserStreak(userId: string, tzOffset = 0) {
  * Fetch daily activity logs for heatmap display.
  * Returns an array of { date, cardsReviewed } for the last `days` days.
  */
-export async function getUserActivity(userId: string, days: number, tzOffset = 0) {
+export async function getUserActivity(
+  userId: string,
+  days: number,
+  tzOffset = 0,
+) {
   const clampedDays = Math.min(days, STREAK.ACTIVITY_MAX_DAYS);
   const fromDate = new Date(Date.now() - tzOffset * 60000);
   fromDate.setDate(fromDate.getDate() - clampedDays + 1);
@@ -566,6 +583,22 @@ export async function getUserStats(userId: string) {
   return {
     totalCardsReviewed: row?.totalCardsReviewed ?? 0,
     totalStudyDays: row?.totalStudyDays ?? 0,
+  };
+}
+
+export async function getDashboardSnapshot(userId: string, tzOffset = 0) {
+  const [streak, activity, stats, dueDecks] = await Promise.all([
+    getUserStreak(userId, tzOffset),
+    getUserActivity(userId, 91, tzOffset),
+    getUserStats(userId),
+    notificationsService.getDueDecks(userId),
+  ]);
+
+  return {
+    streak,
+    activity: activity.activity,
+    stats,
+    dueDecks,
   };
 }
 

@@ -3,6 +3,11 @@ const ENV = {
   PORT: Number(process.env.PORT) || 3001,
   NODE_ENV:
     (process.env.NODE_ENV as 'development' | 'production') || 'development',
+  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3002',
+  ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3002')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean),
   SESSION_COOKIE_NAME: 'engram_session',
   SESSION_MAX_AGE_DAYS: 30,
   SESSION_REFRESH_THRESHOLD_DAYS: 15,

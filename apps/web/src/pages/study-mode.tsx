@@ -34,6 +34,9 @@ const StudyModePage: Component = () => {
   const [reviewing, setReviewing] = createSignal(false);
   const [studyMode, setStudyMode] = createSignal<'due' | 'all'>('due');
   const [checkingMore, setCheckingMore] = createSignal(false);
+  const [pendingReviews, setPendingReviews] = createSignal<
+    { cardId: string; action: ReviewAction }[]
+  >([]);
 
   // Session stats
   const [stats, setStats] = createSignal({
@@ -117,16 +120,23 @@ const StudyModePage: Component = () => {
     return Math.round((currentIndex() / data.due) * 100);
   };
 
+  const flushPendingReviews = async (force = false) => {
+    const pending = pendingReviews();
+    if (pending.length === 0) return;
+    if (!force && pending.length < 8) return;
+
+    await (api.study as any)['review-batch'].post({ items: pending });
+    setPendingReviews((prev) => prev.slice(pending.length));
+  };
+
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
     if (!card || reviewing()) return;
 
     setReviewing(true);
     try {
-      await (api.study.review.post as any)({
-        cardId: card.id,
-        action: action,
-      });
+      setPendingReviews((prev) => [...prev, { cardId: card.id, action }]);
+      await flushPendingReviews(false);
       // Track stats
       setStats((s) => ({
         ...s,
@@ -144,6 +154,7 @@ const StudyModePage: Component = () => {
       // to pick up learning/relearning cards that became due during the session
       const data = studyData();
       if (data && nextIndex >= data.cards.length && studyMode() === 'due') {
+        await flushPendingReviews(true);
         setCheckingMore(true);
         // Brief delay for SM-2 learning cards to become due
         await new Promise((r) => setTimeout(r, 1500));
@@ -245,6 +256,7 @@ const StudyModePage: Component = () => {
 
   onMount(() => document.addEventListener('keydown', handleKeyDown));
   onCleanup(() => {
+    void flushPendingReviews(true);
     document.removeEventListener('keydown', handleKeyDown);
     if (countdownTimer) clearInterval(countdownTimer);
   });

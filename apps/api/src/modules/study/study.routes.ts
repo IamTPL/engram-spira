@@ -1,4 +1,5 @@
 import Elysia, { t } from 'elysia';
+import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from '../auth/auth.middleware';
 import * as studyService from './study.service';
 import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
@@ -6,7 +7,25 @@ import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
 const VALID_ACTIONS = Object.values(REVIEW_ACTIONS);
 const reviewActionSchema = t.Union(VALID_ACTIONS.map((a) => t.Literal(a)));
 
+function getTimezoneOffsetMinutes(headers: Record<string, string | undefined>) {
+  const raw = headers['x-timezone-offset'];
+  if (!raw) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return 0;
+  return Math.max(-720, Math.min(840, parsed));
+}
+
 export const studyRoutes = new Elysia({ prefix: '/study' })
+  .use(
+    rateLimit({
+      duration: 60 * 1000,
+      max: 180,
+      errorResponse: new Response(
+        JSON.stringify({ error: 'Too many study requests, please retry' }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } },
+      ),
+    }),
+  )
   .use(requireAuth)
   .get('/deck/:deckId', ({ currentUser, params, query }) =>
     studyService.getDueCards(
@@ -19,17 +38,17 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
     studyService.getDeckSchedule(params.deckId, currentUser.id),
   )
   .get('/streak', ({ currentUser, headers }) => {
-    const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+    const tzOffset = getTimezoneOffsetMinutes(headers);
     return studyService.getUserStreak(currentUser.id, tzOffset);
   })
   .get(
     '/activity',
     ({ currentUser, query, headers }) => {
-      const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+      const tzOffset = getTimezoneOffsetMinutes(headers);
       return studyService.getUserActivity(
         currentUser.id,
         Number(query.days ?? STREAK.ACTIVITY_DEFAULT_DAYS),
-        tzOffset
+        tzOffset,
       );
     },
     {
@@ -41,11 +60,20 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
     },
   )
   .get('/stats', ({ currentUser }) => studyService.getUserStats(currentUser.id))
+  .get('/dashboard-snapshot', ({ currentUser, headers }) => {
+    const tzOffset = getTimezoneOffsetMinutes(headers);
+    return studyService.getDashboardSnapshot(currentUser.id, tzOffset);
+  })
   .post(
     '/review',
     ({ currentUser, body, headers }) => {
-      const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
-      return studyService.reviewCard(body.cardId, currentUser.id, body.action, tzOffset);
+      const tzOffset = getTimezoneOffsetMinutes(headers);
+      return studyService.reviewCard(
+        body.cardId,
+        currentUser.id,
+        body.action,
+        tzOffset,
+      );
     },
     {
       body: t.Object({
@@ -57,7 +85,7 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
   .post(
     '/review-batch',
     ({ currentUser, body, headers }) => {
-      const tzOffset = headers['x-timezone-offset'] ? parseInt(headers['x-timezone-offset'], 10) : 0;
+      const tzOffset = getTimezoneOffsetMinutes(headers);
       return studyService.reviewCardBatch(currentUser.id, body.items, tzOffset);
     },
     {

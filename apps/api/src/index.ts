@@ -1,7 +1,9 @@
 import { Elysia } from 'elysia';
+import { sql } from 'drizzle-orm';
 import { cors } from '@elysiajs/cors';
 import { ENV } from './config/env';
 import { AppError } from './shared/errors';
+import { db } from './db';
 
 // Import routes
 import { authRoutes } from './modules/auth/auth.routes';
@@ -21,11 +23,20 @@ const app = new Elysia({ aot: true })
   .use(
     cors({
       origin:
-        ENV.NODE_ENV === 'production' ? false : /^http:\/\/localhost:\d+$/,
+        ENV.NODE_ENV === 'production'
+          ? ENV.ALLOWED_ORIGINS
+          : [/^http:\/\/localhost:\d+$/, ...ENV.ALLOWED_ORIGINS],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'x-timezone-offset'],
     }),
   )
+  .onAfterHandle(({ set }) => {
+    set.headers['X-Content-Type-Options'] = 'nosniff';
+    set.headers['X-Frame-Options'] = 'DENY';
+    set.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
+    set.headers['Permissions-Policy'] =
+      'camera=(), microphone=(), geolocation=()';
+  })
   .onError(({ error, set }) => {
     if (error instanceof AppError) {
       set.status = error.statusCode;
@@ -42,7 +53,22 @@ const app = new Elysia({ aot: true })
     set.status = 500;
     return { error: 'Internal server error' };
   })
-  .get('/health', () => ({ status: 'ok', timestamp: new Date().toISOString() }))
+  .get('/health', async () => {
+    try {
+      await db.execute(sql`SELECT 1`);
+      return {
+        status: 'ok',
+        checks: { db: 'ok' },
+        timestamp: new Date().toISOString(),
+      };
+    } catch {
+      return {
+        status: 'degraded',
+        checks: { db: 'error' },
+        timestamp: new Date().toISOString(),
+      };
+    }
+  })
   .use(authRoutes)
   .use(classesRoutes)
   .use(foldersRoutes)

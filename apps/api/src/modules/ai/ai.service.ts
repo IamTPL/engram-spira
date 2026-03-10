@@ -17,10 +17,24 @@ import { NotFoundError } from '../../shared/errors';
 import { getGenAI, checkAiRateLimit } from '../../config/ai';
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
+const AI_TIMEOUT_MS = 30_000;
 
 export interface GeneratedCard {
   front: string;
   back: string;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  op: string,
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`AI timeout while ${op}`)), ms);
+    }),
+  ]);
 }
 
 // ── Helpers ─────────────────────────────────────────────
@@ -113,7 +127,11 @@ export async function generateCardsFromText(
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const prompt = buildPrompt(sourceText, Math.min(cardCount, 50));
-  const result = await model.generateContent(prompt);
+  const result = await withTimeout(
+    model.generateContent(prompt),
+    AI_TIMEOUT_MS,
+    'generating cards',
+  );
   const text = result.response.text();
 
   // Parse the JSON response
@@ -188,18 +206,22 @@ export async function saveGeneratedCards(
     throw new Error('No cards to save');
   }
 
-  // Get next sort order
-  const existing = await db
-    .select({ sortOrder: cards.sortOrder })
-    .from(cards)
-    .where(eq(cards.deckId, job.deckId))
-    .orderBy(sql`${cards.sortOrder} DESC`)
-    .limit(1);
-
-  let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
-
   // Insert cards in a transaction
   const createdCards = await db.transaction(async (tx) => {
+    // Lock deck row to serialize sort order assignment per deck.
+    await tx.execute(
+      sql`SELECT id FROM decks WHERE id = ${job.deckId} FOR UPDATE`,
+    );
+
+    const existing = await tx
+      .select({ sortOrder: cards.sortOrder })
+      .from(cards)
+      .where(eq(cards.deckId, job.deckId))
+      .orderBy(sql`${cards.sortOrder} DESC`)
+      .limit(1);
+
+    let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
+
     const created = [];
     for (const card of cardsToSave) {
       const [newCard] = await tx
@@ -240,7 +262,11 @@ export async function improveCard(userId: string, front: string, back: string) {
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const prompt = buildImprovePrompt(front, back);
-  const result = await model.generateContent(prompt);
+  const result = await withTimeout(
+    model.generateContent(prompt),
+    AI_TIMEOUT_MS,
+    'improving card',
+  );
   const text = result.response.text();
 
   try {
@@ -324,7 +350,11 @@ const EMBEDDING_MODEL = 'text-embedding-004';
 export async function generateEmbedding(text: string): Promise<number[]> {
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-  const result = await model.embedContent(text);
+  const result = await withTimeout(
+    model.embedContent(text),
+    AI_TIMEOUT_MS,
+    'embedding content',
+  );
   return result.embedding.values;
 }
 
@@ -441,7 +471,11 @@ Card:
 
 Respond ONLY with a JSON object: {"score": <1-10>, "feedback": "<brief improvement suggestion>"}`;
 
-  const result = await model.generateContent(prompt);
+  const result = await withTimeout(
+    model.generateContent(prompt),
+    AI_TIMEOUT_MS,
+    'scoring card quality',
+  );
   const text = result.response.text();
 
   try {

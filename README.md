@@ -51,7 +51,7 @@ bun run dev
 
 The app will be available at:
 
-- **Web:** http://localhost:3000
+- **Web:** http://localhost:3002
 - **API:** http://localhost:3001
 
 **Test credentials:** `test@example.com` / `password123`
@@ -62,11 +62,13 @@ The app will be available at:
 
 Create `apps/api/.env` based on `apps/api/.env.example`:
 
-| Variable       | Description                  | Example                                                              |
-| -------------- | ---------------------------- | -------------------------------------------------------------------- |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgrespassword@localhost:5435/flashcard_db` |
-| `PORT`         | API server port              | `3001`                                                               |
-| `NODE_ENV`     | Environment                  | `development`                                                        |
+| Variable          | Description                     | Example                                                              |
+| ----------------- | ------------------------------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`    | PostgreSQL connection string    | `postgresql://postgres:postgrespassword@localhost:5435/flashcard_db` |
+| `PORT`            | API server port                 | `3001`                                                               |
+| `NODE_ENV`        | Environment                     | `development`                                                        |
+| `FRONTEND_URL`    | Frontend base URL (email links) | `http://localhost:3002`                                              |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist  | `http://localhost:3002`                                              |
 
 ---
 
@@ -96,16 +98,16 @@ engram_spira/
 
 ## Available Scripts
 
-| Script                | Description                                      |
-| --------------------- | ------------------------------------------------ |
-| `bun run dev`         | Start API + Web concurrently                     |
-| `bun run dev:api`     | API only                                         |
-| `bun run dev:web`     | Web only                                         |
-| `bun run db:generate` | Generate SQL migrations                          |
-| `bun run db:migrate`  | Apply migrations                                 |
-| `bun run db:seed`     | Seed system templates + test user                |
-| `bun run db:studio`   | Open Drizzle Studio                              |
-| `bun run docs:sync`   | Sync doc files into `apps/web/public/docs/`      |
+| Script                | Description                                               |
+| --------------------- | --------------------------------------------------------- |
+| `bun run dev`         | Start API + Web concurrently                              |
+| `bun run dev:api`     | API only                                                  |
+| `bun run dev:web`     | Web only                                                  |
+| `bun run db:generate` | Generate SQL migrations                                   |
+| `bun run db:migrate`  | Apply migrations                                          |
+| `bun run db:seed`     | Seed system templates + test user                         |
+| `bun run db:studio`   | Open Drizzle Studio                                       |
+| `bun run docs:sync`   | Sync doc files into `apps/web/public/docs/`               |
 | `bun run docs:export` | Export C4 diagrams to SVG automatically (requires Docker) |
 | `bun run docs:c4`     | Start Structurizr Lite UI (for browsing/editing DSL)      |
 

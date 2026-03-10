@@ -21,6 +21,9 @@ const InterleavedStudyPage: Component = () => {
   const [currentIndex, setCurrentIndex] = createSignal(0);
   const [isFlipped, setIsFlipped] = createSignal(false);
   const [reviewing, setReviewing] = createSignal(false);
+  const [pendingReviews, setPendingReviews] = createSignal<
+    { cardId: string; action: ReviewAction }[]
+  >([]);
 
   // Session stats
   const [stats, setStats] = createSignal({
@@ -65,16 +68,23 @@ const InterleavedStudyPage: Component = () => {
     return Math.round((currentIndex() / data.due) * 100);
   };
 
+  const flushPendingReviews = async (force = false) => {
+    const pending = pendingReviews();
+    if (pending.length === 0) return;
+    if (!force && pending.length < 8) return;
+
+    await (api.study as any)['review-batch'].post({ items: pending });
+    setPendingReviews((prev) => prev.slice(pending.length));
+  };
+
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
     if (!card || reviewing()) return;
 
     setReviewing(true);
     try {
-      await (api.study.review.post as any)({
-        cardId: card.id,
-        action: action,
-      });
+      setPendingReviews((prev) => [...prev, { cardId: card.id, action }]);
+      await flushPendingReviews(false);
       setStats((s) => ({
         ...s,
         again: action === REVIEW_ACTIONS.AGAIN ? s.again + 1 : s.again,
@@ -112,7 +122,10 @@ const InterleavedStudyPage: Component = () => {
   };
 
   onMount(() => document.addEventListener('keydown', handleKeyDown));
-  onCleanup(() => document.removeEventListener('keydown', handleKeyDown));
+  onCleanup(() => {
+    void flushPendingReviews(true);
+    document.removeEventListener('keydown', handleKeyDown);
+  });
 
   return (
     <div class="min-h-screen flex flex-col">
