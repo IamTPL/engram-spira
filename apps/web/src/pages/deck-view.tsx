@@ -5,8 +5,8 @@ import {
   createMemo,
   Show,
   For,
-  Index,
 } from 'solid-js';
+import { createStore, reconcile, produce } from 'solid-js/store';
 import { useParams, useNavigate } from '@solidjs/router';
 import { api } from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -154,11 +154,19 @@ const DeckViewPage: Component = () => {
   // AI generation state
   const [showAiModal, setShowAiModal] = createSignal(false);
   const [aiSourceText, setAiSourceText] = createSignal('');
-  const [aiCardCount, setAiCardCount] = createSignal(10);
+  const [aiBackLang, setAiBackLang] = createSignal<'vi' | 'en'>('vi');
   const [aiGenerating, setAiGenerating] = createSignal(false);
-  const [aiPreview, setAiPreview] = createSignal<
-    { front: string; back: string }[] | null
-  >(null);
+  // Store-based preview: fine-grained O(1) property updates per keystroke instead of full array copy
+  const [aiPreviewOpen, setAiPreviewOpen] = createSignal(false);
+  const [aiPreviewCards, setAiPreviewCards] = createStore<
+    {
+      front: string;
+      back: string;
+      ipa?: string;
+      wordType?: string;
+      examples?: string;
+    }[]
+  >([]);
   const [aiJobId, setAiJobId] = createSignal<string | null>(null);
   const [aiSaving, setAiSaving] = createSignal(false);
 
@@ -291,10 +299,17 @@ const DeckViewPage: Component = () => {
       const { data, error } = await (api.ai as any).generate.post({
         deckId: params.deckId,
         sourceText: text,
-        cardCount: aiCardCount(),
+        backLanguage: aiBackLang(),
       });
       if (error) throw new Error(error.error ?? 'Generation failed');
-      setAiPreview(data.cards);
+      if (data.count === 0) {
+        toast.error(
+          data.message ?? 'No cards could be generated from this text.',
+        );
+        return;
+      }
+      setAiPreviewCards(reconcile(data.cards));
+      setAiPreviewOpen(true);
       setAiJobId(data.jobId);
     } catch (err: any) {
       toast.error(err?.message ?? 'AI generation failed');
@@ -305,17 +320,17 @@ const DeckViewPage: Component = () => {
 
   const handleAiSave = async () => {
     const jobId = aiJobId();
-    const preview = aiPreview();
-    if (!jobId || !preview) return;
+    if (!jobId || !aiPreviewOpen()) return;
     setAiSaving(true);
     try {
       const { error } = await (api.ai as any).jobs({ jobId }).save.post({
-        cards: preview,
+        cards: [...aiPreviewCards],
       });
       if (error) throw new Error(error.error ?? 'Save failed');
-      toast.success(`${preview.length} cards saved!`);
+      toast.success(`${aiPreviewCards.length} cards saved!`);
       setShowAiModal(false);
-      setAiPreview(null);
+      setAiPreviewOpen(false);
+      setAiPreviewCards(reconcile([]));
       setAiJobId(null);
       setAiSourceText('');
       refetchCards();
@@ -328,10 +343,11 @@ const DeckViewPage: Component = () => {
 
   const closeAiModal = () => {
     setShowAiModal(false);
-    setAiPreview(null);
+    setAiPreviewOpen(false);
+    setAiPreviewCards(reconcile([]));
     setAiJobId(null);
     setAiSourceText('');
-    setAiCardCount(10);
+    setAiBackLang('vi');
   };
 
   // ── Bulk selection handlers ──────────────────────────────────────────
@@ -964,126 +980,192 @@ const DeckViewPage: Component = () => {
 
             {/* Body */}
             <div class="flex-1 overflow-y-auto p-5 space-y-4">
-              <Show when={!aiPreview()}>
-                {/* Input phase */}
-                <div class="space-y-3">
-                  <label class="text-sm font-medium text-foreground">
-                    Paste your notes, text, or describe a topic
-                  </label>
-                  <Textarea
-                    placeholder="Enter or paste text to generate flashcards from... (min 10 characters)"
-                    value={aiSourceText()}
-                    onInput={(e) => setAiSourceText(e.currentTarget.value)}
-                    class="min-h-50 resize-y"
-                  />
-                  <div class="flex items-center gap-3">
-                    <label class="text-sm text-muted-foreground">
-                      Number of cards:
-                    </label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={aiCardCount()}
-                      onInput={(e) =>
-                        setAiCardCount(
-                          Math.max(
-                            1,
-                            Math.min(50, Number(e.currentTarget.value) || 10),
-                          ),
-                        )
-                      }
-                      class="w-20 h-9"
-                    />
-                  </div>
-                </div>
-              </Show>
+              <Show
+                when={aiPreviewOpen()}
+                fallback={
+                  /* ── Input phase ── */
+                  <div class="space-y-4">
+                    {/* Back language selector */}
+                    <div class="space-y-2">
+                      <label class="text-sm font-medium text-foreground">
+                        Back (explanation) language
+                      </label>
+                      <div class="flex gap-2">
+                        <For
+                          each={
+                            [
+                              { value: 'vi', label: '🇻🇳 Tiếng Việt' },
+                              { value: 'en', label: '🇬🇧 English' },
+                            ] as const
+                          }
+                        >
+                          {(opt) => (
+                            <button
+                              type="button"
+                              onClick={() => setAiBackLang(opt.value)}
+                              class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                                aiBackLang() === opt.value
+                                  ? 'border-palette-4 bg-palette-4/10 text-foreground'
+                                  : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </div>
 
-              <Show when={aiPreview()}>
-                {/* Preview phase */}
+                    {/* Source text */}
+                    <div class="space-y-2">
+                      <label class="text-sm font-medium text-foreground">
+                        Paste your notes, text, or describe a topic
+                      </label>
+                      <Textarea
+                        placeholder="Enter or paste text to generate flashcards from... (min 10 characters)"
+                        value={aiSourceText()}
+                        onInput={(e) => setAiSourceText(e.currentTarget.value)}
+                        class="min-h-50 resize-y"
+                      />
+                    </div>
+                  </div>
+                }
+              >
+                {/* ── Preview phase ── */}
                 <div class="space-y-1">
                   <p class="text-sm text-muted-foreground">
                     Review and edit generated cards before saving.
                   </p>
                   <p class="text-xs text-muted-foreground">
-                    {aiPreview()!.length} cards generated
+                    {aiPreviewCards.length} cards generated
                   </p>
                 </div>
                 <div class="space-y-3">
-                  <Index each={aiPreview()!}>
-                    {(card, idx) => (
-                      <div class="border rounded-lg p-4 space-y-2 bg-background">
+                  <For each={aiPreviewCards}>
+                    {(card, getIdx) => (
+                      <div class="border rounded-lg p-4 space-y-3 bg-background">
+                        {/* Card header */}
                         <div class="flex items-center justify-between">
-                          <span class="text-xs font-medium text-muted-foreground">
-                            Card {idx + 1}
-                          </span>
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs font-medium text-muted-foreground">
+                              Card {getIdx() + 1}
+                            </span>
+                            {/* Vocab type + IPA badges */}
+                            <Show when={card.wordType || card.ipa}>
+                              <div class="flex items-center gap-1">
+                                <Show when={card.wordType}>
+                                  <span class="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">
+                                    {card.wordType}
+                                  </span>
+                                </Show>
+                                <Show when={card.ipa}>
+                                  <span class="text-xs px-1.5 py-0.5 rounded bg-muted border font-mono text-muted-foreground">
+                                    {card.ipa}
+                                  </span>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
                           <Button
                             variant="ghost"
                             size="icon"
                             class="h-6 w-6 text-destructive"
-                            onClick={() => {
-                              setAiPreview((prev) =>
-                                prev ? prev.filter((_, i) => i !== idx) : null,
-                              );
-                            }}
+                            onClick={() =>
+                              setAiPreviewCards(
+                                produce((c) => {
+                                  c.splice(getIdx(), 1);
+                                }),
+                              )
+                            }
                           >
                             <Trash2 class="h-3 w-3" />
                           </Button>
                         </div>
+
+                        {/* Front */}
                         <div>
                           <label class="text-xs text-muted-foreground">
                             Front
                           </label>
                           <Textarea
-                            value={card().front}
-                            onInput={(e) => {
-                              setAiPreview((prev) => {
-                                if (!prev) return null;
-                                const copy = [...prev];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  front: e.currentTarget.value,
-                                };
-                                return copy;
-                              });
-                            }}
+                            value={card.front}
+                            onInput={(e) =>
+                              setAiPreviewCards(
+                                getIdx(),
+                                'front',
+                                e.currentTarget.value,
+                              )
+                            }
                             class="mt-1 min-h-15"
                           />
                         </div>
+
+                        {/* Back */}
                         <div>
                           <label class="text-xs text-muted-foreground">
                             Back
                           </label>
                           <Textarea
-                            value={card().back}
-                            onInput={(e) => {
-                              setAiPreview((prev) => {
-                                if (!prev) return null;
-                                const copy = [...prev];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  back: e.currentTarget.value,
-                                };
-                                return copy;
-                              });
-                            }}
+                            value={card.back}
+                            onInput={(e) =>
+                              setAiPreviewCards(
+                                getIdx(),
+                                'back',
+                                e.currentTarget.value,
+                              )
+                            }
                             class="mt-1 min-h-15"
                           />
                         </div>
+
+                        {/* Examples (read-only, vocab only) */}
+                        <Show when={card.examples}>
+                          <div class="pt-1 border-t">
+                            <p class="text-xs font-medium text-muted-foreground mb-1">
+                              Examples
+                            </p>
+                            <p class="text-xs text-muted-foreground italic leading-relaxed whitespace-pre-line">
+                              {card.examples}
+                            </p>
+                          </div>
+                        </Show>
                       </div>
                     )}
-                  </Index>
+                  </For>
                 </div>
               </Show>
             </div>
 
             {/* Footer */}
             <div class="flex items-center justify-end gap-2 p-5 border-t">
-              <Show when={aiPreview()}>
+              <Show
+                when={aiPreviewOpen()}
+                fallback={
+                  <>
+                    <Button variant="outline" onClick={closeAiModal}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleAiGenerate}
+                      disabled={
+                        aiGenerating() || aiSourceText().trim().length < 10
+                      }
+                    >
+                      <Show
+                        when={aiGenerating()}
+                        fallback={<Sparkles class="h-4 w-4 mr-2" />}
+                      >
+                        <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+                      </Show>
+                      {aiGenerating() ? 'Generating...' : 'Generate Cards'}
+                    </Button>
+                  </>
+                }
+              >
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setAiPreview(null);
+                    setAiPreviewOpen(false);
                     setAiJobId(null);
                   }}
                 >
@@ -1091,7 +1173,7 @@ const DeckViewPage: Component = () => {
                 </Button>
                 <Button
                   onClick={handleAiSave}
-                  disabled={aiSaving() || !aiPreview()?.length}
+                  disabled={aiSaving() || !aiPreviewCards.length}
                 >
                   <Show
                     when={aiSaving()}
@@ -1101,24 +1183,7 @@ const DeckViewPage: Component = () => {
                   </Show>
                   {aiSaving()
                     ? 'Saving...'
-                    : `Save ${aiPreview()?.length ?? 0} Cards`}
-                </Button>
-              </Show>
-              <Show when={!aiPreview()}>
-                <Button variant="outline" onClick={closeAiModal}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleAiGenerate}
-                  disabled={aiGenerating() || aiSourceText().trim().length < 10}
-                >
-                  <Show
-                    when={aiGenerating()}
-                    fallback={<Sparkles class="h-4 w-4 mr-2" />}
-                  >
-                    <Loader2 class="h-4 w-4 mr-2 animate-spin" />
-                  </Show>
-                  {aiGenerating() ? 'Generating...' : 'Generate Cards'}
+                    : `Save ${aiPreviewCards.length} Cards`}
                 </Button>
               </Show>
             </div>

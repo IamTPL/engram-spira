@@ -2,7 +2,7 @@
  * AI Card Factory Service
  *
  * Uses Google Gemini to generate flashcards from user-provided text/topic.
- * Supports: generate (preview), save, improve single card.
+ * Mode (vocabulary / Q&A) is auto-detected from the deck's card template.
  */
 import { eq, and, lt, sql } from 'drizzle-orm';
 import { db } from '../../db';
@@ -16,12 +16,30 @@ import {
 import { NotFoundError } from '../../shared/errors';
 import { getGenAI, checkAiRateLimit } from '../../config/ai';
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const AI_TIMEOUT_MS = 30_000;
 
+export type BackLanguage = 'vi' | 'en';
+
+/**
+ * Shape returned by the AI for both modes.
+ * Vocabulary cards include extra fields (ipa, wordType, examples).
+ * Q&A cards only use front + back.
+ */
 export interface GeneratedCard {
-  front: string;
-  back: string;
+  front: string; // word (vocab) | question (qa)
+  back: string; // definition (vocab) | answer (qa)
+  ipa?: string; // IPA phonetics — vocab only, always in original language
+  wordType?: string; // part of speech in English — vocab only
+  examples?: string; // example sentences — vocab only, always in original language
+}
+
+interface TemplateInfo {
+  mode: 'vocabulary' | 'qa';
+  /** lowercase field name → field id */
+  fieldMap: Map<string, string>;
+  frontFieldId: string;
+  backFieldId: string;
 }
 
 function withTimeout<T>(
@@ -49,84 +67,137 @@ async function verifyDeckOwnership(deckId: string, userId: string) {
   return result;
 }
 
-/** Get the Front and Back template field IDs for a deck's template. */
-async function getTemplateFieldIds(templateId: string) {
+/**
+ * Query template fields and return:
+ *  - mode: 'vocabulary' if the template has a "word" field, else 'qa'
+ *  - fieldMap: lowercase field name → field id (for saving vocab extras)
+ *  - frontFieldId / backFieldId: primary field ids (first by sortOrder per side)
+ */
+async function getTemplateInfo(templateId: string): Promise<TemplateInfo> {
   const fields = await db
-    .select({ id: templateFields.id, name: templateFields.name })
+    .select({
+      id: templateFields.id,
+      name: templateFields.name,
+      side: templateFields.side,
+      sortOrder: templateFields.sortOrder,
+    })
     .from(templateFields)
     .where(eq(templateFields.templateId, templateId));
 
-  const frontField = fields.find(
-    (f) =>
-      f.name.toLowerCase() === 'front' || f.name.toLowerCase() === 'mặt trước', // legacy Vietnamese field name
-  );
-  const backField = fields.find(
-    (f) =>
-      f.name.toLowerCase() === 'back' || f.name.toLowerCase() === 'mặt sau', // legacy Vietnamese field name
-  );
+  const sorted = fields.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  const frontField = sorted.find((f) => f.side === 'front');
+  const backField = sorted.find((f) => f.side === 'back');
 
   if (!frontField || !backField) {
     throw new Error(
-      'Deck template must have Front and Back fields for AI generation',
+      'Deck template must have at least one front and one back field for AI generation',
     );
   }
 
-  return { frontFieldId: frontField.id, backFieldId: backField.id };
+  const fieldMap = new Map<string, string>();
+  for (const f of sorted) {
+    fieldMap.set(f.name.toLowerCase(), f.id);
+  }
+
+  // Vocabulary template contains a field named "word"
+  const mode: 'vocabulary' | 'qa' = fieldMap.has('word') ? 'vocabulary' : 'qa';
+
+  return {
+    mode,
+    fieldMap,
+    frontFieldId: frontField.id,
+    backFieldId: backField.id,
+  };
 }
 
-function buildPrompt(sourceText: string, cardCount: number): string {
-  return `You are an expert flashcard creator. Generate exactly ${cardCount} high-quality flashcards from the following text/topic.
+/**
+ * Vocabulary prompt — generates rich cards with ipa, wordType, examples.
+ * Only "back" (definition) is translated when lang='vi'.
+ * All other fields stay in the original/standard language of the source.
+ */
+function buildVocabPrompt(sourceText: string, lang: BackLanguage): string {
+  const defLang = lang === 'vi' ? 'Vietnamese' : 'English';
+  return `You are a professional vocabulary flashcard creator.
 
-Rules:
-- Each card should test ONE concept
-- Front: Clear, specific question or prompt
-- Back: Concise, accurate answer
-- Avoid trivial or overly broad questions
-- Use active recall principles
-- If the text is in Vietnamese, generate cards in Vietnamese
-- If the text is in English, generate cards in English
+Task: Extract every meaningful term, word, or phrase from the text and produce one flashcard per term.
+
+Each flashcard MUST be a JSON object with these fields:
+- "front": the term exactly as it appears in the source (keep original language and script)
+- "back": a clear, concise definition or explanation written in ${defLang}
+- "ipa": IPA phonetic transcription of the term (e.g. "/ɪˈfem.ər.əl/"). Omit if not applicable.
+- "wordType": part of speech in English (e.g. "noun", "verb", "adjective", "phrase"). Omit if unclear.
+- "examples": 1–2 natural example sentences using the term, written in the SAME language as the source text (do NOT translate). Omit if not helpful.
+
+Strict rules:
+1. ONLY include terms that genuinely appear in or are directly implied by the provided text.
+2. Skip trivially common words ("the", "is", "and", etc.) unless the text is explicitly a word list.
+3. If the input is random characters, gibberish, or has NO learnable vocabulary → return EXACTLY [].
+4. Do NOT invent terms or definitions not grounded in the text.
+5. Extract as many meaningful terms as the content supports — do not cap the count.
+6. "ipa", "wordType", and "examples" must NEVER be translated — always keep original/standard form.
 
 Source text:
 ${sourceText}
 
-Respond ONLY with a JSON array of objects, each with "front" and "back" keys. No extra text, no markdown fences.
-Example: [{"front":"What is X?","back":"X is..."},{"front":"How does Y work?","back":"Y works by..."}]`;
+Respond with ONLY a valid JSON array. Example:
+[{"front":"ephemeral","back":"${lang === 'vi' ? 'tồn tại trong thời gian ngắn' : 'lasting for a very short time'}","ipa":"/ɪˈfem.ər.əl/","wordType":"adjective","examples":"The ephemeral beauty of cherry blossoms draws millions of visitors."}]
+Or [] if nothing to extract. No markdown fences, no extra text.`;
 }
 
-function buildImprovePrompt(front: string, back: string): string {
-  return `You are an expert flashcard editor. Improve this flashcard to be clearer, more concise, and more effective for learning.
+/**
+ * Q&A prompt — generates comprehension question/answer cards.
+ * The answer ("back") is written in the chosen language.
+ */
+function buildQAPrompt(sourceText: string, lang: BackLanguage): string {
+  const answerLang = lang === 'vi' ? 'Vietnamese' : 'English';
+  return `You are a professional Q&A flashcard creator for active recall learning.
 
-Current card:
-- Front: ${front}
-- Back: ${back}
+Task: Generate flashcards that test deep understanding of the key concepts, facts, and ideas in the text.
 
-Rules:
-- Keep the same language as the original
-- Make the question more specific and testable
-- Make the answer more concise and memorable
-- Ensure factual accuracy
+Each flashcard MUST be a JSON object with exactly two fields:
+- "front": a precise, clearly answerable question that targets ONE specific concept from the text
+- "back": the correct answer written in ${answerLang}, derived strictly from the text
 
-Respond ONLY with a JSON object: {"front":"...","back":"..."}. No extra text.`;
+Strict rules:
+1. Every question must be answerable using ONLY the provided text — no outside knowledge.
+2. Each card tests exactly ONE concept. Avoid compound questions.
+3. Prefer specific, concrete questions ("What causes X?" > "What is X mention?").
+4. Avoid trivially obvious or meta questions ("What is the title?", "Who wrote this?").
+5. If the input is random characters, gibberish, or has NO meaningful content → return EXACTLY [].
+6. Generate as many cards as the content meaningfully supports — do not cap the count.
+
+Source text:
+${sourceText}
+
+Respond with ONLY a valid JSON array like [{"front":"...","back":"..."}] or [] if nothing to generate. No markdown fences, no extra text.`;
 }
 
 // ── Core functions ──────────────────────────────────────
 
 /**
  * Generate flashcards from text using Gemini. Returns a preview (job).
+ * Mode is auto-detected from the deck's card template:
+ *   - template with a "word" field → vocabulary mode (rich cards with ipa/wordType/examples)
+ *   - otherwise → Q&A mode (front question / back answer)
  */
 export async function generateCardsFromText(
   userId: string,
   deckId: string,
   sourceText: string,
-  cardCount: number = 10,
+  backLanguage: BackLanguage = 'vi',
 ) {
   checkAiRateLimit(userId);
-  await verifyDeckOwnership(deckId, userId);
+  const deck = await verifyDeckOwnership(deckId, userId);
+  const { mode } = await getTemplateInfo(deck.cardTemplateId);
 
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
-  const prompt = buildPrompt(sourceText, Math.min(cardCount, 50));
+  const prompt =
+    mode === 'vocabulary'
+      ? buildVocabPrompt(sourceText, backLanguage)
+      : buildQAPrompt(sourceText, backLanguage);
+
   const result = await withTimeout(
     model.generateContent(prompt),
     AI_TIMEOUT_MS,
@@ -137,7 +208,6 @@ export async function generateCardsFromText(
   // Parse the JSON response
   let generatedCards: GeneratedCard[];
   try {
-    // Strip markdown code fences if present
     const cleaned = text
       .replace(/```(?:json)?\s*/g, '')
       .replace(/```/g, '')
@@ -148,10 +218,21 @@ export async function generateCardsFromText(
     throw new Error('AI returned invalid response. Please try again.');
   }
 
-  // Validate structure
-  generatedCards = generatedCards
-    .filter((c) => typeof c.front === 'string' && typeof c.back === 'string')
-    .slice(0, cardCount);
+  // Validate structure (no length cap — AI decides)
+  generatedCards = generatedCards.filter(
+    (c) => typeof c.front === 'string' && typeof c.back === 'string',
+  );
+
+  // If the model determined no meaningful content → return without saving a job
+  if (generatedCards.length === 0) {
+    return {
+      jobId: null,
+      cards: [],
+      count: 0,
+      message:
+        'No meaningful content found in the provided text. Please enter a more specific topic or a document with learnable content.',
+    };
+  }
 
   // Save as a pending job
   const [job] = await db
@@ -159,7 +240,7 @@ export async function generateCardsFromText(
     .values({
       userId,
       deckId,
-      sourceText: sourceText.slice(0, 10000), // Limit stored text
+      sourceText: sourceText.slice(0, 10000),
       cardCount: generatedCards.length,
       generatedCards,
       model: GEMINI_MODEL,
@@ -171,6 +252,7 @@ export async function generateCardsFromText(
     jobId: job.id,
     cards: generatedCards,
     count: generatedCards.length,
+    message: null,
   };
 }
 
@@ -197,11 +279,25 @@ export async function saveGeneratedCards(
   }
 
   const deck = await verifyDeckOwnership(job.deckId, userId);
-  const { frontFieldId, backFieldId } = await getTemplateFieldIds(
+  const { mode, fieldMap, frontFieldId, backFieldId } = await getTemplateInfo(
     deck.cardTemplateId,
   );
 
-  const cardsToSave = editedCards ?? (job.generatedCards as GeneratedCard[]);
+  // If editedCards is provided (user edited in preview), merge with original AI output
+  // to preserve vocab extra fields (ipa, wordType, examples) by index.
+  const originalCards = job.generatedCards as GeneratedCard[];
+  const cardsToSave: GeneratedCard[] = editedCards
+    ? editedCards.map((edited, i) => ({
+        ...(originalCards[i] ?? {}),
+        front: edited.front,
+        back: edited.back,
+        // honour any extra fields explicitly sent by the client
+        ...(edited.ipa !== undefined ? { ipa: edited.ipa } : {}),
+        ...(edited.wordType !== undefined ? { wordType: edited.wordType } : {}),
+        ...(edited.examples !== undefined ? { examples: edited.examples } : {}),
+      }))
+    : originalCards;
+
   if (!cardsToSave || cardsToSave.length === 0) {
     throw new Error('No cards to save');
   }
@@ -229,14 +325,59 @@ export async function saveGeneratedCards(
         .values({ deckId: job.deckId, sortOrder: nextOrder++ })
         .returning();
 
-      await tx.insert(cardFieldValues).values([
-        {
-          cardId: newCard.id,
-          templateFieldId: frontFieldId,
-          value: card.front,
-        },
-        { cardId: newCard.id, templateFieldId: backFieldId, value: card.back },
-      ]);
+      if (mode === 'vocabulary') {
+        // Save all vocab fields by name lookup
+        const wordFieldId = fieldMap.get('word') ?? frontFieldId;
+        const defFieldId = fieldMap.get('definition') ?? backFieldId;
+        const fieldValues: {
+          cardId: string;
+          templateFieldId: string;
+          value: string;
+        }[] = [
+          {
+            cardId: newCard.id,
+            templateFieldId: wordFieldId,
+            value: card.front,
+          },
+          { cardId: newCard.id, templateFieldId: defFieldId, value: card.back },
+        ];
+        if (card.ipa && fieldMap.has('ipa')) {
+          fieldValues.push({
+            cardId: newCard.id,
+            templateFieldId: fieldMap.get('ipa')!,
+            value: card.ipa,
+          });
+        }
+        if (card.wordType && fieldMap.has('type')) {
+          fieldValues.push({
+            cardId: newCard.id,
+            templateFieldId: fieldMap.get('type')!,
+            value: card.wordType,
+          });
+        }
+        if (card.examples && fieldMap.has('examples')) {
+          fieldValues.push({
+            cardId: newCard.id,
+            templateFieldId: fieldMap.get('examples')!,
+            value: card.examples,
+          });
+        }
+        await tx.insert(cardFieldValues).values(fieldValues);
+      } else {
+        // Q&A: simple front → first front field, back → first back field
+        await tx.insert(cardFieldValues).values([
+          {
+            cardId: newCard.id,
+            templateFieldId: frontFieldId,
+            value: card.front,
+          },
+          {
+            cardId: newCard.id,
+            templateFieldId: backFieldId,
+            value: card.back,
+          },
+        ]);
+      }
 
       created.push({ id: newCard.id, front: card.front, back: card.back });
     }
@@ -250,38 +391,6 @@ export async function saveGeneratedCards(
     .where(eq(aiGenerationJobs.id, jobId));
 
   return { saved: createdCards.length, cards: createdCards };
-}
-
-/**
- * Improve a single flashcard using AI.
- */
-export async function improveCard(userId: string, front: string, back: string) {
-  checkAiRateLimit(userId);
-
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
-  const prompt = buildImprovePrompt(front, back);
-  const result = await withTimeout(
-    model.generateContent(prompt),
-    AI_TIMEOUT_MS,
-    'improving card',
-  );
-  const text = result.response.text();
-
-  try {
-    const cleaned = text
-      .replace(/```(?:json)?\s*/g, '')
-      .replace(/```/g, '')
-      .trim();
-    const improved = JSON.parse(cleaned);
-    return {
-      front: String(improved.front),
-      back: String(improved.back),
-    };
-  } catch {
-    throw new Error('AI returned invalid response. Please try again.');
-  }
 }
 
 /**
@@ -336,162 +445,4 @@ export async function cleanupExpiredJobs() {
     );
 
   return { cleaned: (result as any).rowCount ?? 0 };
-}
-
-// =====================================================================
-// Embedding & Duplicate Detection (pgvector)
-// =====================================================================
-
-const EMBEDDING_MODEL = 'text-embedding-004';
-
-/**
- * Generate an embedding vector for a text string using Gemini.
- */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-  const result = await withTimeout(
-    model.embedContent(text),
-    AI_TIMEOUT_MS,
-    'embedding content',
-  );
-  return result.embedding.values;
-}
-
-/**
- * Store an embedding for a card_field_value row.
- * Called fire-and-forget after card creation.
- */
-export async function storeEmbedding(cardFieldValueId: string, text: string) {
-  try {
-    const embedding = await generateEmbedding(text);
-    const vecStr = `[${embedding.join(',')}]`;
-    await db.execute(
-      sql`UPDATE card_field_values SET embedding = ${vecStr}::vector WHERE id = ${cardFieldValueId}`,
-    );
-  } catch (err) {
-    // Fire-and-forget: log but don't throw
-    console.error('Failed to store embedding:', err);
-  }
-}
-
-/**
- * Generate and store embeddings for all field values of a card.
- * Combines front+back text for the embedding.
- */
-export async function embedCardFields(cardId: string) {
-  const fieldValues = await db
-    .select({
-      id: cardFieldValues.id,
-      value: cardFieldValues.value,
-      fieldName: templateFields.name,
-    })
-    .from(cardFieldValues)
-    .innerJoin(
-      templateFields,
-      eq(cardFieldValues.templateFieldId, templateFields.id),
-    )
-    .where(eq(cardFieldValues.cardId, cardId));
-
-  // Embed the "front" field value — the most distinctive content for duplicate detection
-  const frontField = fieldValues.find(
-    (f) =>
-      f.fieldName.toLowerCase() === 'front' ||
-      f.fieldName.toLowerCase() === 'mặt trước', // legacy Vietnamese field name
-  );
-  if (frontField && typeof frontField.value === 'string') {
-    await storeEmbedding(frontField.id, frontField.value);
-  }
-}
-
-/**
- * Check for duplicate cards in a deck based on cosine similarity.
- * Returns cards with similarity above the threshold.
- */
-export async function checkDuplicates(
-  userId: string,
-  deckId: string,
-  text: string,
-  threshold: number = 0.85,
-) {
-  checkAiRateLimit(userId);
-  await verifyDeckOwnership(deckId, userId);
-
-  const embedding = await generateEmbedding(text);
-  const vecStr = `[${embedding.join(',')}]`;
-
-  // Find similar cards in the same deck using cosine similarity
-  const results = await db.execute(sql`
-    SELECT
-      cfv.card_id,
-      cfv.value as front_text,
-      1 - (cfv.embedding <=> ${vecStr}::vector) as similarity
-    FROM card_field_values cfv
-    INNER JOIN cards c ON c.id = cfv.card_id
-    INNER JOIN template_fields tf ON tf.id = cfv.template_field_id
-    WHERE c.deck_id = ${deckId}
-      AND cfv.embedding IS NOT NULL
-      AND LOWER(tf.name) IN ('front', 'mặt trước') /* legacy Vietnamese field name */
-      AND 1 - (cfv.embedding <=> ${vecStr}::vector) > ${threshold}
-    ORDER BY similarity DESC
-    LIMIT 10
-  `);
-
-  return {
-    duplicates: (results as any[]).map((r: any) => ({
-      cardId: r.card_id,
-      frontText: r.front_text,
-      similarity: Math.round(r.similarity * 1000) / 1000,
-    })),
-  };
-}
-
-/**
- * Assess the quality of a flashcard using AI.
- */
-export async function qualityScore(
-  userId: string,
-  front: string,
-  back: string,
-) {
-  checkAiRateLimit(userId);
-
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
-  const prompt = `Rate this flashcard's quality on a scale of 1-10. Consider:
-- Specificity: Is the question clear and testable? (not too vague)
-- Conciseness: Is the answer brief and focused?
-- Accuracy: Does the answer correctly address the question?
-- Recall-friendliness: Does it test active recall effectively?
-
-Card:
-- Front: ${front}
-- Back: ${back}
-
-Respond ONLY with a JSON object: {"score": <1-10>, "feedback": "<brief improvement suggestion>"}`;
-
-  const result = await withTimeout(
-    model.generateContent(prompt),
-    AI_TIMEOUT_MS,
-    'scoring card quality',
-  );
-  const text = result.response.text();
-
-  try {
-    const cleaned = text
-      .replace(/```(?:json)?\s*/g, '')
-      .replace(/```/g, '')
-      .trim();
-    const parsed = JSON.parse(cleaned);
-    return {
-      score: Math.max(1, Math.min(10, Number(parsed.score) || 5)),
-      feedback: String(parsed.feedback ?? ''),
-    };
-  } catch {
-    return {
-      score: 5,
-      feedback: 'Unable to assess quality. Please try again.',
-    };
-  }
 }

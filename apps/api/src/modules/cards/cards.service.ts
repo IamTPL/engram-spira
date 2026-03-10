@@ -2,7 +2,6 @@ import { eq, and, inArray, desc, sql, count, asc } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
-import { embedCardFields } from '../ai/ai.service';
 
 // Ownership check: decks.userId is denormalized — no JOIN chain needed
 async function verifyDeckOwnership(deckId: string, userId: string) {
@@ -126,14 +125,6 @@ export async function create(
     }
 
     return createdCard;
-  });
-
-  // Fire-and-forget: generate embedding for duplicate detection
-  embedCardFields(card.id).catch((err) => {
-    console.error('[cards] Failed to embed card fields', {
-      cardId: card.id,
-      err,
-    });
   });
 
   return card;
