@@ -221,12 +221,12 @@ The `POST /study/review-batch` endpoint shall accept an array of `{ cardId, acti
 **FR-24** — **SM-2 SRS Algorithm**  
 The system shall implement the SuperMemo 2 (SM-2) spaced repetition algorithm with **four review actions**:
 
-| Action  | Vietnamese | Repetitions | Ease Factor (EF) Delta | Next Review                                                                    |
-| ------- | ---------- | ----------- | ---------------------- | ------------------------------------------------------------------------------ |
-| `again` | Quên       | Reset to 0  | −0.20                  | now + **10 minutes** (short relearn delay)                                     |
-| `hard`  | Khó        | Unchanged   | −0.15                  | 1 day (if reps ≤ 1), else `max(interval + 1, round(interval × 1.2))`           |
-| `good`  | Thuộc      | +1          | 0 (no change)          | rep 1 → 1d, rep 2 → 6d, rep N → `round(interval × EF)`                        |
-| `easy`  | Dễ         | +1          | **+0.15**              | same as `good` schedule, then × **1.3 bonus** (Easy Interval Bonus)            |
+| Action  | Vietnamese | Repetitions | Ease Factor (EF) Delta | Next Review                                                          |
+| ------- | ---------- | ----------- | ---------------------- | -------------------------------------------------------------------- |
+| `again` | Quên       | Reset to 0  | −0.20                  | now + **10 minutes** (short relearn delay)                           |
+| `hard`  | Khó        | Unchanged   | −0.15                  | 1 day (if reps ≤ 1), else `max(interval + 1, round(interval × 1.2))` |
+| `good`  | Thuộc      | +1          | 0 (no change)          | rep 1 → 1d, rep 2 → 6d, rep N → `round(interval × EF)`               |
+| `easy`  | Dễ         | +1          | **+0.15**              | same as `good` schedule, then × **1.3 bonus** (Easy Interval Bonus)  |
 
 **Constants:**
 
@@ -268,7 +268,8 @@ The system shall allow studying cards from multiple decks in a single cross-deck
 - `GET /study/interleaved/auto`: automatically selects the top-N decks (by due-card count) for the user and returns a merged due-card list.
 - The frontend shall expose an **Interleaved Study** page at `/study/interleaved` where users may select decks manually or use auto-selection.
 
-**FR-27c** — **Progress Reset**  
+**FR-27c** — **Progress Reset**
+
 - `POST /study/deck/:deckId/reset-progress`: resets all study progress records for all cards in a deck for the authenticated user.
 - `POST /study/card/:cardId/reset-progress`: resets the study progress record for a single card.
 
@@ -554,23 +555,23 @@ All environment-specific values (`DATABASE_URL`, `PORT`, `NODE_ENV`, `GEMINI_API
 
 The following features and capabilities are explicitly **excluded** from the current version of Engram Spira:
 
-| #      | Excluded Feature                                    | Notes                                                                                       |
-| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| OOS-1  | Cloud deployment / hosting                          | App is local-development only; no AWS, GCP, Vercel, etc.                                    |
-| OOS-2  | Mobile applications (iOS / Android)                 | Web only; no React Native, Expo, or native wrappers                                         |
-| OOS-3  | Offline / local-first sync                          | No service workers, no IndexedDB sync, no conflict resolution                               |
-| OOS-4  | Social features (deck sharing, collaborative study) | No public decks, no user-to-user sharing mechanisms                                         |
-| OOS-5  | Rich text / Markdown in card fields                 | Fields store plain text or JSON arrays; no markdown rendering                               |
-| OOS-6  | Image/audio upload                                  | `image_url` and `audio_url` field types store URLs only; no file upload or CDN              |
-| OOS-7  | Admin panel / backoffice                            | No administrative UI for managing users or system templates                                 |
+| #      | Excluded Feature                                    | Notes                                                                                             |
+| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| OOS-1  | Cloud deployment / hosting                          | App is local-development only; no AWS, GCP, Vercel, etc.                                          |
+| OOS-2  | Mobile applications (iOS / Android)                 | Web only; no React Native, Expo, or native wrappers                                               |
+| OOS-3  | Offline / local-first sync                          | No service workers, no IndexedDB sync, no conflict resolution                                     |
+| OOS-4  | Social features (deck sharing, collaborative study) | No public decks, no user-to-user sharing mechanisms                                               |
+| OOS-5  | Rich text / Markdown in card fields                 | Fields store plain text or JSON arrays; no markdown rendering                                     |
+| OOS-6  | Image/audio upload                                  | `image_url` and `audio_url` field types store URLs only; no file upload or CDN                    |
+| OOS-7  | Admin panel / backoffice                            | No administrative UI for managing users or system templates                                       |
 | OOS-8  | Email verification (account signup)                 | Registration does not require email verification; password reset page exists at `/reset-password` |
-| OOS-9  | OAuth / social login (Google, GitHub)               | Custom session auth only; no third-party OAuth providers                                    |
-| OOS-10 | Anki `.apkg` import                                 | CSV/JSON import is supported; Anki package format is not                                    |
-| OOS-11 | Historical review charts / retention graphs         | Activity heatmap is provided; advanced analytics charts are not in scope                    |
-| OOS-12 | Push / email reminders for due cards                | Due-count badge is provided via API; no push notifications or email reminders               |
-| OOS-13 | Multiple language / i18n                            | English UI only; no internationalisation support                                            |
-| OOS-14 | Subscription / payment system                       | No monetisation features                                                                    |
-| OOS-15 | Third-party Lucia Auth library                      | Auth pattern is custom-implemented; the Lucia library is not used                           |
+| OOS-9  | OAuth / social login (Google, GitHub)               | Custom session auth only; no third-party OAuth providers                                          |
+| OOS-10 | Anki `.apkg` import                                 | CSV/JSON import is supported; Anki package format is not                                          |
+| OOS-11 | Historical review charts / retention graphs         | Activity heatmap is provided; advanced analytics charts are not in scope                          |
+| OOS-12 | Push / email reminders for due cards                | Due-count badge is provided via API; no push notifications or email reminders                     |
+| OOS-13 | Multiple language / i18n                            | English UI only; no internationalisation support                                                  |
+| OOS-14 | Subscription / payment system                       | No monetisation features                                                                          |
+| OOS-15 | Third-party Lucia Auth library                      | Auth pattern is custom-implemented; the Lucia library is not used                                 |
 
 ---
 

@@ -1,5 +1,8 @@
 import nodemailer from 'nodemailer';
 import { ENV } from '../config/env';
+import { logger } from './logger';
+
+const emailLogger = logger.child({ module: 'email' });
 
 /* ══════════════════════════════════════════════════════════════
    EMAIL UTILITY — Gmail SMTP via Nodemailer
@@ -103,9 +106,7 @@ export async function sendFeedbackEmail(
     html,
   });
 
-  console.log(
-    `[email] Feedback sent from ${fromEmail} (${type}) → ${ENV.FEEDBACK_RECIPIENT}`,
-  );
+  emailLogger.info({ fromEmail, type }, 'Feedback email sent');
 }
 
 /* ── Send password reset email ───────────────────────────────── */
@@ -152,5 +153,5 @@ export async function sendPasswordResetEmail(
     html,
   });
 
-  console.log(`[email] Password reset sent to ${toEmail}`);
+  emailLogger.info({ toEmail }, 'Password reset email sent');
 }

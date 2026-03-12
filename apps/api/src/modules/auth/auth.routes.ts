@@ -6,6 +6,9 @@ import * as authService from './auth.service';
 import { ENV } from '../../config/env';
 import { SESSION } from '../../shared/constants';
 import { sendPasswordResetEmail } from '../../shared/email';
+import { logger } from '../../shared/logger';
+
+const authLogger = logger.child({ module: 'auth' });
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -21,6 +24,16 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       scoping: 'scoped',
       duration: 60 * 1000,
       max: 5,
+      skip: (req) => !req,
+      generator: async (req, server) => {
+        if (!req) return 'anonymous';
+        return (
+          req.headers.get('x-forwarded-for') ??
+          req.headers.get('x-real-ip') ??
+          server?.requestIP(req)?.address ??
+          'anonymous'
+        );
+      },
       errorResponse: new Response(
         JSON.stringify({ error: 'Too many requests, please try again later' }),
         { status: 429, headers: { 'Content-Type': 'application/json' } },
@@ -99,7 +112,13 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         try {
           await sendPasswordResetEmail(body.email, result.token);
         } catch (e) {
-          console.error('[auth] Failed to send reset email:', e);
+          authLogger.error(
+            {
+              errorName: e instanceof Error ? e.name : 'UnknownError',
+              errorMessage: e instanceof Error ? e.message : String(e),
+            },
+            'Failed to send password reset email',
+          );
         }
       }
       // Always return success to prevent email enumeration

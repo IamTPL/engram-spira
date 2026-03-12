@@ -6,6 +6,21 @@ export const REVIEW_ACTIONS = {
   EASY: 'easy',
 } as const;
 
+// AI flashcard generation input limits
+// MIN: enough for at least one meaningful sentence in any language
+// MAX: ~3,000 English words / ~6,000 Vietnamese words — a full textbook section.
+//      Beyond this, card quality degrades and output token count becomes unwieldy.
+//      Both values must stay in sync with the backend (ai.routes.ts).
+export const AI_SOURCE_MIN_CHARS = 10;
+export const AI_SOURCE_MAX_CHARS = 10_000;
+
+// Banner-level background job polling
+// How often to silently re-check a processing job shown in the resume banner.
+export const AI_BANNER_POLL_INTERVAL_MS = 3_000;
+// After this long with no terminal status, assume the backend job was lost
+// (server restart, Gemini timeout) and stop polling to avoid infinite requests.
+export const AI_BANNER_POLL_TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
+
 // Keyboard shortcuts
 export const KEYBOARD_SHORTCUTS = {
   FLIP: ' ', // Space
@@ -68,6 +83,16 @@ export const WORD_TYPES = [
 
 // Calendar month abbreviations
 export const MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ] as const;

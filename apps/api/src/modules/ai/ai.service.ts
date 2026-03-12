@@ -4,7 +4,7 @@
  * Uses Google Gemini to generate flashcards from user-provided text/topic.
  * Mode (vocabulary / Q&A) is auto-detected from the deck's card template.
  */
-import { eq, and, lt, sql } from 'drizzle-orm';
+import { eq, and, lt, sql, inArray } from 'drizzle-orm';
 import { db } from '../../db';
 import {
   aiGenerationJobs,
@@ -13,11 +13,21 @@ import {
   cardFieldValues,
   templateFields,
 } from '../../db/schema';
-import { NotFoundError } from '../../shared/errors';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '../../shared/errors';
 import { getGenAI, checkAiRateLimit } from '../../config/ai';
+import { buildVocabPrompt } from './vocab.prompt';
+import { buildQAPrompt } from './qa.prompt';
+import { ENV } from '../../config/env';
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const AI_TIMEOUT_MS = 30_000;
+// ── AI timing constants ────────────────────────────────────────────────────
+// Maximum wall-clock time for the entire streaming generation.
+// Streaming keeps the connection active throughout, so this is a true
+// safety net (e.g. Gemini hangs mid-stream) rather than an idle timeout.
+const AI_STREAM_TIMEOUT_MS = 3 * 60 * 1_000; // 3 minutes
 
 export type BackLanguage = 'vi' | 'en';
 
@@ -40,19 +50,6 @@ interface TemplateInfo {
   fieldMap: Map<string, string>;
   frontFieldId: string;
   backFieldId: string;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  op: string,
-): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`AI timeout while ${op}`)), ms);
-    }),
-  ]);
 }
 
 // ── Helpers ─────────────────────────────────────────────
@@ -89,7 +86,7 @@ async function getTemplateInfo(templateId: string): Promise<TemplateInfo> {
   const backField = sorted.find((f) => f.side === 'back');
 
   if (!frontField || !backField) {
-    throw new Error(
+    throw new ValidationError(
       'Deck template must have at least one front and one back field for AI generation',
     );
   }
@@ -110,75 +107,15 @@ async function getTemplateInfo(templateId: string): Promise<TemplateInfo> {
   };
 }
 
-/**
- * Vocabulary prompt — generates rich cards with ipa, wordType, examples.
- * Only "back" (definition) is translated when lang='vi'.
- * All other fields stay in the original/standard language of the source.
- */
-function buildVocabPrompt(sourceText: string, lang: BackLanguage): string {
-  const defLang = lang === 'vi' ? 'Vietnamese' : 'English';
-  return `You are a professional vocabulary flashcard creator.
-
-Task: Extract every meaningful term, word, or phrase from the text and produce one flashcard per term.
-
-Each flashcard MUST be a JSON object with these fields:
-- "front": the term exactly as it appears in the source (keep original language and script)
-- "back": a clear, concise definition or explanation written in ${defLang}
-- "ipa": IPA phonetic transcription of the term (e.g. "/ɪˈfem.ər.əl/"). Omit if not applicable.
-- "wordType": part of speech in English (e.g. "noun", "verb", "adjective", "phrase"). Omit if unclear.
-- "examples": 1–2 natural example sentences using the term, written in the SAME language as the source text (do NOT translate). Omit if not helpful.
-
-Strict rules:
-1. ONLY include terms that genuinely appear in or are directly implied by the provided text.
-2. Skip trivially common words ("the", "is", "and", etc.) unless the text is explicitly a word list.
-3. If the input is random characters, gibberish, or has NO learnable vocabulary → return EXACTLY [].
-4. Do NOT invent terms or definitions not grounded in the text.
-5. Extract as many meaningful terms as the content supports — do not cap the count.
-6. "ipa", "wordType", and "examples" must NEVER be translated — always keep original/standard form.
-
-Source text:
-${sourceText}
-
-Respond with ONLY a valid JSON array. Example:
-[{"front":"ephemeral","back":"${lang === 'vi' ? 'tồn tại trong thời gian ngắn' : 'lasting for a very short time'}","ipa":"/ɪˈfem.ər.əl/","wordType":"adjective","examples":"The ephemeral beauty of cherry blossoms draws millions of visitors."}]
-Or [] if nothing to extract. No markdown fences, no extra text.`;
-}
-
-/**
- * Q&A prompt — generates comprehension question/answer cards.
- * The answer ("back") is written in the chosen language.
- */
-function buildQAPrompt(sourceText: string, lang: BackLanguage): string {
-  const answerLang = lang === 'vi' ? 'Vietnamese' : 'English';
-  return `You are a professional Q&A flashcard creator for active recall learning.
-
-Task: Generate flashcards that test deep understanding of the key concepts, facts, and ideas in the text.
-
-Each flashcard MUST be a JSON object with exactly two fields:
-- "front": a precise, clearly answerable question that targets ONE specific concept from the text
-- "back": the correct answer written in ${answerLang}, derived strictly from the text
-
-Strict rules:
-1. Every question must be answerable using ONLY the provided text — no outside knowledge.
-2. Each card tests exactly ONE concept. Avoid compound questions.
-3. Prefer specific, concrete questions ("What causes X?" > "What is X mention?").
-4. Avoid trivially obvious or meta questions ("What is the title?", "Who wrote this?").
-5. If the input is random characters, gibberish, or has NO meaningful content → return EXACTLY [].
-6. Generate as many cards as the content meaningfully supports — do not cap the count.
-
-Source text:
-${sourceText}
-
-Respond with ONLY a valid JSON array like [{"front":"...","back":"..."}] or [] if nothing to generate. No markdown fences, no extra text.`;
-}
-
 // ── Core functions ──────────────────────────────────────
 
 /**
- * Generate flashcards from text using Gemini. Returns a preview (job).
- * Mode is auto-detected from the deck's card template:
- *   - template with a "word" field → vocabulary mode (rich cards with ipa/wordType/examples)
- *   - otherwise → Q&A mode (front question / back answer)
+ * Generate flashcards from text using Gemini.
+ *
+ * Returns immediately with a jobId (status='processing').
+ * Gemini runs in the background — client polls GET /ai/jobs/:jobId.
+ * On success: job transitions to 'pending' with cards.
+ * On failure: job transitions to 'failed' with errorMessage.
  */
 export async function generateCardsFromText(
   userId: string,
@@ -190,70 +127,115 @@ export async function generateCardsFromText(
   const deck = await verifyDeckOwnership(deckId, userId);
   const { mode } = await getTemplateInfo(deck.cardTemplateId);
 
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
-  const prompt =
-    mode === 'vocabulary'
-      ? buildVocabPrompt(sourceText, backLanguage)
-      : buildQAPrompt(sourceText, backLanguage);
-
-  const result = await withTimeout(
-    model.generateContent(prompt),
-    AI_TIMEOUT_MS,
-    'generating cards',
-  );
-  const text = result.response.text();
-
-  // Parse the JSON response
-  let generatedCards: GeneratedCard[];
-  try {
-    const cleaned = text
-      .replace(/```(?:json)?\s*/g, '')
-      .replace(/```/g, '')
-      .trim();
-    generatedCards = JSON.parse(cleaned);
-    if (!Array.isArray(generatedCards)) throw new Error('Not an array');
-  } catch {
-    throw new Error('AI returned invalid response. Please try again.');
-  }
-
-  // Validate structure (no length cap — AI decides)
-  generatedCards = generatedCards.filter(
-    (c) => typeof c.front === 'string' && typeof c.back === 'string',
-  );
-
-  // If the model determined no meaningful content → return without saving a job
-  if (generatedCards.length === 0) {
-    return {
-      jobId: null,
-      cards: [],
-      count: 0,
-      message:
-        'No meaningful content found in the provided text. Please enter a more specific topic or a document with learnable content.',
-    };
-  }
-
-  // Save as a pending job
+  // Insert job immediately so client has a jobId to poll
   const [job] = await db
     .insert(aiGenerationJobs)
     .values({
       userId,
       deckId,
-      sourceText: sourceText.slice(0, 10000),
-      cardCount: generatedCards.length,
-      generatedCards,
-      model: GEMINI_MODEL,
-      status: 'pending',
+      sourceText: sourceText.slice(0, 10_000),
+      cardCount: 0,
+      generatedCards: null,
+      model: ENV.GEMINI_MODEL,
+      status: 'processing',
     })
     .returning();
 
-  return {
-    jobId: job.id,
-    cards: generatedCards,
-    count: generatedCards.length,
-    message: null,
-  };
+  // Fire and forget — do not await
+  void processJobInBackground(job.id, mode, sourceText, backLanguage);
+
+  return { jobId: job.id, status: 'processing' };
+}
+
+/**
+ * Calls Gemini and updates the job record when done.
+ * Never throws — all errors become job status='failed'.
+ */
+async function processJobInBackground(
+  jobId: string,
+  mode: 'vocabulary' | 'qa',
+  sourceText: string,
+  backLanguage: BackLanguage,
+) {
+  const abortCtrl = new AbortController();
+  const timer = setTimeout(() => abortCtrl.abort(), AI_STREAM_TIMEOUT_MS);
+
+  try {
+    const genAI = getGenAI();
+    const model = genAI.getGenerativeModel(
+      { model: ENV.GEMINI_MODEL },
+      // Pass the signal so the underlying fetch is cancelled on timeout/abort
+      { timeout: AI_STREAM_TIMEOUT_MS },
+    );
+    const prompt =
+      mode === 'vocabulary'
+        ? buildVocabPrompt(sourceText, backLanguage)
+        : buildQAPrompt(sourceText, backLanguage);
+
+    // Stream response — Gemini sends tokens progressively, so the connection
+    // is always active. No idle-wait problem regardless of text length.
+    const streamResult = await model.generateContentStream(prompt);
+
+    let text = '';
+    for await (const chunk of streamResult.stream) {
+      if (abortCtrl.signal.aborted) {
+        throw new Error(
+          `AI generation timed out after ${AI_STREAM_TIMEOUT_MS / 1000}s`,
+        );
+      }
+      text += chunk.text();
+    }
+
+    const cleaned = text
+      .replace(/```(?:json)?\s*/g, '')
+      .replace(/```/g, '')
+      .trim();
+
+    let generatedCards: GeneratedCard[];
+    generatedCards = JSON.parse(cleaned);
+    if (!Array.isArray(generatedCards)) throw new Error('Not an array');
+
+    generatedCards = generatedCards.filter(
+      (c) => typeof c.front === 'string' && typeof c.back === 'string',
+    );
+
+    // Vocabulary card fronts use Title Case (e.g. "peak performance", "machine learning" → "Peak Performance")
+    if (mode === 'vocabulary') {
+      generatedCards = generatedCards.map((c) => ({
+        ...c,
+        front: c.front.replace(/\b\w/g, (ch) => ch.toUpperCase()),
+      }));
+    }
+
+    if (generatedCards.length === 0) {
+      await db
+        .update(aiGenerationJobs)
+        .set({
+          status: 'failed',
+          errorMessage:
+            'No meaningful content found. Please enter a more specific topic.',
+        })
+        .where(eq(aiGenerationJobs.id, jobId));
+      return;
+    }
+
+    await db
+      .update(aiGenerationJobs)
+      .set({
+        status: 'pending',
+        generatedCards,
+        cardCount: generatedCards.length,
+      })
+      .where(eq(aiGenerationJobs.id, jobId));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'AI generation failed';
+    await db
+      .update(aiGenerationJobs)
+      .set({ status: 'failed', errorMessage: message })
+      .where(eq(aiGenerationJobs.id, jobId));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -275,7 +257,7 @@ export async function saveGeneratedCards(
 
   if (!job) throw new NotFoundError('AI generation job');
   if (job.status !== 'pending') {
-    throw new Error('Job has already been saved or expired');
+    throw new ConflictError('Job has already been saved or expired');
   }
 
   const deck = await verifyDeckOwnership(job.deckId, userId);
@@ -299,7 +281,7 @@ export async function saveGeneratedCards(
     : originalCards;
 
   if (!cardsToSave || cardsToSave.length === 0) {
-    throw new Error('No cards to save');
+    throw new ValidationError('No cards to save');
   }
 
   // Insert cards in a transaction
@@ -396,7 +378,32 @@ export async function saveGeneratedCards(
 /**
  * List AI generation jobs for a user (recent first).
  */
-export async function listJobs(userId: string, limit: number = 20) {
+export async function listJobs(
+  userId: string,
+  limit: number = 20,
+  status?: string,
+) {
+  const VALID_STATUSES = [
+    'processing',
+    'pending',
+    'failed',
+    'saved',
+    'expired',
+  ] as const;
+  type ValidStatus = (typeof VALID_STATUSES)[number];
+
+  const conditions = [eq(aiGenerationJobs.userId, userId)];
+  if (status) {
+    const statuses = status
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s): s is ValidStatus =>
+        (VALID_STATUSES as readonly string[]).includes(s),
+      );
+    if (statuses.length > 0) {
+      conditions.push(inArray(aiGenerationJobs.status, statuses));
+    }
+  }
   return db
     .select({
       id: aiGenerationJobs.id,
@@ -407,7 +414,7 @@ export async function listJobs(userId: string, limit: number = 20) {
       createdAt: aiGenerationJobs.createdAt,
     })
     .from(aiGenerationJobs)
-    .where(eq(aiGenerationJobs.userId, userId))
+    .where(and(...conditions))
     .orderBy(sql`${aiGenerationJobs.createdAt} DESC`)
     .limit(limit);
 }
@@ -429,20 +436,44 @@ export async function getJob(userId: string, jobId: string) {
 }
 
 /**
- * Cleanup expired pending jobs older than 24h.
- * Should be called periodically (e.g. cron or on-demand).
+ * Cleanup stale jobs older than 24h.
+ * Marks 'pending' and 'processing' jobs as 'expired', deletes 'failed'.
  */
 export async function cleanupExpiredJobs() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const result = await db
-    .update(aiGenerationJobs)
-    .set({ status: 'expired' })
-    .where(
-      and(
-        eq(aiGenerationJobs.status, 'pending'),
-        lt(aiGenerationJobs.createdAt, cutoff),
-      ),
-    );
+  const [row] = await db.execute<{ expired: number }>(sql`
+    WITH updated AS (
+      UPDATE ai_generation_jobs
+      SET status = 'expired'
+      WHERE status IN ('pending', 'processing')
+        AND created_at < ${cutoff}
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS expired FROM updated
+  `);
 
-  return { cleaned: (result as any).rowCount ?? 0 };
+  return { expired: row?.expired ?? 0 };
+}
+
+/**
+ * Mark every 'processing' job as 'failed' on server startup.
+ *
+ * Any job still in 'processing' when the server starts is an orphan — its
+ * background promise was killed by a previous server restart or crash.
+ * The Gemini call will never complete, so we surface a clear error
+ * immediately rather than leaving the frontend polling forever.
+ */
+export async function recoverOrphanedJobs() {
+  const [row] = await db.execute<{ recovered: number }>(sql`
+    WITH updated AS (
+      UPDATE ai_generation_jobs
+      SET status = 'failed',
+          error_message = 'Generation was interrupted by a server restart. Please try again.'
+      WHERE status = 'processing'
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS recovered FROM updated
+  `);
+
+  return { recovered: row?.recovered ?? 0 };
 }

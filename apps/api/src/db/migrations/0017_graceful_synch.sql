@@ -1,0 +1,1 @@
+CREATE INDEX "idx_cards_deck_sort_order" ON "cards" USING btree ("deck_id","sort_order");

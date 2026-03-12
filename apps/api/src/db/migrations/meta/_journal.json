@@ -113,6 +113,20 @@
       "when": 1741564800000,
       "tag": "0015_drop_embedding_column",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1773222052564,
+      "tag": "0016_melodic_rawhide_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773304100994,
+      "tag": "0017_graceful_synch",
+      "breakpoints": true
     }
   ]
 }

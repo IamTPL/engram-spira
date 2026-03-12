@@ -18,8 +18,19 @@ function getTimezoneOffsetMinutes(headers: Record<string, string | undefined>) {
 export const studyRoutes = new Elysia({ prefix: '/study' })
   .use(
     rateLimit({
+      scoping: 'scoped',
       duration: 60 * 1000,
       max: 180,
+      skip: (req) => !req,
+      generator: async (req, server) => {
+        if (!req) return 'anonymous';
+        return (
+          req.headers.get('x-forwarded-for') ??
+          req.headers.get('x-real-ip') ??
+          server?.requestIP(req)?.address ??
+          'anonymous'
+        );
+      },
       errorResponse: new Response(
         JSON.stringify({ error: 'Too many study requests, please retry' }),
         { status: 429, headers: { 'Content-Type': 'application/json' } },

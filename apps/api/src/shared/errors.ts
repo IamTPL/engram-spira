@@ -42,3 +42,17 @@ export class ValidationError extends AppError {
     this.name = 'ValidationError';
   }
 }
+
+export class TooManyRequestsError extends AppError {
+  constructor(message = 'Too many requests') {
+    super(429, message);
+    this.name = 'TooManyRequestsError';
+  }
+}
+
+export class PayloadTooLargeError extends AppError {
+  constructor(message = 'Payload too large') {
+    super(413, message);
+    this.name = 'PayloadTooLargeError';
+  }
+}

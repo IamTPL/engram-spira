@@ -24,7 +24,10 @@ export const cards = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index('idx_cards_deck_id').on(table.deckId)],
+  (table) => [
+    index('idx_cards_deck_id').on(table.deckId),
+    index('idx_cards_deck_sort_order').on(table.deckId, table.sortOrder),
+  ],
 );
 
 export const cardsRelations = relations(cards, ({ one, many }) => ({

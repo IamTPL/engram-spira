@@ -1,6 +1,9 @@
 import { Elysia, t } from 'elysia';
 import { requireAuth } from '../auth/auth.middleware';
 import { sendFeedbackEmail } from '../../shared/email';
+import { logger } from '../../shared/logger';
+
+const feedbackLogger = logger.child({ module: 'feedback' });
 
 /**
  * Feedback routes — accepts user feedback and sends an email notification.
@@ -20,7 +23,13 @@ export const feedbackRoutes = new Elysia({ prefix: '/feedback' })
         subject,
         message,
       }).catch((err) => {
-        console.error('[feedback] Failed to send email:', err.message);
+        feedbackLogger.error(
+          {
+            errorName: err instanceof Error ? err.name : 'UnknownError',
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          'Failed to send feedback email',
+        );
       });
 
       return { success: true };

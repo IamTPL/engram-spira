@@ -18,6 +18,9 @@ const ENV = {
     process.env.FEEDBACK_RECIPIENT || 'tranphilong030201@gmail.com',
   // ── Google Gemini AI ──────────────────────────────────────
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+  // Model to use for card generation. Defaults to gemini-3-flash-preview.
+  // Override via GEMINI_MODEL env var to switch models without code changes.
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
 } as const;
 
 // Validate required env vars at startup

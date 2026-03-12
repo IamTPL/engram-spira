@@ -27,8 +27,10 @@ export const aiGenerationJobs = pgTable(
     deckId: uuid('deck_id')
       .notNull()
       .references(() => decks.id, { onDelete: 'cascade' }),
-    /** 'pending' | 'saved' | 'expired' */
-    status: varchar('status', { length: 20 }).notNull().default('pending'),
+    /** 'processing' | 'pending' | 'failed' | 'saved' | 'expired' */
+    status: varchar('status', { length: 20 }).notNull().default('processing'),
+    /** Error message if status='failed' */
+    errorMessage: text('error_message'),
     /** User-provided source text or topic */
     sourceText: text('source_text').notNull(),
     /** Number of cards requested */

@@ -3,6 +3,7 @@
  */
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ENV } from './env';
+import { TooManyRequestsError } from '../shared/errors';
 
 let _genAI: GoogleGenerativeAI | null = null;
 
@@ -39,7 +40,7 @@ export function checkAiRateLimit(userId: string): void {
   }
 
   if (bucket.count >= MAX_REQUESTS_PER_HOUR) {
-    throw new Error(
+    throw new TooManyRequestsError(
       `AI rate limit exceeded. Max ${MAX_REQUESTS_PER_HOUR} requests per hour.`,
     );
   }

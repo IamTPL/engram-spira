@@ -16,12 +16,42 @@ import * as notificationsService from '../notifications/notifications.service';
 
 // --------------- Helpers ---------------
 
+type StudyLogExecutor = Pick<typeof db, 'insert'>;
+
+interface ProgressSnapshot {
+  boxLevel: number;
+  easeFactor: number;
+  intervalDays: number;
+  lastReviewedAt: Date | null;
+}
+
+function toProgressSnapshot(row: {
+  boxLevel: number | null;
+  easeFactor: number | null;
+  intervalDays: number | null;
+  lastReviewedAt: Date | null;
+}): ProgressSnapshot | null {
+  if (
+    row.boxLevel === null ||
+    row.easeFactor === null ||
+    row.intervalDays === null
+  ) {
+    return null;
+  }
+  return {
+    boxLevel: row.boxLevel,
+    easeFactor: row.easeFactor,
+    intervalDays: row.intervalDays,
+    lastReviewedAt: row.lastReviewedAt,
+  };
+}
+
 /**
  * Upsert today's study log for a user, incrementing cards_reviewed by `count`.
  * Uses a single SQL upsert to avoid race conditions.
  */
 async function upsertDailyLog(
-  executor: any,
+  executor: StudyLogExecutor,
   userId: string,
   count: number,
   tzOffset = 0,
@@ -52,13 +82,22 @@ async function verifyDeckOwnership(deckId: string, userId: string) {
 }
 
 /** Helper to fetch and enrich a set of card IDs with their field values + progress */
-async function enrichCards(targetIds: string[], userId: string) {
+async function enrichCards(
+  targetIds: string[],
+  userId: string,
+  sortByCardOrder = true,
+) {
+  if (targetIds.length === 0) return [];
+  const cardIds =
+    targetIds.length > 1 ? Array.from(new Set(targetIds)) : targetIds;
+
+  const cardsQuery = db.select().from(cards).where(inArray(cards.id, cardIds));
+  const cardsPromise = sortByCardOrder
+    ? cardsQuery.orderBy(cards.sortOrder)
+    : cardsQuery;
+
   const [targetCardsData, allFieldValues, progressRows] = await Promise.all([
-    db
-      .select()
-      .from(cards)
-      .where(inArray(cards.id, targetIds))
-      .orderBy(cards.sortOrder),
+    cardsPromise,
     db
       .select({
         cardId: cardFieldValues.cardId,
@@ -74,14 +113,14 @@ async function enrichCards(targetIds: string[], userId: string) {
         templateFields,
         eq(cardFieldValues.templateFieldId, templateFields.id),
       )
-      .where(inArray(cardFieldValues.cardId, targetIds)),
+      .where(inArray(cardFieldValues.cardId, cardIds)),
     db
       .select()
       .from(studyProgress)
       .where(
         and(
           eq(studyProgress.userId, userId),
-          inArray(studyProgress.cardId, targetIds),
+          inArray(studyProgress.cardId, cardIds),
         ),
       ),
   ]);
@@ -163,37 +202,36 @@ export async function reviewCard(
   action: ReviewAction,
   tzOffset = 0,
 ) {
-  // Verify ownership + get current progress in parallel
-  const [[cardResult], [currentProgress]] = await Promise.all([
-    db
-      .select({ id: cards.id })
-      .from(cards)
-      .innerJoin(
-        decks,
-        and(eq(cards.deckId, decks.id), eq(decks.userId, userId)),
-      )
-      .where(eq(cards.id, cardId))
-      .limit(1),
-    db
-      .select()
-      .from(studyProgress)
-      .where(
-        and(eq(studyProgress.userId, userId), eq(studyProgress.cardId, cardId)),
-      )
-      .limit(1),
-  ]);
+  // Single query: verify ownership + load current progress
+  const [cardWithProgress] = await db
+    .select({
+      id: cards.id,
+      boxLevel: studyProgress.boxLevel,
+      easeFactor: studyProgress.easeFactor,
+      intervalDays: studyProgress.intervalDays,
+      lastReviewedAt: studyProgress.lastReviewedAt,
+    })
+    .from(cards)
+    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
+    .leftJoin(
+      studyProgress,
+      and(eq(studyProgress.userId, userId), eq(studyProgress.cardId, cards.id)),
+    )
+    .where(eq(cards.id, cardId))
+    .limit(1);
 
-  if (!cardResult) throw new NotFoundError('Card');
+  if (!cardWithProgress) throw new NotFoundError('Card');
 
   const now = new Date();
+  const nowMs = now.getTime();
+  const currentProgress = toProgressSnapshot(cardWithProgress);
 
   // Compute elapsed days for logging
   const elapsedDays = currentProgress?.lastReviewedAt
     ? Math.max(
         0,
         Math.round(
-          (now.getTime() - currentProgress.lastReviewedAt.getTime()) /
-            (1000 * 60 * 60 * 24),
+          (nowMs - currentProgress.lastReviewedAt.getTime()) / 86_400_000,
         ),
       )
     : 0;
@@ -265,30 +303,29 @@ export async function reviewCardBatch(
 
   const cardIds = items.map((i) => i.cardId);
 
-  // Verify all cards belong to this user + fetch current progress in parallel
-  const [ownedCards, progressRows] = await Promise.all([
-    db
-      .select({ id: cards.id })
-      .from(cards)
-      .innerJoin(
-        decks,
-        and(eq(cards.deckId, decks.id), eq(decks.userId, userId)),
-      )
-      .where(inArray(cards.id, cardIds)),
-    db
-      .select()
-      .from(studyProgress)
-      .where(
-        and(
-          eq(studyProgress.userId, userId),
-          inArray(studyProgress.cardId, cardIds),
-        ),
-      ),
-  ]);
+  // Single query: ownership verification + progress snapshot
+  const cardRows = await db
+    .select({
+      cardId: cards.id,
+      boxLevel: studyProgress.boxLevel,
+      easeFactor: studyProgress.easeFactor,
+      intervalDays: studyProgress.intervalDays,
+      lastReviewedAt: studyProgress.lastReviewedAt,
+    })
+    .from(cards)
+    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
+    .leftJoin(
+      studyProgress,
+      and(eq(studyProgress.userId, userId), eq(studyProgress.cardId, cards.id)),
+    )
+    .where(inArray(cards.id, cardIds));
 
-  const ownedIds = new Set(ownedCards.map((c) => c.id));
-  const progressByCard = new Map(progressRows.map((p) => [p.cardId, p]));
+  const ownedIds = new Set(cardRows.map((c) => c.cardId));
+  const progressByCard = new Map(
+    cardRows.map((row) => [row.cardId, toProgressSnapshot(row)]),
+  );
   const now = new Date();
+  const nowMs = now.getTime();
 
   const upsertValues: (typeof studyProgress.$inferInsert)[] = [];
   const logEntries: {
@@ -302,16 +339,13 @@ export async function reviewCardBatch(
 
   for (const item of items) {
     if (!ownedIds.has(item.cardId)) continue;
-    const prev = progressByCard.get(item.cardId);
+    const prev = progressByCard.get(item.cardId) ?? null;
     const prevIntervalDays = prev?.intervalDays ?? 0;
 
     const elapsedDays = prev?.lastReviewedAt
       ? Math.max(
           0,
-          Math.round(
-            (now.getTime() - prev.lastReviewedAt.getTime()) /
-              (1000 * 60 * 60 * 24),
-          ),
+          Math.round((nowMs - prev.lastReviewedAt.getTime()) / 86_400_000),
         )
       : 0;
 
@@ -381,18 +415,26 @@ export async function reviewCardBatch(
 export async function getDeckSchedule(deckId: string, userId: string) {
   await verifyDeckOwnership(deckId, userId);
   const now = new Date();
+  const nowMs = now.getTime();
 
-  // Parallel fetch: cards + progress
-  const [deckCards, allProgress] = await Promise.all([
-    db.select({ id: cards.id }).from(cards).where(eq(cards.deckId, deckId)),
+  // Parallel fetch: total card count + minimal progress projection
+  const [[totalRow], progress] = await Promise.all([
     db
-      .select()
+      .select({ totalCards: sql<number>`count(*)::int` })
+      .from(cards)
+      .where(eq(cards.deckId, deckId)),
+    db
+      .select({
+        boxLevel: studyProgress.boxLevel,
+        nextReviewAt: studyProgress.nextReviewAt,
+      })
       .from(studyProgress)
       .innerJoin(cards, eq(studyProgress.cardId, cards.id))
       .where(and(eq(studyProgress.userId, userId), eq(cards.deckId, deckId))),
   ]);
+  const totalCards = totalRow?.totalCards ?? 0;
 
-  if (deckCards.length === 0) {
+  if (totalCards === 0) {
     return {
       totalCards: 0,
       learnedCards: 0,
@@ -401,7 +443,6 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     };
   }
 
-  const progress = allProgress.map((r) => r.study_progress);
   // "Learned" = graduated past learning phase (boxLevel > 0)
   const learnedCards = progress.filter((p) => p.boxLevel > 0).length;
 
@@ -416,14 +457,14 @@ export async function getDeckSchedule(deckId: string, userId: string) {
 
   for (const p of progress) {
     const reviewTime = p.nextReviewAt.getTime();
-    if (reviewTime <= now.getTime()) continue; // already due/overdue
+    if (reviewTime <= nowMs) continue; // already due/overdue
 
     if (reviewTime < nearestMs) {
       nearestMs = reviewTime;
       nextReviewDate = p.nextReviewAt.toISOString();
     }
 
-    const diffMs = reviewTime - now.getTime();
+    const diffMs = reviewTime - nowMs;
 
     // Cards due within 1 hour → "due soon" (Again/Hard learning cards)
     if (diffMs < ONE_HOUR_MS) {
@@ -447,7 +488,7 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     }));
 
   return {
-    totalCards: deckCards.length,
+    totalCards,
     learnedCards,
     upcoming,
     dueSoon,
@@ -616,14 +657,8 @@ export async function getInterleavedDueCards(
   limit: number = 50,
 ) {
   if (deckIds.length === 0) return { cards: [], total: 0, due: 0 };
-
-  // Verify all decks belong to user
-  const ownedDecks = await db
-    .select({ id: decks.id })
-    .from(decks)
-    .where(and(eq(decks.userId, userId), inArray(decks.id, deckIds)));
-  const validIds = ownedDecks.map((d) => d.id);
-  if (validIds.length === 0) return { cards: [], total: 0, due: 0 };
+  const uniqueDeckIds =
+    deckIds.length > 1 ? Array.from(new Set(deckIds)) : deckIds;
 
   const now = new Date();
 
@@ -633,16 +668,16 @@ export async function getInterleavedDueCards(
     .select({
       id: cards.id,
       deckId: cards.deckId,
-      nextReviewAt: studyProgress.nextReviewAt,
     })
     .from(cards)
+    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
     .leftJoin(
       studyProgress,
       and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
     )
     .where(
       and(
-        inArray(cards.deckId, validIds),
+        inArray(cards.deckId, uniqueDeckIds),
         or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)),
       ),
     )
@@ -680,7 +715,7 @@ export async function getInterleavedDueCards(
     if (!anyAdded) break;
   }
 
-  const enrichedCards = await enrichCards(interleaved, userId);
+  const enrichedCards = await enrichCards(interleaved, userId, false);
 
   // Preserve interleaved order
   const orderMap = new Map(interleaved.map((id, idx) => [id, idx]));
@@ -709,7 +744,6 @@ export async function getAutoInterleavedCards(
   const deckDueCounts = await db
     .select({
       deckId: cards.deckId,
-      dueCount: sql<number>`count(*)::int`,
     })
     .from(cards)
     .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
@@ -741,22 +775,21 @@ export async function getAutoInterleavedCards(
  */
 export async function resetDeckProgress(deckId: string, userId: string) {
   await verifyDeckOwnership(deckId, userId);
+  const [row] = await db.execute<{ reset: number }>(sql`
+    WITH deleted AS (
+      DELETE FROM study_progress
+      WHERE user_id = ${userId}
+        AND card_id IN (
+          SELECT id
+          FROM cards
+          WHERE deck_id = ${deckId}
+        )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS reset FROM deleted
+  `);
 
-  const deckCardIds = await db
-    .select({ id: cards.id })
-    .from(cards)
-    .where(eq(cards.deckId, deckId));
-
-  if (deckCardIds.length === 0) return { reset: 0 };
-
-  const ids = deckCardIds.map((c) => c.id);
-  await db
-    .delete(studyProgress)
-    .where(
-      and(eq(studyProgress.userId, userId), inArray(studyProgress.cardId, ids)),
-    );
-
-  return { reset: ids.length };
+  return { reset: row?.reset ?? 0 };
 }
 
 /**

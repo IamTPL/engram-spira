@@ -2,14 +2,26 @@ import { Elysia, t } from 'elysia';
 import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from '../auth/auth.middleware';
 import * as importExportService from './import-export.service';
+import { PayloadTooLargeError, ValidationError } from '../../shared/errors';
 
 const MAX_CSV_BYTES = 2 * 1024 * 1024;
 
 export const importExportRoutes = new Elysia()
   .use(
     rateLimit({
+      scoping: 'scoped',
       duration: 60 * 1000,
       max: 15,
+      skip: (req) => !req,
+      generator: async (req, server) => {
+        if (!req) return 'anonymous';
+        return (
+          req.headers.get('x-forwarded-for') ??
+          req.headers.get('x-real-ip') ??
+          server?.requestIP(req)?.address ??
+          'anonymous'
+        );
+      },
       errorResponse: new Response(
         JSON.stringify({ error: 'Too many import/export requests' }),
         { status: 429, headers: { 'Content-Type': 'application/json' } },
@@ -25,16 +37,20 @@ export const importExportRoutes = new Elysia()
 
       if (typeof body.csv === 'string') {
         if (body.csv.length > MAX_CSV_BYTES) {
-          return { error: 'CSV is too large. Max size is 2MB.' };
+          throw new PayloadTooLargeError('CSV is too large. Max size is 2MB.');
         }
         csvText = body.csv;
       } else if (body.file) {
         if (body.file.size > MAX_CSV_BYTES) {
-          return { error: 'CSV file is too large. Max size is 2MB.' };
+          throw new PayloadTooLargeError(
+            'CSV file is too large. Max size is 2MB.',
+          );
         }
         csvText = await body.file.text();
       } else {
-        return { error: 'Provide either csv (string) or file (File upload)' };
+        throw new ValidationError(
+          'Provide either csv (string) or file (File upload)',
+        );
       }
 
       return importExportService.importCSV(

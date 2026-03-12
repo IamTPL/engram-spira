@@ -140,7 +140,7 @@ Implemented as the **SM-2 (SuperMemo 2) adaptive algorithm** in `modules/study/s
 
 | Action    | Vietnamese | box_level  | ease_factor delta | Next Review Interval                                      |
 | --------- | ---------- | ---------- | ----------------- | --------------------------------------------------------- |
-| **Again** | Quên       | Reset to 0 | −0.20             | **NOW** (immediately due)                                 |
+| **Again** | Quên       | Reset to 0 | −0.20             | **10 minutes** (short relearning delay)                   |
 | **Hard**  | Khó        | Unchanged  | −0.15             | rep ≤ 1 → 1d; else `max(interval+1, round(interval×1.2))` |
 | **Good**  | Thuộc      | +1         | 0 (unchanged)     | rep 1 → 1d, rep 2 → 6d, rep N → `round(interval × EF)`    |
 
@@ -151,7 +151,7 @@ Implemented as the **SM-2 (SuperMemo 2) adaptive algorithm** in `modules/study/s
 - `FIRST_INTERVAL_DAYS`: 1
 - `SECOND_INTERVAL_DAYS`: 6
 
-> **Again** sets `next_review_at = NOW` so cards are immediately re-queued for the next session.
+> **Again** sets `next_review_at = NOW + 10 minutes` to create a short relearning delay before re-queueing the card.
 
 ---
 

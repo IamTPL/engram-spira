@@ -3,6 +3,8 @@ import {
   createSignal,
   createResource,
   createMemo,
+  createEffect,
+  onCleanup,
   Show,
   For,
 } from 'solid-js';
@@ -35,7 +37,14 @@ import {
   Square,
 } from 'lucide-solid';
 
-import { WORD_TYPES } from '@/constants';
+import {
+  WORD_TYPES,
+  AI_SOURCE_MIN_CHARS,
+  AI_SOURCE_MAX_CHARS,
+  AI_BANNER_POLL_INTERVAL_MS,
+  AI_BANNER_POLL_TIMEOUT_MS,
+} from '@/constants';
+import Spinner from '@/components/ui/spinner';
 
 interface TemplateField {
   id: string;
@@ -169,6 +178,27 @@ const DeckViewPage: Component = () => {
   >([]);
   const [aiJobId, setAiJobId] = createSignal<string | null>(null);
   const [aiSaving, setAiSaving] = createSignal(false);
+  // Layer 2: confirm dialog when closing with unsaved preview
+  const [aiConfirmDiscard, setAiConfirmDiscard] = createSignal(false);
+  // Layer 3: pending/processing job resume — fetch once on mount
+  const [pendingJob, { refetch: refetchPendingJob }] = createResource(
+    () => params.deckId,
+    async (deckId) => {
+      try {
+        // Fetch only active jobs (processing | pending) for this deck.
+        // Passing status filter avoids loading saved/failed history and ensures
+        // even the oldest active job is returned regardless of limit.
+        const { data } = await (api.ai as any).jobs.get({
+          query: { limit: 5, status: 'processing,pending' },
+        });
+        if (!Array.isArray(data)) return null;
+        return (data as any[]).find((j) => j.deckId === deckId) ?? null;
+      } catch {
+        return null;
+      }
+    },
+  );
+  const [pendingJobDismissed, setPendingJobDismissed] = createSignal(false);
 
   // Bulk selection state
   const [selectMode, setSelectMode] = createSignal(false);
@@ -288,6 +318,117 @@ const DeckViewPage: Component = () => {
   };
 
   // ── AI handlers ──────────────────────────────────────────────────────
+  // Polling interval reference — cleared on unmount or modal close
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  // Banner-level background poll — separate from modal poll so the banner
+  // auto-updates even when the user has not clicked "View progress".
+  let bannerPollTimer: ReturnType<typeof setInterval> | null = null;
+  let bannerPollStartedAt = 0;
+  // Tracks whether we saw the banner job as 'processing' so we can fire a
+  // "ready" toast only on transition (not on initial page-load with pending job).
+  let bannerSeenProcessing = false;
+
+  onCleanup(() => {
+    if (pollTimer) clearInterval(pollTimer);
+    if (bannerPollTimer) clearInterval(bannerPollTimer);
+  });
+
+  // Auto-poll the resume banner when a job is still processing.
+  // Calls refetchPendingJob() every AI_BANNER_POLL_INTERVAL_MS until the job
+  // reaches a terminal state (pending | failed | expired) or the timeout fires.
+  createEffect(() => {
+    const job = pendingJob();
+    const dismissed = pendingJobDismissed();
+
+    if (job && job.status === 'processing' && !dismissed) {
+      bannerSeenProcessing = true;
+      if (!bannerPollTimer) {
+        bannerPollStartedAt = Date.now();
+        bannerPollTimer = setInterval(() => {
+          if (Date.now() - bannerPollStartedAt > AI_BANNER_POLL_TIMEOUT_MS) {
+            clearInterval(bannerPollTimer!);
+            bannerPollTimer = null;
+            toast.error(
+              'AI generation is taking too long. The job may have failed — please try again.',
+            );
+            return;
+          }
+          refetchPendingJob();
+        }, AI_BANNER_POLL_INTERVAL_MS);
+      }
+    } else {
+      if (bannerPollTimer) {
+        clearInterval(bannerPollTimer);
+        bannerPollTimer = null;
+      }
+      // Notify when job transitions FROM processing → pending (cards ready)
+      if (bannerSeenProcessing && job?.status === 'pending' && !dismissed) {
+        bannerSeenProcessing = false;
+        toast.success(
+          `AI cards ready — ${job.cardCount ?? 'some'} cards generated!`,
+        );
+      }
+      if (!job) bannerSeenProcessing = false;
+    }
+  });
+
+  const stopPolling = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    // Resume banner polling if a background job is still processing
+    // (modal closed but job not finished yet)
+    const job = pendingJob();
+    if (job?.status === 'processing' && !pendingJobDismissed()) {
+      bannerSeenProcessing = true;
+      if (!bannerPollTimer) {
+        bannerPollStartedAt = Date.now();
+        bannerPollTimer = setInterval(() => {
+          if (Date.now() - bannerPollStartedAt > AI_BANNER_POLL_TIMEOUT_MS) {
+            clearInterval(bannerPollTimer!);
+            bannerPollTimer = null;
+            toast.error(
+              'AI generation is taking too long. The job may have failed — please try again.',
+            );
+            return;
+          }
+          refetchPendingJob();
+        }, AI_BANNER_POLL_INTERVAL_MS);
+      }
+    }
+  };
+
+  const startPolling = (jobId: string) => {
+    // Pause banner polling while the modal is actively polling the same job.
+    // This prevents duplicate concurrent requests to /ai/jobs endpoints.
+    if (bannerPollTimer) {
+      clearInterval(bannerPollTimer);
+      bannerPollTimer = null;
+    }
+    stopPolling();
+    pollTimer = setInterval(async () => {
+      try {
+        const { data, error } = await (api.ai as any).jobs({ jobId }).get();
+        if (error || !data) return; // transient error — try again next tick
+        if (data.status === 'pending') {
+          stopPolling();
+          setAiGenerating(false);
+          setAiPreviewCards(reconcile((data.generatedCards as any[]) ?? []));
+          setAiPreviewOpen(true);
+        } else if (data.status === 'failed') {
+          stopPolling();
+          setAiGenerating(false);
+          setAiJobId(null);
+          toast.error(data.errorMessage ?? 'AI generation failed');
+        }
+        // else: still 'processing' — keep polling
+      } catch {
+        // network hiccup — keep polling
+      }
+    }, 2000);
+  };
+
   const handleAiGenerate = async () => {
     const text = aiSourceText().trim();
     if (!text || text.length < 10) {
@@ -302,29 +443,31 @@ const DeckViewPage: Component = () => {
         backLanguage: aiBackLang(),
       });
       if (error) throw new Error(error.error ?? 'Generation failed');
-      if (data.count === 0) {
-        toast.error(
-          data.message ?? 'No cards could be generated from this text.',
-        );
-        return;
-      }
-      setAiPreviewCards(reconcile(data.cards));
-      setAiPreviewOpen(true);
       setAiJobId(data.jobId);
+      startPolling(data.jobId);
     } catch (err: any) {
-      toast.error(err?.message ?? 'AI generation failed');
-    } finally {
       setAiGenerating(false);
+      toast.error(err?.message ?? 'AI generation failed');
     }
+    // Note: setAiGenerating(false) is called by the polling handler, not here
   };
 
   const handleAiSave = async () => {
     const jobId = aiJobId();
     if (!jobId || !aiPreviewOpen()) return;
+    stopPolling(); // ensure no in-flight poll interferes with save
     setAiSaving(true);
     try {
       const { error } = await (api.ai as any).jobs({ jobId }).save.post({
-        cards: [...aiPreviewCards],
+        // Map to plain objects and strip null optional fields so TypeBox
+        // t.Optional(t.String()) doesn't reject AI-returned null values
+        cards: aiPreviewCards.map((c) => ({
+          front: c.front,
+          back: c.back,
+          ...(c.ipa != null ? { ipa: c.ipa } : {}),
+          ...(c.wordType != null ? { wordType: c.wordType } : {}),
+          ...(c.examples != null ? { examples: c.examples } : {}),
+        })),
       });
       if (error) throw new Error(error.error ?? 'Save failed');
       toast.success(`${aiPreviewCards.length} cards saved!`);
@@ -333,6 +476,8 @@ const DeckViewPage: Component = () => {
       setAiPreviewCards(reconcile([]));
       setAiJobId(null);
       setAiSourceText('');
+      setPendingJobDismissed(false);
+      refetchPendingJob();
       refetchCards();
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to save cards');
@@ -341,13 +486,55 @@ const DeckViewPage: Component = () => {
     }
   };
 
+  // Layer 2: confirm when preview is ready but unsaved — generation is always closeable
   const closeAiModal = () => {
+    if (aiPreviewOpen() && aiJobId()) {
+      setAiConfirmDiscard(true); // Layer 2: ask before discarding unsaved preview
+      return;
+    }
+    forceCloseAiModal();
+  };
+
+  const forceCloseAiModal = () => {
+    const hadActiveJob = !!aiJobId();
+    stopPolling();
+    setAiConfirmDiscard(false);
     setShowAiModal(false);
     setAiPreviewOpen(false);
     setAiPreviewCards(reconcile([]));
     setAiJobId(null);
     setAiSourceText('');
     setAiBackLang('vi');
+    // If a job was in progress, refetch so the resume banner shows immediately
+    if (hadActiveJob) refetchPendingJob();
+  };
+
+  // Layer 3: resume a pending/processing job stored in DB
+  const handleResumeJob = async () => {
+    const job = pendingJob();
+    if (!job) return;
+    setShowAiModal(true);
+    if (job.status === 'processing') {
+      // Still generating — open modal in spinner state and poll for completion
+      setAiJobId(job.id);
+      setAiGenerating(true);
+      startPolling(job.id);
+    } else {
+      // status === 'pending' — cards are ready, load preview
+      try {
+        const { data, error } = await (api.ai as any)
+          .jobs({ jobId: job.id })
+          .get();
+        if (error || !data) throw new Error('Failed to fetch job');
+        setAiPreviewCards(reconcile((data.generatedCards as any[]) ?? []));
+        setAiJobId(data.id);
+        setAiPreviewOpen(true);
+        setPendingJobDismissed(false);
+      } catch {
+        toast.error('Failed to resume session');
+        setShowAiModal(false);
+      }
+    }
   };
 
   // ── Bulk selection handlers ──────────────────────────────────────────
@@ -526,7 +713,7 @@ const DeckViewPage: Component = () => {
               >
                 <Sparkles class="h-4 w-4 mr-2" />
                 AI Generate
-              </Button>
+              </Button>{' '}
               <Button
                 variant={selectMode() ? 'default' : 'outline'}
                 onClick={toggleSelectMode}
@@ -534,7 +721,6 @@ const DeckViewPage: Component = () => {
                 <CheckSquare class="h-4 w-4 mr-2" />
                 {selectMode() ? 'Cancel' : 'Select'}
               </Button>
-
               {/* Search */}
               <div class="ml-auto relative max-w-xs w-full">
                 <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
@@ -552,6 +738,56 @@ const DeckViewPage: Component = () => {
         {/* ── Content ── */}
         <div class="p-6">
           <div class="max-w-5xl mx-auto space-y-4">
+            {/* ── Layer 3: Pending/processing AI job resume banner ── */}
+            <Show
+              when={pendingJob() && !pendingJobDismissed() && !showAiModal()}
+            >
+              <div class="flex items-center gap-3 px-4 py-3 rounded-xl border border-palette-5/30 bg-palette-5/5 text-sm animate-fade-in">
+                <Show
+                  when={pendingJob()!.status === 'processing'}
+                  fallback={
+                    <Sparkles class="h-4 w-4 text-palette-5 shrink-0" />
+                  }
+                >
+                  <Loader2 class="h-4 w-4 text-palette-5 shrink-0 animate-spin" />
+                </Show>
+                <span class="flex-1 text-foreground">
+                  <Show
+                    when={pendingJob()!.status === 'processing'}
+                    fallback={
+                      <>
+                        You have an unsaved AI generation —{' '}
+                        <strong>{pendingJob()!.cardCount} cards</strong> waiting
+                        to be saved.
+                      </>
+                    }
+                  >
+                    AI is generating your cards in the background&hellip;
+                  </Show>
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="border-palette-5/40 text-palette-5 hover:bg-palette-5/10 h-7 px-3 text-xs"
+                  onClick={handleResumeJob}
+                >
+                  <Show
+                    when={pendingJob()!.status === 'processing'}
+                    fallback="Resume"
+                  >
+                    View progress
+                  </Show>
+                </Button>
+                <button
+                  class="text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setPendingJobDismissed(true)}
+                  aria-label="Dismiss"
+                >
+                  <X class="h-4 w-4" />
+                </button>
+              </div>
+            </Show>
+
             {/* Add card form */}
             <Show when={showAddCard() && template()}>
               <form
@@ -961,74 +1197,165 @@ const DeckViewPage: Component = () => {
             if (e.target === e.currentTarget) closeAiModal();
           }}
         >
-          <div class="bg-card border rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4 animate-fade-in">
+          <div class="relative bg-card border rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4 animate-fade-in">
             {/* Header */}
             <div class="flex items-center justify-between p-5 border-b">
               <div class="flex items-center gap-2">
                 <Sparkles class="h-5 w-5 text-palette-4" />
                 <h2 class="text-lg font-semibold">AI Card Generator</h2>
+                <Show when={aiGenerating()}>
+                  <span class="text-xs text-muted-foreground">Generating…</span>
+                </Show>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8"
                 onClick={closeAiModal}
+                title="Close"
               >
                 <X class="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Layer 2: Confirm discard overlay */}
+            <Show when={aiConfirmDiscard()}>
+              <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/60 rounded-2xl">
+                <div class="bg-card border rounded-xl shadow-xl p-6 mx-6 space-y-4 max-w-sm w-full">
+                  <h3 class="font-semibold text-foreground">
+                    Discard unsaved cards?
+                  </h3>
+                  <p class="text-sm text-muted-foreground">
+                    You have{' '}
+                    <strong>{aiPreviewCards.length} generated cards</strong>{' '}
+                    that haven't been saved yet. The session will be available
+                    for 24 hours — you can resume it later from the deck view.
+                  </p>
+                  <div class="flex gap-2 justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAiConfirmDiscard(false)}
+                    >
+                      Keep editing
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={forceCloseAiModal}
+                    >
+                      Close anyway
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Show>
 
             {/* Body */}
             <div class="flex-1 overflow-y-auto p-5 space-y-4">
               <Show
                 when={aiPreviewOpen()}
                 fallback={
-                  /* ── Input phase ── */
-                  <div class="space-y-4">
-                    {/* Back language selector */}
-                    <div class="space-y-2">
-                      <label class="text-sm font-medium text-foreground">
-                        Back (explanation) language
-                      </label>
-                      <div class="flex gap-2">
-                        <For
-                          each={
-                            [
-                              { value: 'vi', label: '🇻🇳 Tiếng Việt' },
-                              { value: 'en', label: '🇬🇧 English' },
-                            ] as const
-                          }
-                        >
-                          {(opt) => (
-                            <button
-                              type="button"
-                              onClick={() => setAiBackLang(opt.value)}
-                              class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                                aiBackLang() === opt.value
-                                  ? 'border-palette-4 bg-palette-4/10 text-foreground'
-                                  : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
-                              }`}
+                  <Show
+                    when={aiGenerating()}
+                    fallback={
+                      /* ── Input phase ── */
+                      <div class="space-y-4">
+                        {/* Back language selector */}
+                        <div class="space-y-2">
+                          <label class="text-sm font-medium text-foreground">
+                            Back (explanation) language
+                          </label>
+                          <div class="flex gap-2">
+                            <For
+                              each={
+                                [
+                                  { value: 'vi', label: '🇻🇳 Tiếng Việt' },
+                                  { value: 'en', label: '🇬🇧 English' },
+                                ] as const
+                              }
                             >
-                              {opt.label}
-                            </button>
-                          )}
-                        </For>
+                              {(opt) => (
+                                <button
+                                  type="button"
+                                  onClick={() => setAiBackLang(opt.value)}
+                                  class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                                    aiBackLang() === opt.value
+                                      ? 'border-palette-4 bg-palette-4/10 text-foreground'
+                                      : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+
+                        {/* Source text */}
+                        <div class="space-y-2">
+                          <label class="text-sm font-medium text-foreground">
+                            Paste your notes, text, or describe a topic
+                          </label>
+                          <Textarea
+                            placeholder={`Enter or paste text to generate flashcards from... (min ${AI_SOURCE_MIN_CHARS} characters)`}
+                            value={aiSourceText()}
+                            onInput={(e) => {
+                              const raw = e.currentTarget.value;
+                              const val = raw.slice(0, AI_SOURCE_MAX_CHARS);
+                              // Keep DOM in sync when paste exceeds limit
+                              if (raw !== val) e.currentTarget.value = val;
+                              setAiSourceText(val);
+                            }}
+                            class="min-h-50 resize-y"
+                          />
+                          <div class="flex justify-between text-xs">
+                            <Show
+                              when={
+                                aiSourceText().trim().length > 0 &&
+                                aiSourceText().trim().length <
+                                  AI_SOURCE_MIN_CHARS
+                              }
+                            >
+                              <span class="text-destructive">
+                                Need at least {AI_SOURCE_MIN_CHARS} characters
+                              </span>
+                            </Show>
+                            <span
+                              class="ml-auto"
+                              classList={{
+                                'text-destructive':
+                                  aiSourceText().length >= AI_SOURCE_MAX_CHARS,
+                                'text-amber-500':
+                                  aiSourceText().length >=
+                                  AI_SOURCE_MAX_CHARS * 0.9,
+                                'text-muted-foreground':
+                                  aiSourceText().length <
+                                  AI_SOURCE_MAX_CHARS * 0.9,
+                              }}
+                            >
+                              {aiSourceText().length.toLocaleString()} /{' '}
+                              {AI_SOURCE_MAX_CHARS.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    }
+                  >
+                    {/* ── Generating state ── */}
+                    <div class="flex flex-col items-center justify-center py-16 gap-6">
+                      <Spinner size="lg" />
+                      <div class="text-center space-y-1.5">
+                        <p class="text-sm font-medium text-foreground">
+                          AI is generating your flashcards…
+                        </p>
+                        <p class="text-xs text-muted-foreground max-w-xs">
+                          You can close this modal anytime — generation runs in
+                          the background and you can resume when it's done.
+                        </p>
                       </div>
                     </div>
-
-                    {/* Source text */}
-                    <div class="space-y-2">
-                      <label class="text-sm font-medium text-foreground">
-                        Paste your notes, text, or describe a topic
-                      </label>
-                      <Textarea
-                        placeholder="Enter or paste text to generate flashcards from... (min 10 characters)"
-                        value={aiSourceText()}
-                        onInput={(e) => setAiSourceText(e.currentTarget.value)}
-                        class="min-h-50 resize-y"
-                      />
-                    </div>
-                  </div>
+                  </Show>
                 }
               >
                 {/* ── Preview phase ── */}
@@ -1141,25 +1468,33 @@ const DeckViewPage: Component = () => {
               <Show
                 when={aiPreviewOpen()}
                 fallback={
-                  <>
+                  <Show
+                    when={aiGenerating()}
+                    fallback={
+                      /* Input phase footer */
+                      <>
+                        <Button variant="outline" onClick={closeAiModal}>
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleAiGenerate}
+                          disabled={
+                            aiSourceText().trim().length <
+                              AI_SOURCE_MIN_CHARS ||
+                            aiSourceText().length > AI_SOURCE_MAX_CHARS
+                          }
+                        >
+                          <Sparkles class="h-4 w-4 mr-2" />
+                          Generate Cards
+                        </Button>
+                      </>
+                    }
+                  >
+                    {/* Generating state footer */}
                     <Button variant="outline" onClick={closeAiModal}>
-                      Cancel
+                      Close — run in background
                     </Button>
-                    <Button
-                      onClick={handleAiGenerate}
-                      disabled={
-                        aiGenerating() || aiSourceText().trim().length < 10
-                      }
-                    >
-                      <Show
-                        when={aiGenerating()}
-                        fallback={<Sparkles class="h-4 w-4 mr-2" />}
-                      >
-                        <Loader2 class="h-4 w-4 mr-2 animate-spin" />
-                      </Show>
-                      {aiGenerating() ? 'Generating...' : 'Generate Cards'}
-                    </Button>
-                  </>
+                  </Show>
                 }
               >
                 <Button
