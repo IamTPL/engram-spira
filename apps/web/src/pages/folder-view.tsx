@@ -35,16 +35,16 @@ const DECK_CARD_COLORS = [
   'linear-gradient(135deg, #B5CCFF 0%, #ABF6D0 100%)', // periwinkle → mint
 ] as const;
 
-// Dark mode: slightly muted (~15%) versions of the light pastels — same hue, less glare
+// Dark mode: deeply muted (~40%) versions — lower saturation & brightness to reduce glare
 const DECK_CARD_COLORS_DARK = [
-  'linear-gradient(135deg, #8CC7E9 0%, #87CECC 100%)', // muted sky → teal
-  'linear-gradient(135deg, #D9A8DA 0%, #C1A7F2 100%)', // muted lavender → purple
-  'linear-gradient(135deg, #8EAAEF 0%, #8CC7E9 100%)', // muted periwinkle → sky
-  'linear-gradient(135deg, #87CECC 0%, #85E3B8 100%)', // muted teal → mint
-  'linear-gradient(135deg, #C1A7F2 0%, #E897CB 100%)', // muted purple → pink
-  'linear-gradient(135deg, #E897CB 0%, #D9A8DA 100%)', // muted pink → lavender
-  'linear-gradient(135deg, #85E3B8 0%, #87CECC 100%)', // muted mint → teal
-  'linear-gradient(135deg, #8EAAEF 0%, #85E3B8 100%)', // muted periwinkle → mint
+  'linear-gradient(135deg, #4A7A8F 0%, #4A8A88 100%)', // deep sky → teal
+  'linear-gradient(135deg, #8A6A8B 0%, #7A6A9A 100%)', // deep lavender → purple
+  'linear-gradient(135deg, #5A6A9F 0%, #4A7A8F 100%)', // deep periwinkle → sky
+  'linear-gradient(135deg, #4A8A88 0%, #4A9A7A 100%)', // deep teal → mint
+  'linear-gradient(135deg, #7A6A9A 0%, #9A5A7A 100%)', // deep purple → pink
+  'linear-gradient(135deg, #9A5A7A 0%, #8A6A8B 100%)', // deep pink → lavender
+  'linear-gradient(135deg, #4A9A7A 0%, #4A8A88 100%)', // deep mint → teal
+  'linear-gradient(135deg, #5A6A9F 0%, #4A9A7A 100%)', // deep periwinkle → mint
 ] as const;
 
 interface DeckItem {
@@ -305,18 +305,18 @@ const FolderViewPage: Component = () => {
                       onClick={() => navigate(`/deck/${deck.id}`)}
                     >
                       {/* Decorative shapes */}
-                      <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25" />
-                      <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15" />
+                      <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25 dark:bg-white/10" />
+                      <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15 dark:bg-white/5" />
 
                       {/* Content */}
                       <div class="relative z-10 flex flex-col h-full min-h-30">
                         {/* Deck name */}
-                        <h3 class="text-lg font-bold text-slate-800 leading-tight mb-1 line-clamp-2">
+                        <h3 class="text-lg font-bold text-slate-800 dark:text-white leading-tight mb-1 line-clamp-2">
                           {deck.name}
                         </h3>
 
                         {/* Card count */}
-                        <p class="text-slate-600 text-sm mb-auto">
+                        <p class="text-slate-600 dark:text-white/80 text-sm mb-auto">
                           {deck.cardCount}{' '}
                           {deck.cardCount === 1 ? 'card' : 'cards'}
                         </p>
@@ -324,7 +324,7 @@ const FolderViewPage: Component = () => {
                         {/* Bottom row */}
                         <div class="flex items-center justify-between mt-4">
                           {/* Template badge */}
-                          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 text-slate-700 font-medium">
+                          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 dark:bg-white/20 text-slate-700 dark:text-white/90 font-medium">
                             <Layers class="h-3 w-3" />
                             <TemplateName
                               templateId={deck.cardTemplateId}
@@ -333,7 +333,7 @@ const FolderViewPage: Component = () => {
                           </span>
 
                           {/* Arrow */}
-                          <ChevronRight class="h-5 w-5 text-slate-500 group-hover:text-slate-800 group-hover:translate-x-0.5 transition-[color,transform]" />
+                          <ChevronRight class="h-5 w-5 text-slate-500 dark:text-white/70 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-0.5 transition-[color,transform]" />
                         </div>
                       </div>
                     </button>

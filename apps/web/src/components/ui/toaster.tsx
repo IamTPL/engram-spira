@@ -9,8 +9,7 @@ const iconFor = (type: Toast['type']) => {
 };
 
 const colorFor = (type: Toast['type']) => {
-  if (type === 'success')
-    return 'bg-card border-green-500/30 text-green-700 dark:text-green-400';
+  if (type === 'success') return 'bg-card border-success/30 text-success';
   if (type === 'error') return 'bg-card border-destructive/30 text-destructive';
   return 'bg-card border-palette-5/30 text-palette-5';
 };

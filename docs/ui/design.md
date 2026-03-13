@@ -32,36 +32,36 @@ Visual language priorities:
 
 ### Semantic Core Colors (Light / Dark)
 
-| Descriptive Name                       | Token                      | Light                 | Dark               | Functional Role                          |
-| -------------------------------------- | -------------------------- | --------------------- | ------------------ | ---------------------------------------- |
-| Misty Study Canvas                     | `--color-background`       | `#f7fbff`             | `#222933`          | Overall app background                   |
-| Elevated Surface White / Night Surface | `--color-surface`          | `#ffffff`             | `#1e2135`          | Secondary surface layer, content area    |
-| Learning Card Surface                  | `--color-card`             | `#ffffff`             | `#16202e`          | Cards, drawers, menus                    |
-| Primary Reading Ink                    | `--color-foreground`       | `#1e293b`             | `#e3e6f3`          | Main text                                |
-| Action Blue / Soft Periwinkle          | `--color-primary`          | `#2563eb`             | `#8aabf0`          | Primary actions, links, focus            |
-| Gentle Secondary Surface               | `--color-secondary`        | `#f1f5f9`             | `#424452`          | Secondary buttons, side panels           |
-| Quiet Supporting Text                  | `--color-muted-foreground` | `#64748b`             | `#ced2f1`          | Secondary labels, metadata               |
-| Hover Accent Wash                      | `--color-accent`           | `#eff6ff`             | `#2a2f4e`          | Light background on hover/active         |
-| Destructive Signal Red                 | `--color-destructive`      | `#ef4444`             | `#f07070`          | Error alerts, dangerous actions (delete) |
-| Success Signal Green                   | `--color-success`          | `#10b981`             | `#5ad4a0`          | Success state, completion                |
-| Hairline Divider                       | `--color-border`           | `#e2e8f0`             | `#34447a`          | Borders, separators                      |
-| Input Stroke                           | `--color-input`            | `#e2e8f0`             | `#6885e4`          | Border of input/textarea fields          |
-| Focus Halo                             | `--color-ring`             | `#2563eb`             | `#8aabf0`          | Glowing ring during keyboard focus       |
-| Warning Amber                          | `--color-warning`          | `#f59e0b`             | `#fbbf24`          | Warning states, caution indicators       |
-| Info Blue                              | `--color-info`             | `#3b82f6`             | `#60a5fa`          | Informational messages, hints            |
-| Overlay Backdrop                       | `--color-overlay`          | `rgb(15 23 42 / 0.4)` | `rgb(0 0 0 / 0.5)` | Modal/drawer backdrop dimming            |
+| Descriptive Name        | Token                      | Light                 | Dark                       | Functional Role                          |
+| ----------------------- | -------------------------- | --------------------- | -------------------------- | ---------------------------------------- |
+| Midnight Canvas (deep)  | `--color-background`       | `#f7fbff`             | `#0f1117`                  | Overall app background                   |
+| Base Surface            | `--color-surface`          | `#ffffff`             | `#161b26`                  | Panels, sidebar                          |
+| Elevated Card           | `--color-card`             | `#ffffff`             | `#1c2233`                  | Cards, drawers, menus, dialogs           |
+| Primary Reading Ink     | `--color-foreground`       | `#1e293b`             | `#ececf1`                  | Main text                                |
+| Vivid Periwinkle        | `--color-primary`          | `#2563eb`             | `#93b4f5`                  | Primary actions, links, focus            |
+| Subtle Secondary        | `--color-secondary`        | `#f1f5f9`             | `#252d3d`                  | Secondary buttons, side panels           |
+| Quiet Supporting Text   | `--color-muted-foreground` | `#64748b`             | `#8e95a9`                  | Secondary labels, metadata               |
+| Hover Accent Wash       | `--color-accent`           | `#eff6ff`             | `#222b3d`                  | Light background on hover/active         |
+| Destructive Signal Red  | `--color-destructive`      | `#ef4444`             | `#f5807f`                  | Error alerts, dangerous actions (delete) |
+| Success Signal Green    | `--color-success`          | `#10b981`             | `#5eeaac`                  | Success state, completion                |
+| Soft White Divider      | `--color-border`           | `#e2e8f0`             | `rgba(255 255 255 / 0.08)` | Borders, separators                      |
+| Soft White Input Stroke | `--color-input`            | `#e2e8f0`             | `rgba(255 255 255 / 0.12)` | Border of input/textarea fields          |
+| Focus Halo              | `--color-ring`             | `#2563eb`             | `#93b4f5`                  | Glowing ring during keyboard focus       |
+| Warning Amber           | `--color-warning`          | `#f59e0b`             | `#fcd34d`                  | Warning states, caution indicators       |
+| Info Blue               | `--color-info`             | `#3b82f6`             | `#7bb5fc`                  | Informational messages, hints            |
+| Overlay Backdrop        | `--color-overlay`          | `rgb(15 23 42 / 0.4)` | `rgb(0 0 0 / 0.6)`         | Modal/drawer backdrop dimming            |
 
 ### Brand & Supporting Palettes
 
 | Descriptive Name       | Token                      | Light     | Dark      | Functional Role                           |
 | ---------------------- | -------------------------- | --------- | --------- | ----------------------------------------- |
-| Priority Sky Blue      | `--color-palette-1`        | `#8dccf5` | `#4d8db8` | Chips/cards mild emphasis, main icon zone |
-| Lavender Pink          | `--color-palette-2`        | `#f0cbf1` | `#9f60a3` | Secondary accent for stats                |
-| Teal Calm              | `--color-palette-3`        | `#afe5e3` | `#3f9996` | Secondary accent for progress/stats       |
-| Soft Purple            | `--color-palette-4`        | `#e2cffc` | `#7a5ab8` | Content grouping classification           |
-| Periwinkle Link Accent | `--color-palette-5`        | `#8eb0fb` | `#5e7fd8` | Link variant, spinner gradient            |
-| Bright Pink Accent     | `--color-palette-6`        | `#fec7e7` | `#c0608a` | Playful, lively accent                    |
-| Mint Finish            | `--color-palette-7`        | `#abf6d0` | `#3da870` | Gradient end point/positive               |
+| Priority Sky Blue      | `--color-palette-1`        | `#8dccf5` | `#7ec8f0` | Chips/cards mild emphasis, main icon zone |
+| Lavender Pink          | `--color-palette-2`        | `#f0cbf1` | `#d9a0dc` | Secondary accent for stats                |
+| Teal Calm              | `--color-palette-3`        | `#afe5e3` | `#74d4d0` | Secondary accent for progress/stats       |
+| Soft Purple            | `--color-palette-4`        | `#e2cffc` | `#b8a0e8` | Content grouping classification           |
+| Periwinkle Link Accent | `--color-palette-5`        | `#8eb0fb` | `#8aabf0` | Link variant, spinner gradient            |
+| Bright Pink Accent     | `--color-palette-6`        | `#fec7e7` | `#f0a0c4` | Playful, lively accent                    |
+| Mint Finish            | `--color-palette-7`        | `#abf6d0` | `#6ae0a8` | Gradient end point/positive               |
 | Mint Card Tint         | `--color-bg-card-mint`     | `#eafdf9` | `#1a2e30` | "Simulate" type card background           |
 | Pink Card Tint         | `--color-bg-card-pink`     | `#fff0f6` | `#2e1a28` | "Evaluate" type card background           |
 | Lavender Card Tint     | `--color-bg-card-lavender` | `#f3f6fd` | `#1e2035` | "Remediate" type card background          |
@@ -71,7 +71,7 @@ Visual language priorities:
 - **Primary CTA Gradient (Light):** Cloud Periwinkle → Mint Glow (`#b5ccff` → `#abf6d0`)
 - **Primary CTA Gradient (Dark):** Muted Periwinkle → Cool Mint (`#7498e8` → `#6dd4a0`)
 - **Section Background Gradient (Light):** (`#e6eefe` → `#e4faee`)
-- **Section Background Gradient (Dark):** (`#1e2340` → `#18283a`)
+- **Section Background Gradient (Dark):** 135deg (`#141928` → `#121e28` → `#141928`)
 
 ### Utility Scales
 

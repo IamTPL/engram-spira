@@ -114,7 +114,7 @@ const FeedbackPage: Component = () => {
           fallback={
             /* ── Success state ── */
             <div class="border rounded-xl bg-card p-8 text-center space-y-4">
-              <div class="inline-flex h-16 w-16 rounded-full bg-green-50 dark:bg-green-900/20 items-center justify-center mx-auto">
+              <div class="inline-flex h-16 w-16 rounded-full bg-success/10 items-center justify-center mx-auto">
                 <CheckCircle2 class="h-8 w-8 text-green-500" />
               </div>
               <div>
@@ -142,7 +142,7 @@ const FeedbackPage: Component = () => {
                 <button
                   class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer text-center ${
                     feedbackType() === opt.value
-                      ? 'border-palette-5 bg-palette-5/10 text-slate-700 dark:text-palette-5'
+                      ? 'border-palette-5 bg-palette-5/10 text-foreground'
                       : 'border bg-card text-muted-foreground hover:bg-muted/50 border-border'
                   }`}
                   onClick={() => setFeedbackType(opt.value)}

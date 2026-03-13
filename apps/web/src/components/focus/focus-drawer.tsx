@@ -118,8 +118,8 @@ const FocusDrawer: Component = () => {
         {/* Header */}
         <div class="flex items-center justify-between px-6 py-4 border-b">
           <div class="flex items-center gap-2">
-            <div class="h-8 w-8 rounded-lg bg-palette-1 dark:bg-palette-1/20 flex items-center justify-center">
-              <Target class="h-4 w-4 text-slate-700 dark:text-palette-1" />
+            <div class="h-8 w-8 rounded-lg bg-palette-1/20 flex items-center justify-center">
+              <Target class="h-4 w-4 text-palette-1" />
             </div>
             <div>
               <h2 class="text-base font-semibold text-foreground">
@@ -332,25 +332,25 @@ const FocusDrawer: Component = () => {
               Today's Progress
             </h3>
             <div class="grid grid-cols-3 gap-3">
-              <div class="text-center p-3 rounded-xl bg-bg-card-mint dark:bg-bg-card-mint border">
+              <div class="text-center p-3 rounded-xl bg-bg-card-mint border">
                 <div class="flex items-center justify-center mb-1">
-                  <Clock class="h-4 w-4 text-palette-3 dark:text-palette-3" />
+                  <Clock class="h-4 w-4 text-palette-3" />
                 </div>
                 <p class="text-lg font-bold text-foreground">
                   {stats().todayMinutes}
                 </p>
                 <p class="text-xs text-muted-foreground">Minutes</p>
               </div>
-              <div class="text-center p-3 rounded-xl bg-bg-card-pink dark:bg-bg-card-pink border">
+              <div class="text-center p-3 rounded-xl bg-bg-card-pink border">
                 <div class="flex items-center justify-center mb-1">
-                  <Target class="h-4 w-4 text-palette-2 dark:text-palette-2" />
+                  <Target class="h-4 w-4 text-palette-2" />
                 </div>
                 <p class="text-lg font-bold text-foreground">
                   {stats().todaySessions}
                 </p>
                 <p class="text-xs text-muted-foreground">Sessions</p>
               </div>
-              <div class="text-center p-3 rounded-xl bg-bg-card-lavender dark:bg-bg-card-lavender border">
+              <div class="text-center p-3 rounded-xl bg-bg-card-lavender border">
                 <div class="flex items-center justify-center mb-1">
                   <Flame class="h-4 w-4 text-orange-500" />
                 </div>

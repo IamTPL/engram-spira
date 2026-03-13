@@ -1,4 +1,11 @@
-import { type Component, Show, For, createSignal, createResource, onCleanup } from 'solid-js';
+import {
+  type Component,
+  Show,
+  For,
+  createSignal,
+  createResource,
+  onCleanup,
+} from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import {
   Bell,
@@ -44,7 +51,8 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
   }, NOTIFICATIONS_POLL_MS);
   onCleanup(() => clearInterval(timer));
 
-  const totalDue = () => (dueDecks() ?? []).reduce((sum, d) => sum + d.dueCount, 0);
+  const totalDue = () =>
+    (dueDecks() ?? []).reduce((sum, d) => sum + d.dueCount, 0);
   const hasDue = () => totalDue() > 0;
   const userInitial = () => {
     const email = currentUser()?.email ?? '';
@@ -80,7 +88,11 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
               setShowNotifications(!showNotifications());
               setShowUserMenu(false);
             }}
-            class={props.compact ? 'h-8 w-8 relative' : 'relative h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent'}
+            class={
+              props.compact
+                ? 'h-8 w-8 relative'
+                : 'relative h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent'
+            }
           >
             <Bell class="h-4 w-4" />
             <Show when={hasDue()}>
@@ -91,7 +103,10 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
           </Button>
 
           <Show when={showNotifications()}>
-            <div class="fixed inset-0 z-30" onClick={() => setShowNotifications(false)} />
+            <div
+              class="fixed inset-0 z-30"
+              onClick={() => setShowNotifications(false)}
+            />
             <div
               class={`fixed z-40 w-80 max-w-[90vw] rounded-xl border bg-card shadow-xl overflow-hidden ${
                 props.compact ? 'left-14 bottom-14' : 'left-64 bottom-2'
@@ -111,14 +126,22 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
               <div class="max-h-80 overflow-y-auto">
                 <Show
                   when={!dueDecks.loading}
-                  fallback={<div class="px-4 py-6 text-center text-sm text-muted-foreground">Loading...</div>}
+                  fallback={
+                    <div class="px-4 py-6 text-center text-sm text-muted-foreground">
+                      Loading...
+                    </div>
+                  }
                 >
                   <Show
                     when={hasDue()}
                     fallback={
                       <div class="px-4 py-8 text-center">
-                        <p class="text-sm font-medium text-foreground">All caught up!</p>
-                        <p class="text-xs text-muted-foreground mt-1">No cards due right now.</p>
+                        <p class="text-sm font-medium text-foreground">
+                          All caught up!
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-1">
+                          No cards due right now.
+                        </p>
                       </div>
                     }
                   >
@@ -132,12 +155,17 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
                             <BookOpen class="h-4 w-4 text-slate-700" />
                           </div>
                           <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium truncate">{deck.deckName}</p>
+                            <p class="text-sm font-medium truncate">
+                              {deck.deckName}
+                            </p>
                             <p class="text-xs text-muted-foreground">
-                              {deck.dueCount} card{deck.dueCount !== 1 ? 's' : ''} due
+                              {deck.dueCount} card
+                              {deck.dueCount !== 1 ? 's' : ''} due
                             </p>
                           </div>
-                          <span class="text-xs font-semibold text-red-500 shrink-0">Study</span>
+                          <span class="text-xs font-semibold text-red-500 shrink-0">
+                            Study
+                          </span>
                         </button>
                       )}
                     </For>
@@ -148,7 +176,11 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
           </Show>
         </div>
 
-        <div class={props.compact ? 'relative' : 'relative flex-1 min-w-0 order-first'}>
+        <div
+          class={
+            props.compact ? 'relative' : 'relative flex-1 min-w-0 order-first'
+          }
+        >
           <button
             class={
               props.compact
@@ -182,8 +214,12 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
             </Show>
             <Show when={!props.compact}>
               <div class="flex-1 min-w-0 text-left">
-                <p class="text-sm font-medium truncate text-foreground">{currentUser()!.email.split('@')[0]}</p>
-                <p class="text-xs text-muted-foreground truncate">{currentUser()!.email}</p>
+                <p class="text-sm font-medium truncate text-foreground">
+                  {currentUser()!.email.split('@')[0]}
+                </p>
+                <p class="text-xs text-muted-foreground truncate">
+                  {currentUser()!.email}
+                </p>
               </div>
               <ChevronDown
                 class={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${
@@ -194,7 +230,10 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
           </button>
 
           <Show when={showUserMenu()}>
-            <div class="fixed inset-0 z-30" onClick={() => setShowUserMenu(false)} />
+            <div
+              class="fixed inset-0 z-30"
+              onClick={() => setShowUserMenu(false)}
+            />
             <div
               class={`fixed z-40 w-64 rounded-xl border bg-card shadow-xl overflow-hidden ${
                 props.compact ? 'left-14 bottom-2' : 'left-64 bottom-2'
@@ -217,8 +256,12 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
                     />
                   </Show>
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm font-semibold truncate text-foreground">{currentUser()!.email.split('@')[0]}</p>
-                    <p class="text-xs text-muted-foreground truncate">{currentUser()!.email}</p>
+                    <p class="text-sm font-semibold truncate text-foreground">
+                      {currentUser()!.email.split('@')[0]}
+                    </p>
+                    <p class="text-xs text-muted-foreground truncate">
+                      {currentUser()!.email}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -273,7 +316,9 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
                   >
                     <Sun class="h-4 w-4 text-muted-foreground" />
                   </Show>
-                  <span>{resolvedTheme() === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+                  <span>
+                    {resolvedTheme() === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  </span>
                 </button>
 
                 <button
@@ -290,7 +335,7 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
 
               <div class="border-t py-1">
                 <button
-                  class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-left"
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors text-left"
                   onClick={handleLogout}
                 >
                   <LogOut class="h-4 w-4" />

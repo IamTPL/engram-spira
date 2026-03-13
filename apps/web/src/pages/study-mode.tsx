@@ -460,7 +460,7 @@ const StudyModePage: Component = () => {
                   <Show when={schedule() && schedule()!.dueSoon > 0}>
                     <div class="rounded-lg border bg-amber-500/10 border-amber-500/30 p-3 space-y-2">
                       <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                        <div class="flex items-center gap-2 text-warning">
                           <Timer class="h-4 w-4" />
                           <span class="text-sm font-medium">
                             {schedule()!.dueSoon}{' '}
@@ -469,7 +469,7 @@ const StudyModePage: Component = () => {
                           </span>
                         </div>
                         <Show when={countdown()}>
-                          <span class="text-sm font-mono font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                          <span class="text-sm font-mono font-semibold tabular-nums text-warning">
                             {countdown()}
                           </span>
                         </Show>

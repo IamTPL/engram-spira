@@ -153,7 +153,7 @@ function sanitizeSvg(svgText: string): string {
 
 const PlaceholderCard: Component<{ diagramLabel: string }> = (props) => (
   <div class="flex flex-col items-center justify-center py-20 px-8 text-center border-2 border-dashed border-border rounded-xl bg-muted/20">
-    <div class="h-16 w-16 rounded-2xl bg-palette-1/30 dark:bg-palette-1/10 flex items-center justify-center mb-4">
+    <div class="h-16 w-16 rounded-2xl bg-palette-1/15 flex items-center justify-center mb-4">
       <LayoutTemplate class="h-8 w-8 text-palette-5" />
     </div>
     <h3 class="text-base font-semibold text-foreground mb-1">
@@ -345,7 +345,7 @@ const SvgViewer: Component<{ svgContent: string }> = (props) => {
       {/* Canvas */}
       <div
         ref={(el) => (containerRef = el)}
-        class="relative w-full rounded-xl border border-border bg-white dark:bg-muted/20 overflow-hidden select-none"
+        class="relative w-full rounded-xl border border-border bg-card overflow-hidden select-none"
         style={{ height: isFullscreen() ? '100vh' : '600px', cursor: 'grab' }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
@@ -475,7 +475,7 @@ const DocsPage: Component = () => {
               {/* Prose container — scoped markdown styles */}
               <article
                 class="
-                    prose prose-sm dark:prose-invert max-w-none
+                    prose prose-sm max-w-none
                     prose-headings:font-semibold
                     prose-h1:text-2xl prose-h1:border-b prose-h1:pb-3
                     prose-h2:text-lg prose-h2:mt-8

@@ -153,75 +153,78 @@
   --color-bg-card-lavender: #f3f6fd; /* Remediate sections */
 }
 
-/* Dark Mode — Engram Spira redesign
-   Philosophy: Black-silver base (not pure black), palette tones darkened
-   to 30-40% saturation so they feel "at home" on a dark canvas.           */
+/* Dark Mode — Engram Spira redesign v2
+   Philosophy: 3-layer depth system (deep → base → elevated).
+   NOT pure black — uses blue-tinted midnight tones for warmth.
+   Palette colors are LIGHTENED (not darkened) for visibility.
+   Borders use low-opacity white instead of saturated blue.           */
 .dark {
-  /* ── Layout surfaces ── */
-  --color-background: #394352; /* dark blue-silver, not coal-black */
-  --color-surface: #1e2135;
-  --color-card: #16202e; /* slightly elevated, still dark */
-  --color-card-foreground: #e0e3f1;
+  /* ── Layout surfaces — 3-layer depth ── */
+  --color-background: #0f1117; /* deepest: page canvas */
+  --color-surface: #161b26; /* base: panels, sidebar */
+  --color-card: #1c2233; /* elevated: cards, menus, dialogs */
+  --color-card-foreground: #e8e8ed;
 
-  /* ── Text ── */
-  --color-foreground: #e3e6f3;
+  /* ── Text — high readability ── */
+  --color-foreground: #ececf1; /* primary text: near-white, not pure */
 
-  /* ── Primary — kept as periwinkle-palette to match brand */
-  --color-primary: #8aabf0;
-  --color-primary-foreground: #181b26;
+  /* ── Primary — vivid periwinkle, slightly brighter for dark bg ── */
+  --color-primary: #93b4f5;
+  --color-primary-foreground: #0f1117;
 
   /* ── Secondary / Muted ── */
-  --color-secondary: #424452;
-  --color-secondary-foreground: #8b90b4;
-  --color-muted: #1e2135;
-  --color-muted-foreground: #ced2f1;
+  --color-secondary: #252d3d;
+  --color-secondary-foreground: #b0b8c9;
+  --color-muted: #1a2030;
+  --color-muted-foreground: #8e95a9;
 
-  /* ── Accent — subtle hover overlay ── */
-  --color-accent: #2a2f4e;
-  --color-accent-foreground: #b7c5f3;
+  /* ── Accent — visible hover overlay ── */
+  --color-accent: #222b3d;
+  --color-accent-foreground: #c5d0e8;
 
-  /* ── Semantic ── */
-  --color-destructive: #f07070;
-  --color-destructive-foreground: #181b26;
-  --color-success: #5ad4a0;
-  --color-success-foreground: #181b26;
-  --color-warning: #fbbf24;
-  --color-warning-foreground: #181b26;
-  --color-info: #60a5fa;
-  --color-info-foreground: #181b26;
+  /* ── Semantic — slightly brighter for dark canvas readability ── */
+  --color-destructive: #f5807f;
+  --color-destructive-foreground: #0f1117;
+  --color-success: #5eeaac;
+  --color-success-foreground: #0f1117;
+  --color-warning: #fcd34d;
+  --color-warning-foreground: #0f1117;
+  --color-info: #7bb5fc;
+  --color-info-foreground: #0f1117;
 
   /* ── Overlay ── */
-  --color-overlay: rgb(0 0 0 / 0.5);
+  --color-overlay: rgb(0 0 0 / 0.6);
 
-  /* ── Borders & inputs ── */
-  --color-border: #34447a;
-  --color-input: #6885e4;
-  --color-ring: #8aabf0;
+  /* ── Borders & inputs — soft white-alpha, not saturated blue ── */
+  --color-border: rgb(255 255 255 / 0.08);
+  --color-input: rgb(255 255 255 / 0.12);
+  --color-ring: #93b4f5;
 
-  /* ── Palette — darkened 35% for dark-mode harmony ── */
-  --color-palette-1: #4d8db8; /* sky blue, muted */
-  --color-palette-2: #9f60a3; /* lavender-pink, muted */
-  --color-palette-3: #3f9996; /* teal, muted */
-  --color-palette-4: #7a5ab8; /* soft purple, muted */
-  --color-palette-5: #5e7fd8; /* periwinkle, muted */
-  --color-palette-6: #c0608a; /* pink, muted */
-  --color-palette-7: #3da870; /* mint green, muted */
+  /* ── Palette — LIGHTENED for visibility on dark canvas ── */
+  --color-palette-1: #7ec8f0; /* sky blue, bright */
+  --color-palette-2: #d9a0dc; /* lavender-pink, bright */
+  --color-palette-3: #74d4d0; /* teal, bright */
+  --color-palette-4: #b8a0e8; /* soft purple, bright */
+  --color-palette-5: #8aabf0; /* periwinkle, bright */
+  --color-palette-6: #f0a0c4; /* pink, bright */
+  --color-palette-7: #6ae0a8; /* mint green, bright */
 
-  /* ── Subtle card backgrounds in dark mode ── */
-  --color-bg-card-mint: #1a2e30;
-  --color-bg-card-pink: #2e1a28;
-  --color-bg-card-lavender: #1e2035;
+  /* ── Subtle card backgrounds — brighter tints for visibility ── */
+  --color-bg-card-mint: #1a3a3a;
+  --color-bg-card-pink: #3a1a2a;
+  --color-bg-card-lavender: #2a2a3a;
 
-  /* ── Shadows ── */
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  /* ── Shadows — subtle glow-style, less harsh ── */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.25);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --shadow-md:
+    0 4px 6px -1px rgb(0 0 0 / 0.35), 0 2px 4px -2px rgb(0 0 0 / 0.2);
   --shadow-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+    0 10px 15px -3px rgb(0 0 0 / 0.35), 0 4px 6px -4px rgb(0 0 0 / 0.2);
   --shadow-xl:
-    0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+    0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.2);
   --shadow-card-study:
-    0 24px 40px -8px rgb(100 130 230 / 0.12), 0 8px 16px -4px rgb(0 0 0 / 0.4);
+    0 24px 40px -8px rgb(147 180 245 / 0.1), 0 8px 16px -4px rgb(0 0 0 / 0.3);
 
   color-scheme: dark;
 }
@@ -229,10 +232,10 @@
 /* ── Dark mode gradient overrides ── */
 .dark .btn-gradient {
   background: linear-gradient(90deg, #7498e8 0%, #6dd4a0 100%);
-  color: #181b26;
+  color: #0f1117;
 }
 .dark .bg-section-gradient {
-  background: linear-gradient(90deg, #1e2340 0%, #18283a 100%);
+  background: linear-gradient(135deg, #141928 0%, #121e28 50%, #141928 100%);
 }
 
 @layer base {
@@ -323,6 +326,10 @@
     background-color: var(--color-blue-200);
     color: var(--color-blue-900);
   }
+  .dark ::selection {
+    background-color: rgb(147 180 245 / 0.3);
+    color: #ececf1;
+  }
 
   /* Custom scrollbar */
   ::-webkit-scrollbar {
@@ -338,6 +345,12 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background-color: var(--color-slate-400);
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 0.12);
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 0.2);
   }
 
   /* Input & Button reset */

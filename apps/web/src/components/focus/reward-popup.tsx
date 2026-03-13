@@ -173,7 +173,7 @@ const RewardPopup: Component = () => {
             <Show when={showResult() && rewardDisplay()}>
               {(reward) => (
                 <div class="px-6 pb-4">
-                  <div class="rounded-xl p-4 border animate-fade-in bg-palette-1/20 border-palette-1/40 dark:bg-palette-1/10 dark:border-palette-1/30">
+                  <div class="rounded-xl p-4 border animate-fade-in bg-palette-1/15 border-palette-1/30">
                     <div class="flex items-center gap-3">
                       <span class="text-3xl text-palette-5">
                         <Show when={reward()}>
@@ -184,10 +184,10 @@ const RewardPopup: Component = () => {
                         </Show>
                       </span>
                       <div>
-                        <p class="font-semibold text-slate-800 dark:text-slate-100">
+                        <p class="font-semibold text-foreground">
                           {reward().label}
                         </p>
-                        <p class="text-xs text-slate-600 dark:text-slate-400">
+                        <p class="text-xs text-muted-foreground">
                           Enjoy your well-deserved break!
                         </p>
                       </div>

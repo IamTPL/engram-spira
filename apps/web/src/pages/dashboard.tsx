@@ -232,7 +232,7 @@ const DashboardPage: Component = () => {
           <div
             class={`relative rounded-2xl overflow-hidden border ${
               streak() > 0
-                ? 'bg-linear-to-br from-orange-500/10 via-red-500/5 to-yellow-500/10 border-orange-200 dark:border-orange-800/50'
+                ? 'bg-linear-to-br from-orange-500/10 via-red-500/5 to-yellow-500/10 border-orange-300/40'
                 : 'bg-muted/30 border-border'
             } p-6`}
           >
@@ -274,7 +274,7 @@ const DashboardPage: Component = () => {
                       </div>
                     }
                   >
-                    <div class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium">
+                    <div class="flex items-center gap-1.5 text-xs text-success font-medium">
                       <CheckCircle2 class="h-3.5 w-3.5" />
                       Studied today ✓
                     </div>
@@ -297,7 +297,7 @@ const DashboardPage: Component = () => {
 
             {/* Due cards CTA */}
             <Show when={totalDue() > 0}>
-              <div class="mt-4 pt-4 border-t border-orange-200/50 dark:border-orange-800/30 flex items-center justify-between">
+              <div class="mt-4 pt-4 border-t border-orange-300/30 flex items-center justify-between">
                 <div class="flex items-center gap-2 text-sm">
                   <Zap class="h-4 w-4 text-yellow-500" />
                   <span class="font-medium">
@@ -306,7 +306,7 @@ const DashboardPage: Component = () => {
                   </span>
                 </div>
                 <button
-                  class="text-xs font-semibold text-slate-700 dark:text-slate-400 hover:underline"
+                  class="text-xs font-semibold text-foreground/70 hover:underline"
                   onClick={() => {
                     const first = dashboard()?.dueDecks?.[0];
                     if (first) navigate(`/study/${first.deckId}`);
@@ -326,19 +326,19 @@ const DashboardPage: Component = () => {
                 dashboard()?.stats.totalCardsReviewed ?? 0
               ).toLocaleString()}
               icon={BookOpen}
-              accent="bg-palette-1 text-slate-700"
+              accent="bg-palette-1 text-slate-700 dark:text-white"
             />
             <StatCard
               label="Study days"
               value={dashboard()?.stats.totalStudyDays ?? 0}
               icon={CalendarDays}
-              accent="bg-palette-7 text-slate-700"
+              accent="bg-palette-7 text-slate-700 dark:text-white"
             />
             <StatCard
               label="Longest streak"
               value={`${dashboard()?.streak.longestStreak ?? 0}d`}
               icon={TrendingUp}
-              accent="bg-palette-2 text-slate-700"
+              accent="bg-palette-2 text-slate-700 dark:text-white"
             />
           </div>
 
@@ -430,7 +430,7 @@ const DashboardPage: Component = () => {
                 </div>
                 <Show when={(dashboard()?.dueDecks ?? []).length > 1}>
                   <button
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-palette-5/40 text-slate-700 hover:bg-palette-5/60 transition-colors"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-palette-5/40 dark:bg-palette-5/30 text-slate-700 dark:text-white hover:bg-palette-5/60 dark:hover:bg-palette-5/50 transition-colors"
                     onClick={() => navigate('/study/interleaved')}
                   >
                     <Shuffle class="h-3.5 w-3.5" />
@@ -446,7 +446,7 @@ const DashboardPage: Component = () => {
                       onClick={() => navigate(`/study/${deck.deckId}`)}
                     >
                       <div class="h-9 w-9 rounded-lg bg-palette-1 flex items-center justify-center shrink-0">
-                        <BookOpen class="h-4 w-4 text-slate-700" />
+                        <BookOpen class="h-4 w-4 text-slate-700 dark:text-white" />
                       </div>
                       <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium truncate">
@@ -458,7 +458,7 @@ const DashboardPage: Component = () => {
                         </p>
                       </div>
                       <div class="flex items-center gap-2 shrink-0">
-                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-palette-6 text-slate-700">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-palette-6 text-slate-700 dark:text-white">
                           {deck.dueCount} due
                         </span>
                         <span class="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
