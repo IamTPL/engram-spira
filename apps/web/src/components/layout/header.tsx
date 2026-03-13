@@ -8,6 +8,15 @@ import {
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 import { currentUser, logout } from '@/stores/auth.store';
 import { sidebarCollapsed, toggleSidebar } from '@/stores/sidebar.store';
 import { resolvedTheme, toggleTheme } from '@/stores/theme.store';
@@ -23,7 +32,6 @@ import {
   Sun,
   Moon,
   MessageSquare,
-  User,
   ChevronDown,
   Target,
   BookMarked,
@@ -76,14 +84,14 @@ const Header: Component = () => {
   };
 
   return (
-    <header class=" bg-card">
+    <header class="bg-card border-b">
       <div class="flex items-center justify-between h-14 px-4">
         {/* ── Left: toggle + logo ── */}
         <div class="flex items-center gap-1">
           <button
             onClick={toggleSidebar}
             title={sidebarCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'}
-            class="hidden md:flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            class="hidden md:flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-[--duration-fast] cursor-pointer"
           >
             <PanelLeft
               class={`h-4 w-4 transition-transform duration-300 ${
@@ -93,7 +101,7 @@ const Header: Component = () => {
           </button>
 
           <button
-            class="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 hover:bg-accent transition-colors ml-1"
+            class="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 hover:bg-accent transition-colors duration-[--duration-fast] ml-1"
             onClick={() => navigate('/')}
             title="Go to Dashboard"
           >
@@ -102,7 +110,7 @@ const Header: Component = () => {
               alt="Engram Spira logo"
               class="h-7 w-auto"
             />
-            <span class="text-lg font-bold tracking-tight text-foreground">
+            <span class="text-lg font-bold tracking-tight text-foreground hidden sm:inline">
               Engram Spira
             </span>
           </button>
@@ -110,42 +118,46 @@ const Header: Component = () => {
 
         {/* ── Right: bell + user dropdown ── */}
         <Show when={currentUser()}>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1">
             {/* ── Notification Bell ── */}
-            <div class="relative">
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Notifications"
-                onClick={() => {
-                  setShowNotifications(!showNotifications());
-                  setShowUserMenu(false);
-                }}
-                class="relative"
-              >
-                <Bell class="h-4 w-4" />
-                <Show when={hasDue()}>
-                  <span class="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                    {totalDue() > 99 ? '99+' : totalDue()}
-                  </span>
-                </Show>
-              </Button>
+            <DropdownMenu
+              open={showNotifications()}
+              onOpenChange={setShowNotifications}
+            >
+              <DropdownMenuTrigger>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Notifications"
+                  onClick={() => {
+                    setShowNotifications(!showNotifications());
+                    setShowUserMenu(false);
+                  }}
+                  class="relative"
+                >
+                  <Bell class="h-4 w-4" />
+                  <Show when={hasDue()}>
+                    <Badge
+                      variant="destructive"
+                      class="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 text-[10px] leading-none justify-center"
+                    >
+                      {totalDue() > 99 ? '99+' : totalDue()}
+                    </Badge>
+                  </Show>
+                </Button>
+              </DropdownMenuTrigger>
 
               <Show when={showNotifications()}>
-                <div
-                  class="fixed inset-0 z-30"
-                  onClick={() => setShowNotifications(false)}
-                />
-                <div class="absolute right-0 top-full mt-2 w-80 rounded-xl border bg-card shadow-xl z-40 overflow-hidden">
+                <DropdownMenuContent align="end" class="w-80 p-0">
                   <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
                     <div class="flex items-center gap-2">
                       <Zap class="h-4 w-4 text-yellow-500" />
                       <span class="text-sm font-semibold">Due for Review</span>
                     </div>
                     <Show when={hasDue()}>
-                      <span class="text-xs text-muted-foreground">
+                      <Badge variant="muted">
                         {totalDue()} card{totalDue() !== 1 ? 's' : ''}
-                      </span>
+                      </Badge>
                     </Show>
                   </div>
                   <div class="max-h-80 overflow-y-auto">
@@ -161,7 +173,9 @@ const Header: Component = () => {
                         when={hasDue()}
                         fallback={
                           <div class="px-4 py-8 text-center">
-                            <p class="text-2xl mb-2">🎉</p>
+                            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
+                              <Zap class="h-5 w-5 text-success" />
+                            </div>
                             <p class="text-sm font-medium text-foreground">
                               All caught up!
                             </p>
@@ -174,11 +188,11 @@ const Header: Component = () => {
                         <For each={dueDecks() ?? []}>
                           {(deck) => (
                             <button
-                              class="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors text-left border-b border-border/50 last:border-0"
+                              class="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors duration-[--duration-fast] text-left border-b border-border/50 last:border-0 cursor-pointer"
                               onClick={() => handleDeckClick(deck.deckId)}
                             >
-                              <div class="h-8 w-8 rounded-lg bg-palette-1 flex items-center justify-center shrink-0">
-                                <BookOpen class="h-4 w-4 text-slate-700" />
+                              <div class="h-8 w-8 rounded-lg bg-palette-1/20 flex items-center justify-center shrink-0">
+                                <BookOpen class="h-4 w-4 text-palette-1" />
                               </div>
                               <div class="flex-1 min-w-0">
                                 <p class="text-sm font-medium truncate">
@@ -189,56 +203,53 @@ const Header: Component = () => {
                                   {deck.dueCount !== 1 ? 's' : ''} due
                                 </p>
                               </div>
-                              <span class="text-xs font-semibold text-red-500 shrink-0">
+                              <Badge variant="destructive" class="text-[10px]">
                                 Study
-                              </span>
+                              </Badge>
                             </button>
                           )}
                         </For>
                       </Show>
                     </Show>
                   </div>
-                </div>
+                </DropdownMenuContent>
               </Show>
-            </div>
+            </DropdownMenu>
 
             {/* ── User Menu ── */}
-            <div class="relative">
-              <button
-                class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent transition-colors cursor-pointer"
-                onClick={() => {
-                  setShowUserMenu(!showUserMenu());
-                  setShowNotifications(false);
-                }}
-              >
-                {/* Avatar circle */}
-                <Show
-                  when={currentUser()?.avatarUrl}
-                  fallback={
-                    <div class="h-8 w-8 rounded-full bg-linear-to-br from-palette-5 to-palette-3 flex items-center justify-center text-slate-800 text-sm font-bold shadow-sm">
-                      {userInitial()}
-                    </div>
-                  }
+            <DropdownMenu open={showUserMenu()} onOpenChange={setShowUserMenu}>
+              <DropdownMenuTrigger>
+                <button
+                  class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent transition-colors duration-[--duration-fast] cursor-pointer"
+                  onClick={() => {
+                    setShowUserMenu(!showUserMenu());
+                    setShowNotifications(false);
+                  }}
                 >
-                  <img
-                    src={currentUser()!.avatarUrl!}
-                    alt="avatar"
-                    class="h-8 w-8 rounded-full object-cover shadow-sm ring-1 ring-border"
+                  <Show
+                    when={currentUser()?.avatarUrl}
+                    fallback={
+                      <div class="h-8 w-8 rounded-full bg-linear-to-br from-palette-5 to-palette-3 flex items-center justify-center text-slate-800 text-sm font-bold shadow-sm">
+                        {userInitial()}
+                      </div>
+                    }
+                  >
+                    <img
+                      src={currentUser()!.avatarUrl!}
+                      alt="avatar"
+                      class="h-8 w-8 rounded-full object-cover shadow-sm ring-1 ring-border"
+                    />
+                  </Show>
+                  <ChevronDown
+                    class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
+                      showUserMenu() ? 'rotate-180' : ''
+                    }`}
                   />
-                </Show>
-                <ChevronDown
-                  class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
-                    showUserMenu() ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
+                </button>
+              </DropdownMenuTrigger>
 
               <Show when={showUserMenu()}>
-                <div
-                  class="fixed inset-0 z-30"
-                  onClick={() => setShowUserMenu(false)}
-                />
-                <div class="absolute right-0 top-full mt-2 w-64 rounded-xl border bg-card shadow-xl z-40 overflow-hidden animate-fade-in">
+                <DropdownMenuContent align="end" class="w-64 p-0">
                   {/* User info */}
                   <div class="px-4 py-3 border-b bg-muted/30">
                     <div class="flex items-center gap-3">
@@ -267,10 +278,8 @@ const Header: Component = () => {
                     </div>
                   </div>
 
-                  {/* Menu items */}
                   <div class="py-1">
-                    <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors text-left"
+                    <DropdownMenuItem
                       onClick={() => {
                         setShowUserMenu(false);
                         openFocusDrawer();
@@ -284,10 +293,9 @@ const Header: Component = () => {
                           <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                         </span>
                       </Show>
-                    </button>
+                    </DropdownMenuItem>
 
-                    <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors text-left"
+                    <DropdownMenuItem
                       onClick={() => {
                         setShowUserMenu(false);
                         navigate('/docs');
@@ -295,10 +303,9 @@ const Header: Component = () => {
                     >
                       <BookMarked class="h-4 w-4 text-muted-foreground" />
                       <span>Docs</span>
-                    </button>
+                    </DropdownMenuItem>
 
-                    <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors text-left"
+                    <DropdownMenuItem
                       onClick={() => {
                         setShowUserMenu(false);
                         navigate('/settings');
@@ -306,14 +313,9 @@ const Header: Component = () => {
                     >
                       <Settings class="h-4 w-4 text-muted-foreground" />
                       <span>Settings</span>
-                    </button>
+                    </DropdownMenuItem>
 
-                    <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors text-left"
-                      onClick={() => {
-                        toggleTheme();
-                      }}
-                    >
+                    <DropdownMenuItem onClick={toggleTheme}>
                       <Show
                         when={resolvedTheme() === 'dark'}
                         fallback={
@@ -327,15 +329,9 @@ const Header: Component = () => {
                           ? 'Light Mode'
                           : 'Dark Mode'}
                       </span>
-                      <span class="ml-auto text-xs text-muted-foreground">
-                        <kbd class="kbd">
-                          {resolvedTheme() === 'dark' ? '☀' : '🌙'}
-                        </kbd>
-                      </span>
-                    </button>
+                    </DropdownMenuItem>
 
-                    <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors text-left"
+                    <DropdownMenuItem
                       onClick={() => {
                         setShowUserMenu(false);
                         navigate('/feedback');
@@ -343,22 +339,19 @@ const Header: Component = () => {
                     >
                       <MessageSquare class="h-4 w-4 text-muted-foreground" />
                       <span>Report / Feedback</span>
-                    </button>
+                    </DropdownMenuItem>
                   </div>
 
-                  {/* Logout */}
-                  <div class="border-t py-1">
-                    <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-left"
-                      onClick={handleLogout}
-                    >
+                  <DropdownMenuSeparator />
+                  <div class="py-1">
+                    <DropdownMenuItem destructive onClick={handleLogout}>
                       <LogOut class="h-4 w-4" />
                       <span>Log out</span>
-                    </button>
+                    </DropdownMenuItem>
                   </div>
-                </div>
+                </DropdownMenuContent>
               </Show>
-            </div>
+            </DropdownMenu>
           </div>
         </Show>
       </div>

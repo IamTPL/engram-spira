@@ -1,7 +1,8 @@
-import { createSignal, type Component } from 'solid-js';
+import { createSignal, Show, type Component } from 'solid-js';
 import { A, useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert } from '@/components/ui/alert';
 import {
   Card,
   CardHeader,
@@ -10,6 +11,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { login } from '@/stores/auth.store';
+import { Mail, Lock } from 'lucide-solid';
 
 const LoginPage: Component = () => {
   const navigate = useNavigate();
@@ -34,8 +36,8 @@ const LoginPage: Component = () => {
   };
 
   return (
-    <div class="min-h-screen flex items-center justify-center px-4">
-      <Card class="w-full max-w-sm">
+    <div class="min-h-screen flex items-center justify-center px-4 bg-section-gradient">
+      <Card class="w-full max-w-sm animate-scale-in" variant="elevated">
         <CardHeader class="text-center items-center">
           <img
             src="/logo-engram-full.png"
@@ -46,15 +48,9 @@ const LoginPage: Component = () => {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent class="space-y-4">
-            {error() && (
-              <div
-                id="login-error"
-                role="alert"
-                class="text-sm text-destructive text-center"
-              >
-                {error()}
-              </div>
-            )}
+            <Show when={error()}>
+              <Alert variant="destructive">{error()}</Alert>
+            </Show>
             <div class="space-y-2">
               <label class="text-sm font-medium" for="email">
                 Email
@@ -67,6 +63,8 @@ const LoginPage: Component = () => {
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
                 required
+                error={!!error()}
+                iconLeft={<Mail class="h-4 w-4" />}
               />
             </div>
             <div class="space-y-2">
@@ -81,24 +79,29 @@ const LoginPage: Component = () => {
                 value={password()}
                 onInput={(e) => setPassword(e.currentTarget.value)}
                 required
+                error={!!error()}
+                iconLeft={<Lock class="h-4 w-4" />}
               />
               <div class="text-right">
                 <A
                   href="/reset-password"
-                  class="text-xs text-palette-5 underline"
+                  class="text-xs text-palette-5 hover:underline"
                 >
                   Forgot password?
                 </A>
               </div>
             </div>
           </CardContent>
-          <CardFooter class="flex-col gap-2">
-            <Button type="submit" class="w-full" disabled={loading()}>
-              {loading() ? 'Signing in...' : 'Sign in'}
+          <CardFooter class="flex-col gap-3">
+            <Button type="submit" class="w-full" loading={loading()}>
+              Sign in
             </Button>
             <p class="text-sm text-muted-foreground">
               Don't have an account?{' '}
-              <A href="/register" class="text-palette-5 underline">
+              <A
+                href="/register"
+                class="text-primary font-medium hover:underline"
+              >
                 Sign up
               </A>
             </p>

@@ -12,46 +12,54 @@ interface StudyControlsProps {
 
 const StudyControls: Component<StudyControlsProps> = (props) => {
   return (
-    <div class="flex items-center justify-center gap-4 mt-8">
+    <div class="flex items-center justify-center gap-3 mt-8 flex-wrap">
       <Button
         variant="destructive"
         size="lg"
         onClick={props.onAgain}
         disabled={props.disabled}
-        class="min-w-25"
+        class="min-w-24 flex-col gap-0.5 h-auto py-2.5"
       >
-        <span class="mr-2 text-xs opacity-60">{KEYBOARD_SHORTCUTS.AGAIN}</span>
-        Again
+        <span class="text-sm font-semibold">Again</span>
+        <kbd class="text-[10px] opacity-60 font-mono">
+          {KEYBOARD_SHORTCUTS.AGAIN}
+        </kbd>
       </Button>
       <Button
         variant="outline"
         size="lg"
         onClick={props.onHard}
         disabled={props.disabled}
-        class="min-w-25"
+        class="min-w-24 flex-col gap-0.5 h-auto py-2.5 border-warning/50 text-warning hover:bg-warning/10"
       >
-        <span class="mr-2 text-xs opacity-60">{KEYBOARD_SHORTCUTS.HARD}</span>
-        Hard
+        <span class="text-sm font-semibold">Hard</span>
+        <kbd class="text-[10px] opacity-60 font-mono">
+          {KEYBOARD_SHORTCUTS.HARD}
+        </kbd>
       </Button>
       <Button
         variant="default"
         size="lg"
         onClick={props.onGood}
         disabled={props.disabled}
-        class="min-w-25 bg-success hover:bg-success/90 text-success-foreground"
+        class="min-w-24 flex-col gap-0.5 h-auto py-2.5 bg-success hover:bg-success/90 text-success-foreground"
       >
-        <span class="mr-2 text-xs opacity-60">{KEYBOARD_SHORTCUTS.GOOD}</span>
-        Good
+        <span class="text-sm font-semibold">Good</span>
+        <kbd class="text-[10px] opacity-60 font-mono">
+          {KEYBOARD_SHORTCUTS.GOOD}
+        </kbd>
       </Button>
       <Button
         variant="default"
         size="lg"
         onClick={props.onEasy}
         disabled={props.disabled}
-        class="min-w-25 bg-palette-5 hover:bg-palette-5/80 text-slate-800"
+        class="min-w-24 flex-col gap-0.5 h-auto py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground"
       >
-        <span class="mr-2 text-xs opacity-60">{KEYBOARD_SHORTCUTS.EASY}</span>
-        Easy
+        <span class="text-sm font-semibold">Easy</span>
+        <kbd class="text-[10px] opacity-60 font-mono">
+          {KEYBOARD_SHORTCUTS.EASY}
+        </kbd>
       </Button>
     </div>
   );

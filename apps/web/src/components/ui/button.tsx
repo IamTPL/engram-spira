@@ -1,20 +1,20 @@
-import { type JSX, splitProps } from 'solid-js';
+import { type JSX, Show, splitProps } from 'solid-js';
 import { cn } from '@/lib/utils';
 import { cva, type VariantProps } from 'class-variance-authority';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 cursor-pointer',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-[--duration-normal] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-pointer',
   {
     variants: {
       variant: {
         default:
-          'btn-gradient text-slate-800 shadow hover:opacity-90 active:scale-[0.98]',
+          'btn-gradient text-slate-800 shadow hover:opacity-90 active:translate-y-px active:shadow-sm',
         destructive:
-          'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
+          'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90 active:translate-y-px',
         outline:
-          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
+          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground active:translate-y-px',
         secondary:
-          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
+          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 active:translate-y-px',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-palette-5 underline-offset-4 hover:underline',
       },
@@ -33,7 +33,9 @@ const buttonVariants = cva(
 );
 
 type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> &
-  VariantProps<typeof buttonVariants>;
+  VariantProps<typeof buttonVariants> & {
+    loading?: boolean;
+  };
 
 export function Button(props: ButtonProps) {
   const [local, others] = splitProps(props, [
@@ -41,6 +43,8 @@ export function Button(props: ButtonProps) {
     'size',
     'class',
     'children',
+    'loading',
+    'disabled',
   ]);
   return (
     <button
@@ -48,8 +52,31 @@ export function Button(props: ButtonProps) {
         buttonVariants({ variant: local.variant, size: local.size }),
         local.class,
       )}
+      disabled={local.disabled || local.loading}
       {...others}
     >
+      <Show when={local.loading}>
+        <svg
+          class="h-4 w-4 animate-spin"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="3"
+          />
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+          />
+        </svg>
+      </Show>
       {local.children}
     </button>
   );

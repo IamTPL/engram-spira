@@ -24,8 +24,12 @@ const Sidebar: Component = () => {
     <SidebarProvider>
       {/* ── Desktop sidebar (hidden on mobile) ── */}
       <aside
-        class="hidden md:flex bg-card h-full flex-col shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out"
-        style={{ width: sidebarCollapsed() ? '56px' : '256px' }}
+        class="hidden md:flex bg-card border-r h-full flex-col shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out"
+        style={{
+          width: sidebarCollapsed()
+            ? 'var(--sidebar-collapsed-width)'
+            : 'var(--sidebar-width)',
+        }}
       >
         <SidebarContent />
       </aside>
@@ -35,7 +39,7 @@ const Sidebar: Component = () => {
         <div class="md:hidden fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <div
-            class="absolute inset-0 bg-black/40 transition-opacity"
+            class="absolute inset-0 overlay-backdrop animate-fade-in"
             onClick={closeMobileDrawer}
           />
           {/* Drawer panel */}

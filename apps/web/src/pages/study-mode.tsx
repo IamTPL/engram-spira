@@ -262,9 +262,9 @@ const StudyModePage: Component = () => {
   });
 
   return (
-    <div class="min-h-screen flex flex-col">
+    <div class="min-h-screen flex flex-col bg-background">
       {/* Top bar */}
-      <div class="border-b px-6 py-3 flex items-center justify-between">
+      <div class="border-b bg-card px-4 sm:px-6 py-3 flex items-center justify-between">
         <Button
           variant="ghost"
           size="sm"
@@ -275,11 +275,14 @@ const StudyModePage: Component = () => {
         </Button>
         <div class="text-center">
           <Show when={deck()}>
-            <p class="text-sm font-medium">{deck()!.name}</p>
+            <p class="text-sm font-medium truncate max-w-48 sm:max-w-xs">
+              {deck()!.name}
+            </p>
           </Show>
           <Show when={studyData()}>
-            <p class="text-xs text-muted-foreground">
+            <p class="text-xs text-muted-foreground tabular-nums">
               {currentIndex()} / {studyData()!.due} cards
+              <span class="ml-2 font-medium text-primary">{progress()}%</span>
             </p>
           </Show>
         </div>
@@ -294,9 +297,9 @@ const StudyModePage: Component = () => {
       </div>
 
       {/* Progress bar */}
-      <div class="h-1 bg-secondary">
+      <div class="h-1 bg-muted">
         <div
-          class="h-full bg-palette-5 transition-[width] duration-300"
+          class="h-full btn-gradient transition-[width] duration-500 ease-out rounded-r-full"
           style={{ width: `${progress()}%` }}
         />
       </div>

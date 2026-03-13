@@ -11,8 +11,7 @@ import {
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { marked } from 'marked';
-import Sidebar from '@/components/layout/sidebar';
-import MobileNav from '@/components/layout/mobile-nav';
+import PageShell from '@/components/layout/page-shell';
 import {
   ArrowLeft,
   FileText,
@@ -412,74 +411,70 @@ const DocsPage: Component = () => {
   const activeDiagram = () => C4_DIAGRAMS.find((d) => d.id === c4Tab())!;
 
   return (
-    <div class="h-screen flex overflow-hidden">
-      <Sidebar />
-      <div class="flex flex-col flex-1 overflow-hidden">
-        <MobileNav />
-        <main id="main-content" class="flex-1 overflow-y-auto pb-mobile-nav">
-          <div class="p-6 max-w-6xl mx-auto space-y-6">
-            {/* ── Page header ── */}
-            <div class="flex items-center gap-3">
-              <button
-                onClick={() => navigate('/')}
-                class="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-              >
-                <ArrowLeft class="h-4 w-4" />
-              </button>
-              <div>
-                <h1 class="text-xl font-bold">Project Documentation</h1>
-                <p class="text-sm text-muted-foreground">
-                  Live reference docs — Engram Spira
-                </p>
+    <PageShell maxWidth="max-w-6xl">
+      <div class="space-y-6 animate-fade-in">
+        {/* ── Page header ── */}
+        <div class="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/')}
+            class="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <ArrowLeft class="h-4 w-4" />
+          </button>
+          <div>
+            <h1 class="text-xl font-bold">Project Documentation</h1>
+            <p class="text-sm text-muted-foreground">
+              Live reference docs — Engram Spira
+            </p>
+          </div>
+        </div>
+
+        {/* ── Top tab bar ── */}
+        <div class="flex gap-1 border-b">
+          <For each={TOP_TABS}>
+            {(tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  id={`docs-tab-${tab.id}`}
+                  onClick={() => setTopTab(tab.id)}
+                  class={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                    topTab() === tab.id
+                      ? 'border-palette-5 text-palette-5'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                  }`}
+                >
+                  <Icon class="h-4 w-4" />
+                  {tab.label}
+                </button>
+              );
+            }}
+          </For>
+        </div>
+
+        {/* ── SRS Tab ── */}
+        <Show when={topTab() === 'srs'}>
+          <Switch>
+            <Match when={html.loading}>
+              <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
+                <Loader2 class="h-5 w-5 animate-spin" />
+                <span class="text-sm">Loading SRS document…</span>
               </div>
-            </div>
-
-            {/* ── Top tab bar ── */}
-            <div class="flex gap-1 border-b">
-              <For each={TOP_TABS}>
-                {(tab) => {
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      id={`docs-tab-${tab.id}`}
-                      onClick={() => setTopTab(tab.id)}
-                      class={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-                        topTab() === tab.id
-                          ? 'border-palette-5 text-palette-5'
-                          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                      }`}
-                    >
-                      <Icon class="h-4 w-4" />
-                      {tab.label}
-                    </button>
-                  );
-                }}
-              </For>
-            </div>
-
-            {/* ── SRS Tab ── */}
-            <Show when={topTab() === 'srs'}>
-              <Switch>
-                <Match when={html.loading}>
-                  <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
-                    <Loader2 class="h-5 w-5 animate-spin" />
-                    <span class="text-sm">Loading SRS document…</span>
-                  </div>
-                </Match>
-                <Match when={html.error}>
-                  <div class="flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive text-sm">
-                    <AlertCircle class="h-4 w-4 shrink-0" />
-                    Failed to load SRS document. Run{' '}
-                    <code class="bg-destructive/10 px-1 rounded font-mono text-xs">
-                      bun run docs:sync
-                    </code>{' '}
-                    to sync doc files.
-                  </div>
-                </Match>
-                <Match when={html()}>
-                  {/* Prose container — scoped markdown styles */}
-                  <article
-                    class="
+            </Match>
+            <Match when={html.error}>
+              <div class="flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive text-sm">
+                <AlertCircle class="h-4 w-4 shrink-0" />
+                Failed to load SRS document. Run{' '}
+                <code class="bg-destructive/10 px-1 rounded font-mono text-xs">
+                  bun run docs:sync
+                </code>{' '}
+                to sync doc files.
+              </div>
+            </Match>
+            <Match when={html()}>
+              {/* Prose container — scoped markdown styles */}
+              <article
+                class="
                     prose prose-sm dark:prose-invert max-w-none
                     prose-headings:font-semibold
                     prose-h1:text-2xl prose-h1:border-b prose-h1:pb-3
@@ -494,58 +489,54 @@ const DocsPage: Component = () => {
                     prose-a:text-palette-5
                     prose-hr:border-border
                   "
-                    innerHTML={html()}
-                  />
-                </Match>
-              </Switch>
-            </Show>
+                innerHTML={html()}
+              />
+            </Match>
+          </Switch>
+        </Show>
 
-            {/* ── C4 Architecture Tab ── */}
-            <Show when={topTab() === 'c4'}>
-              <div class="space-y-4">
-                {/* Diagram sub-tab pills */}
-                <div class="flex flex-wrap gap-2">
-                  <For each={C4_DIAGRAMS}>
-                    {(d) => (
-                      <button
-                        id={`c4-subtab-${d.id}`}
-                        onClick={() => setC4Tab(d.id)}
-                        class={`flex flex-col items-start px-4 py-2 rounded-xl border text-left transition-colors ${
-                          c4Tab() === d.id
-                            ? 'border-palette-5 bg-palette-5/5 text-palette-5'
-                            : 'border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30'
-                        }`}
-                      >
-                        <span class="text-xs font-medium">{d.level}</span>
-                        <span class="text-sm font-semibold">{d.label}</span>
-                      </button>
-                    )}
-                  </For>
-                </div>
+        {/* ── C4 Architecture Tab ── */}
+        <Show when={topTab() === 'c4'}>
+          <div class="space-y-4">
+            {/* Diagram sub-tab pills */}
+            <div class="flex flex-wrap gap-2">
+              <For each={C4_DIAGRAMS}>
+                {(d) => (
+                  <button
+                    id={`c4-subtab-${d.id}`}
+                    onClick={() => setC4Tab(d.id)}
+                    class={`flex flex-col items-start px-4 py-2 rounded-xl border text-left transition-colors ${
+                      c4Tab() === d.id
+                        ? 'border-palette-5 bg-palette-5/5 text-palette-5'
+                        : 'border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                    }`}
+                  >
+                    <span class="text-xs font-medium">{d.level}</span>
+                    <span class="text-sm font-semibold">{d.label}</span>
+                  </button>
+                )}
+              </For>
+            </div>
 
-                {/* Active diagram */}
-                <div class="rounded-xl border bg-card p-2">
-                  <div class="px-3 py-2 mb-2 flex items-center justify-between">
-                    <div>
-                      <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                        {activeDiagram().level}
-                      </p>
-                      <h2 class="text-sm font-semibold">
-                        {activeDiagram().label}
-                      </h2>
-                    </div>
-                    <span class="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
-                      C4 Model
-                    </span>
-                  </div>
-                  <C4DiagramView diagram={activeDiagram()} />
+            {/* Active diagram */}
+            <div class="rounded-xl border bg-card p-2">
+              <div class="px-3 py-2 mb-2 flex items-center justify-between">
+                <div>
+                  <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                    {activeDiagram().level}
+                  </p>
+                  <h2 class="text-sm font-semibold">{activeDiagram().label}</h2>
                 </div>
+                <span class="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+                  C4 Model
+                </span>
               </div>
-            </Show>
+              <C4DiagramView diagram={activeDiagram()} />
+            </div>
           </div>
-        </main>
+        </Show>
       </div>
-    </div>
+    </PageShell>
   );
 };
 

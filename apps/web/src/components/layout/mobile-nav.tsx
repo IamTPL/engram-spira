@@ -16,7 +16,7 @@ const MobileNav: Component = () => {
   ] as const;
 
   return (
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card border-t safe-area-pb">
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-sm border-t safe-area-pb">
       <div class="flex items-center justify-around h-14">
         {items.map((item) => {
           const isActive = () =>
@@ -32,9 +32,9 @@ const MobileNav: Component = () => {
 
           return (
             <button
-              class={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
+              class={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full min-h-11 transition-all duration-[--duration-fast] active:scale-95 cursor-pointer ${
                 isActive()
-                  ? 'text-palette-5'
+                  ? 'text-primary'
                   : 'text-muted-foreground active:text-foreground'
               }`}
               onClick={handleClick}
@@ -43,6 +43,9 @@ const MobileNav: Component = () => {
               <span class="text-[10px] font-medium leading-none">
                 {item.label}
               </span>
+              {isActive() && (
+                <span class="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary" />
+              )}
             </button>
           );
         })}

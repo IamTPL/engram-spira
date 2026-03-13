@@ -9,8 +9,7 @@ import { useParams, useNavigate } from '@solidjs/router';
 import { api } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import Sidebar from '@/components/layout/sidebar';
-import MobileNav from '@/components/layout/mobile-nav';
+import PageShell from '@/components/layout/page-shell';
 import { toast } from '@/stores/toast.store';
 import { ROUTES } from '@/constants';
 import { resolvedTheme } from '@/stores/theme.store';
@@ -138,228 +137,214 @@ const FolderViewPage: Component = () => {
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
-    <div class="h-screen flex overflow-hidden">
-      <Sidebar />
-      <div class="flex flex-col flex-1 overflow-hidden">
-        <MobileNav />
-        <main id="main-content" class="flex-1 overflow-y-auto pb-mobile-nav">
-          {/* ── Hero header ── */}
-          <div class="border-b px-6 py-4">
-            <div class="max-w-5xl mx-auto">
-              <div class="flex items-center gap-3 mb-3">
+    <PageShell maxWidth={false} class="p-0">
+      {/* ── Hero header ── */}
+      <div class="border-b px-6 py-4">
+        <div class="max-w-5xl mx-auto">
+          <div class="flex items-center gap-3 mb-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8 shrink-0"
+              onClick={() => navigate(ROUTES.DASHBOARD)}
+            >
+              <ArrowLeft class="h-4 w-4" />
+            </Button>
+            <div class="flex-1 min-w-0">
+              <h1 class="text-xl font-bold truncate leading-tight">
+                {folder()?.name ?? 'Loading...'}
+              </h1>
+              <span class="text-sm text-muted-foreground">
+                {deckCount()} deck{deckCount() !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+
+          {/* Actions row */}
+          <div class="flex items-center gap-3">
+            <Button
+              onClick={() => {
+                setNewDeckName('');
+                setNewDeckTemplateId(templates()?.[0]?.id ?? '');
+                setShowNewDeck(true);
+              }}
+              disabled={showNewDeck()}
+            >
+              <Plus class="h-4 w-4 mr-2" />
+              New Deck
+            </Button>
+
+            {/* Search */}
+            <Show when={deckCount() > 0}>
+              <div class="ml-auto relative max-w-xs w-full">
+                <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Search decks..."
+                  class="pl-9 h-9 text-sm"
+                  value={searchQuery()}
+                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                />
+              </div>
+            </Show>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div class="p-6">
+        <div class="max-w-5xl mx-auto">
+          {/* Create deck form */}
+          <Show when={showNewDeck()}>
+            <form
+              onSubmit={handleCreateDeck}
+              class="border rounded-xl p-5 bg-card shadow-sm mb-6 animate-fade-in space-y-3"
+            >
+              <div class="flex items-center justify-between">
+                <h3 class="font-semibold text-foreground">New Deck</h3>
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
-                  class="h-8 w-8 shrink-0"
-                  onClick={() => navigate(ROUTES.DASHBOARD)}
+                  class="h-8 w-8"
+                  onClick={() => setShowNewDeck(false)}
                 >
-                  <ArrowLeft class="h-4 w-4" />
+                  <X class="h-4 w-4" />
                 </Button>
-                <div class="flex-1 min-w-0">
-                  <h1 class="text-xl font-bold truncate leading-tight">
-                    {folder()?.name ?? 'Loading...'}
-                  </h1>
-                  <span class="text-sm text-muted-foreground">
-                    {deckCount()} deck{deckCount() !== 1 ? 's' : ''}
-                  </span>
-                </div>
               </div>
-
-              {/* Actions row */}
-              <div class="flex items-center gap-3">
+              <Input
+                placeholder="Deck name..."
+                value={newDeckName()}
+                onInput={(e) => setNewDeckName(e.currentTarget.value)}
+                autofocus
+              />
+              <select
+                class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={newDeckTemplateId()}
+                onChange={(e) => setNewDeckTemplateId(e.currentTarget.value)}
+              >
+                <option value="" disabled>
+                  Select template...
+                </option>
+                <For each={templates() ?? []}>
+                  {(t) => <option value={t.id}>{t.name}</option>}
+                </For>
+              </select>
+              <div class="flex gap-2">
                 <Button
-                  onClick={() => {
-                    setNewDeckName('');
-                    setNewDeckTemplateId(templates()?.[0]?.id ?? '');
-                    setShowNewDeck(true);
-                  }}
-                  disabled={showNewDeck()}
-                >
-                  <Plus class="h-4 w-4 mr-2" />
-                  New Deck
-                </Button>
-
-                {/* Search */}
-                <Show when={deckCount() > 0}>
-                  <div class="ml-auto relative max-w-xs w-full">
-                    <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                    <Input
-                      placeholder="Search decks..."
-                      class="pl-9 h-9 text-sm"
-                      value={searchQuery()}
-                      onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    />
-                  </div>
-                </Show>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Content ── */}
-          <div class="p-6">
-            <div class="max-w-5xl mx-auto">
-              {/* Create deck form */}
-              <Show when={showNewDeck()}>
-                <form
-                  onSubmit={handleCreateDeck}
-                  class="border rounded-xl p-5 bg-card shadow-sm mb-6 animate-fade-in space-y-3"
-                >
-                  <div class="flex items-center justify-between">
-                    <h3 class="font-semibold text-foreground">New Deck</h3>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      class="h-8 w-8"
-                      onClick={() => setShowNewDeck(false)}
-                    >
-                      <X class="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <Input
-                    placeholder="Deck name..."
-                    value={newDeckName()}
-                    onInput={(e) => setNewDeckName(e.currentTarget.value)}
-                    autofocus
-                  />
-                  <select
-                    class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    value={newDeckTemplateId()}
-                    onChange={(e) =>
-                      setNewDeckTemplateId(e.currentTarget.value)
-                    }
-                  >
-                    <option value="" disabled>
-                      Select template...
-                    </option>
-                    <For each={templates() ?? []}>
-                      {(t) => <option value={t.id}>{t.name}</option>}
-                    </For>
-                  </select>
-                  <div class="flex gap-2">
-                    <Button
-                      type="submit"
-                      disabled={
-                        creating() ||
-                        !newDeckName().trim() ||
-                        !newDeckTemplateId()
-                      }
-                    >
-                      {creating() ? 'Creating...' : 'Create Deck'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowNewDeck(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              </Show>
-
-              {/* Loading */}
-              <Show when={decks.loading}>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <For each={[1, 2, 3]}>
-                    {() => (
-                      <div class="h-40 rounded-2xl bg-muted animate-pulse" />
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              {/* Deck grid */}
-              <Show when={!decks.loading}>
-                <Show
-                  when={filteredDecks().length > 0}
-                  fallback={
-                    <div class="text-center py-20">
-                      <Show
-                        when={deckCount() === 0}
-                        fallback={
-                          <p class="text-muted-foreground text-sm">
-                            No results for &ldquo;{searchQuery()}&rdquo;
-                          </p>
-                        }
-                      >
-                        <div
-                          class="inline-flex h-16 w-16 rounded-full items-center justify-center mb-4"
-                          style={{ background: '#B2D8F1' }}
-                        >
-                          <BookOpen class="h-7 w-7 text-slate-700" />
-                        </div>
-                        <p class="text-foreground font-medium mb-1">
-                          No decks yet
-                        </p>
-                        <p class="text-muted-foreground text-sm mb-4">
-                          Create your first deck to start studying!
-                        </p>
-                        <Button
-                          onClick={() => {
-                            setNewDeckName('');
-                            setNewDeckTemplateId(templates()?.[0]?.id ?? '');
-                            setShowNewDeck(true);
-                          }}
-                        >
-                          <Plus class="h-4 w-4 mr-2" />
-                          Create Deck
-                        </Button>
-                      </Show>
-                    </div>
+                  type="submit"
+                  disabled={
+                    creating() || !newDeckName().trim() || !newDeckTemplateId()
                   }
                 >
-                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <For each={filteredDecks()}>
-                      {(deck, index) => (
-                        <button
-                          class="group relative overflow-hidden rounded-2xl p-5 text-left transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                          style={{ background: getGradient(index()) }}
-                          onClick={() => navigate(`/deck/${deck.id}`)}
-                        >
-                          {/* Decorative shapes */}
-                          <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25" />
-                          <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15" />
+                  {creating() ? 'Creating...' : 'Create Deck'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowNewDeck(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Show>
 
-                          {/* Content */}
-                          <div class="relative z-10 flex flex-col h-full min-h-30">
-                            {/* Deck name */}
-                            <h3 class="text-lg font-bold text-slate-800 leading-tight mb-1 line-clamp-2">
-                              {deck.name}
-                            </h3>
-
-                            {/* Card count */}
-                            <p class="text-slate-600 text-sm mb-auto">
-                              {deck.cardCount}{' '}
-                              {deck.cardCount === 1 ? 'card' : 'cards'}
-                            </p>
-
-                            {/* Bottom row */}
-                            <div class="flex items-center justify-between mt-4">
-                              {/* Template badge */}
-                              <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 text-slate-700 font-medium">
-                                <Layers class="h-3 w-3" />
-                                <TemplateName
-                                  templateId={deck.cardTemplateId}
-                                  templates={templates() ?? []}
-                                />
-                              </span>
-
-                              {/* Arrow */}
-                              <ChevronRight class="h-5 w-5 text-slate-500 group-hover:text-slate-800 group-hover:translate-x-0.5 transition-[color,transform]" />
-                            </div>
-                          </div>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </Show>
+          {/* Loading */}
+          <Show when={decks.loading}>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <For each={[1, 2, 3]}>
+                {() => <div class="h-40 rounded-2xl bg-muted animate-pulse" />}
+              </For>
             </div>
-          </div>
-        </main>
+          </Show>
+
+          {/* Deck grid */}
+          <Show when={!decks.loading}>
+            <Show
+              when={filteredDecks().length > 0}
+              fallback={
+                <div class="text-center py-20">
+                  <Show
+                    when={deckCount() === 0}
+                    fallback={
+                      <p class="text-muted-foreground text-sm">
+                        No results for &ldquo;{searchQuery()}&rdquo;
+                      </p>
+                    }
+                  >
+                    <div
+                      class="inline-flex h-16 w-16 rounded-full items-center justify-center mb-4"
+                      style={{ background: '#B2D8F1' }}
+                    >
+                      <BookOpen class="h-7 w-7 text-slate-700" />
+                    </div>
+                    <p class="text-foreground font-medium mb-1">No decks yet</p>
+                    <p class="text-muted-foreground text-sm mb-4">
+                      Create your first deck to start studying!
+                    </p>
+                    <Button
+                      onClick={() => {
+                        setNewDeckName('');
+                        setNewDeckTemplateId(templates()?.[0]?.id ?? '');
+                        setShowNewDeck(true);
+                      }}
+                    >
+                      <Plus class="h-4 w-4 mr-2" />
+                      Create Deck
+                    </Button>
+                  </Show>
+                </div>
+              }
+            >
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <For each={filteredDecks()}>
+                  {(deck, index) => (
+                    <button
+                      class="group relative overflow-hidden rounded-2xl p-5 text-left transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      style={{ background: getGradient(index()) }}
+                      onClick={() => navigate(`/deck/${deck.id}`)}
+                    >
+                      {/* Decorative shapes */}
+                      <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25" />
+                      <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15" />
+
+                      {/* Content */}
+                      <div class="relative z-10 flex flex-col h-full min-h-30">
+                        {/* Deck name */}
+                        <h3 class="text-lg font-bold text-slate-800 leading-tight mb-1 line-clamp-2">
+                          {deck.name}
+                        </h3>
+
+                        {/* Card count */}
+                        <p class="text-slate-600 text-sm mb-auto">
+                          {deck.cardCount}{' '}
+                          {deck.cardCount === 1 ? 'card' : 'cards'}
+                        </p>
+
+                        {/* Bottom row */}
+                        <div class="flex items-center justify-between mt-4">
+                          {/* Template badge */}
+                          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 text-slate-700 font-medium">
+                            <Layers class="h-3 w-3" />
+                            <TemplateName
+                              templateId={deck.cardTemplateId}
+                              templates={templates() ?? []}
+                            />
+                          </span>
+
+                          {/* Arrow */}
+                          <ChevronRight class="h-5 w-5 text-slate-500 group-hover:text-slate-800 group-hover:translate-x-0.5 transition-[color,transform]" />
+                        </div>
+                      </div>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
+        </div>
       </div>
-    </div>
+    </PageShell>
   );
 };
 

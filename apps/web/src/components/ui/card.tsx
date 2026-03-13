@@ -1,12 +1,30 @@
 import { type JSX, splitProps } from 'solid-js';
 import { cn } from '@/lib/utils';
 
-export function Card(props: JSX.HTMLAttributes<HTMLDivElement>) {
-  const [local, others] = splitProps(props, ['class', 'children']);
+const cardVariants = {
+  default: 'rounded-xl border bg-card text-card-foreground shadow-sm',
+  elevated: 'rounded-xl bg-card text-card-foreground shadow-md',
+  outlined: 'rounded-xl border bg-transparent text-card-foreground',
+  ghost: 'rounded-xl bg-transparent text-card-foreground',
+} as const;
+
+type CardProps = JSX.HTMLAttributes<HTMLDivElement> & {
+  variant?: keyof typeof cardVariants;
+  interactive?: boolean;
+};
+
+export function Card(props: CardProps) {
+  const [local, others] = splitProps(props, [
+    'class',
+    'children',
+    'variant',
+    'interactive',
+  ]);
   return (
     <div
       class={cn(
-        'rounded-lg border bg-card text-card-foreground shadow',
+        cardVariants[local.variant ?? 'default'],
+        local.interactive && 'hover-lift cursor-pointer',
         local.class,
       )}
       {...others}

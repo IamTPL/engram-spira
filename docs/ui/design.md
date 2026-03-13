@@ -32,21 +32,24 @@ Visual language priorities:
 
 ### Semantic Core Colors (Light / Dark)
 
-| Descriptive Name                       | Token                      | Light     | Dark      | Functional Role                          |
-| -------------------------------------- | -------------------------- | --------- | --------- | ---------------------------------------- |
-| Misty Study Canvas                     | `--color-background`       | `#f7fbff` | `#222933` | Overall app background                   |
-| Elevated Surface White / Night Surface | `--color-surface`          | `#ffffff` | `#1e2135` | Secondary surface layer, content area    |
-| Learning Card Surface                  | `--color-card`             | `#ffffff` | `#16202e` | Cards, drawers, menus                    |
-| Primary Reading Ink                    | `--color-foreground`       | `#1e293b` | `#e3e6f3` | Main text                                |
-| Action Blue / Soft Periwinkle          | `--color-primary`          | `#2563eb` | `#8aabf0` | Primary actions, links, focus            |
-| Gentle Secondary Surface               | `--color-secondary`        | `#f1f5f9` | `#424452` | Secondary buttons, side panels           |
-| Quiet Supporting Text                  | `--color-muted-foreground` | `#64748b` | `#8b90b4` | Secondary labels, metadata               |
-| Hover Accent Wash                      | `--color-accent`           | `#eff6ff` | `#2a2f4e` | Light background on hover/active         |
-| Destructive Signal Red                 | `--color-destructive`      | `#ef4444` | `#f07070` | Error alerts, dangerous actions (delete) |
-| Success Signal Green                   | `--color-success`          | `#10b981` | `#5ad4a0` | Success state, completion                |
-| Hairline Divider                       | `--color-border`           | `#e2e8f0` | `#34447a` | Borders, separators                      |
-| Input Stroke                           | `--color-input`            | `#e2e8f0` | `#6885e4` | Border of input/textarea fields          |
-| Focus Halo                             | `--color-ring`             | `#2563eb` | `#8aabf0` | Glowing ring during keyboard focus       |
+| Descriptive Name                       | Token                      | Light                 | Dark               | Functional Role                          |
+| -------------------------------------- | -------------------------- | --------------------- | ------------------ | ---------------------------------------- |
+| Misty Study Canvas                     | `--color-background`       | `#f7fbff`             | `#222933`          | Overall app background                   |
+| Elevated Surface White / Night Surface | `--color-surface`          | `#ffffff`             | `#1e2135`          | Secondary surface layer, content area    |
+| Learning Card Surface                  | `--color-card`             | `#ffffff`             | `#16202e`          | Cards, drawers, menus                    |
+| Primary Reading Ink                    | `--color-foreground`       | `#1e293b`             | `#e3e6f3`          | Main text                                |
+| Action Blue / Soft Periwinkle          | `--color-primary`          | `#2563eb`             | `#8aabf0`          | Primary actions, links, focus            |
+| Gentle Secondary Surface               | `--color-secondary`        | `#f1f5f9`             | `#424452`          | Secondary buttons, side panels           |
+| Quiet Supporting Text                  | `--color-muted-foreground` | `#64748b`             | `#ced2f1`          | Secondary labels, metadata               |
+| Hover Accent Wash                      | `--color-accent`           | `#eff6ff`             | `#2a2f4e`          | Light background on hover/active         |
+| Destructive Signal Red                 | `--color-destructive`      | `#ef4444`             | `#f07070`          | Error alerts, dangerous actions (delete) |
+| Success Signal Green                   | `--color-success`          | `#10b981`             | `#5ad4a0`          | Success state, completion                |
+| Hairline Divider                       | `--color-border`           | `#e2e8f0`             | `#34447a`          | Borders, separators                      |
+| Input Stroke                           | `--color-input`            | `#e2e8f0`             | `#6885e4`          | Border of input/textarea fields          |
+| Focus Halo                             | `--color-ring`             | `#2563eb`             | `#8aabf0`          | Glowing ring during keyboard focus       |
+| Warning Amber                          | `--color-warning`          | `#f59e0b`             | `#fbbf24`          | Warning states, caution indicators       |
+| Info Blue                              | `--color-info`             | `#3b82f6`             | `#60a5fa`          | Informational messages, hints            |
+| Overlay Backdrop                       | `--color-overlay`          | `rgb(15 23 42 / 0.4)` | `rgb(0 0 0 / 0.5)` | Modal/drawer backdrop dimming            |
 
 ### Brand & Supporting Palettes
 
@@ -92,14 +95,26 @@ Visual language priorities:
 ## 4. Component Stylings
 
 - **Buttons:** Default subtly rounded corners (`rounded-md`), mint-green gradient, bold slate text (`text-slate-800`).
-  - Feedback: `hover:opacity-90` and slight press effect `active:scale-[0.98]`.
-  - Variants: Destructive (red), Outline (bordered), Secondary (light gray background), Ghost (transparent), Link (palette-5 color).
-- **Cards/Containers:** `bg-card` background, thin border (`--color-border`), corner radius from `rounded-lg` to `rounded-2xl`.
-  - Depth: Very light shadows (**whisper-soft shadows**), Study Flashcards use a more prominent shadow (`--shadow-card-study`).
-- **Inputs/Forms:** Transparent background (`bg-transparent`), `border-input` border, `rounded-md` corners, light shadow `shadow-sm`.
-  - Focus: Bright `2px` ring (`--color-ring`) surrounding.
-- **Feedback Components:** Toasts and Badges use direct semantic colors (`success`, `destructive`, `palette-5`) with alpha borders to maintain soft contrast.
-- **Motion Language:** Transition duration `200–300ms`, `ease` easing. Accents (pop-ups, dice) use spring effect: `cubic-bezier(0.34, 1.56, 0.64, 1)`.
+  - Feedback: `hover:opacity-90` and subtle press `active:translate-y-px`. Focus ring `2px ring-offset-2`.
+  - Variants: Destructive (red), Outline (bordered), Secondary (light gray background), Ghost (transparent), Link (primary color).
+  - Built-in `loading` prop with animated spinner SVG.
+- **Cards/Containers:** `bg-card` background, thin border, corner radius `rounded-xl`.
+  - Variants: `default` (border + shadow-sm), `elevated` (shadow-md, no border), `outlined` (border, transparent bg), `ghost` (transparent).
+  - Depth: Very light shadows (**whisper-soft shadows**), Study Flashcards use `--shadow-card-study`.
+  - Interactive: `hover-lift` utility (translateY(-2px) + shadow-md on hover).
+- **Inputs/Forms:** Transparent background (`bg-transparent`), `border-input` border, `rounded-md` corners, `h-10` (40px touch target).
+  - Focus: Bright `2px` ring with `ring-offset-1` (`--color-ring`) surrounding.
+  - Error state: `border-destructive` + red focus ring via `error` prop.
+  - Icon slots: `iconLeft` / `iconRight` for inline decorations.
+- **Feedback Components:** Toasts, Badges, and Alerts use semantic colors (`success`, `destructive`, `warning`, `info`).
+- **New UI Components:** Dialog, Tooltip, DropdownMenu, Tabs, Badge, Progress, Alert, EmptyState, PageShell.
+- **Motion Language:**
+  - `--duration-fast`: `150ms` — hover states, micro-interactions
+  - `--duration-normal`: `200ms` — standard transitions
+  - `--duration-slow`: `300ms` — page transitions, complex animations
+  - `--ease-spring`: `cubic-bezier(0.34, 1.56, 0.64, 1)` — pop-ups, dice, celebratory
+  - `--ease-out`: `cubic-bezier(0.16, 1, 0.3, 1)` — modern deceleration for entrances
+  - `--ease-in-out`: `cubic-bezier(0.4, 0, 0.2, 1)` — smooth bidirectional transitions
 
 ## 5. Layout Principles
 
@@ -147,11 +162,50 @@ Engram Spira follows a **layered productivity shell** model: Header + Sidebar + 
 
 ### Layout Constants
 
-- **Desktop Sidebar:** Width `16rem` (`256px`), collapsed `56px`. Class: `w-sidebar`.
-- **Header:** Height `h-14` (`56px`).
-- **Mobile Bottom Nav:** Height `h-14` + safe area.
+- **Desktop Sidebar:** Width `var(--sidebar-width)` = `16rem` (`256px`), collapsed `var(--sidebar-collapsed-width)` = `3.5rem` (`56px`). Class: `w-sidebar`.
+- **Header:** Height `var(--header-height)` = `h-14` (`56px`). Has `border-b` separator.
+- **Content Max Width:** `var(--content-max-width)` = `48rem` (`768px`). Class: `max-w-content`.
+- **Page Padding:** `var(--page-padding)` = `1.5rem`, responsive `p-4 md:p-6`.
+- **Mobile Bottom Nav:** Height `h-14` + safe area. Frosted glass effect `bg-card/95 backdrop-blur-sm`.
 - **Progress Bar:** Thickness `4px`.
 - **Scrollbar:** Thickness `6px` (webkit custom).
+
+### New UI Component Library
+
+| Component      | Description                                                                           |
+| -------------- | ------------------------------------------------------------------------------------- |
+| `PageShell`    | Shared layout wrapper: Sidebar + MobileNav + main content with responsive padding     |
+| `Dialog`       | Modal overlay with backdrop, Escape close, focus trap, body scroll lock               |
+| `DropdownMenu` | Click-away-close menu with trigger, content, items, separators                        |
+| `Tabs`         | Controlled/uncontrolled tabs with muted-bg pill-style triggers                        |
+| `Badge`        | Pill-shaped labels: default, secondary, destructive, success, warning, outline, muted |
+| `Progress`     | Animated progress bar with variant colors and optional percentage label               |
+| `Alert`        | Inline feedback: default, destructive, success, warning, info — with auto icon        |
+| `Tooltip`      | Hover/focus tooltip with side positioning (top/bottom/left/right)                     |
+| `EmptyState`   | Centered icon + title + description + CTA pattern for empty data states               |
+
+### CSS Utility Classes
+
+| Class                   | Effect                                                                    |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `hover-lift`            | translateY(-2px) + shadow-md on hover, translateY(0) on active            |
+| `stagger-children`      | Staggered fade-in for child elements (50ms intervals, up to 8 children)   |
+| `overlay-backdrop`      | Overlay color + blur(4px) for modal/drawer backdrops                      |
+| `transition-smooth`     | Standard color/bg/border/opacity/shadow transition at `--duration-normal` |
+| `transition-all-smooth` | All properties transition with `--ease-out` at `--duration-normal`        |
+| `max-w-content`         | Max width constrained to `--content-max-width`                            |
+| `animate-fade-in`       | Fade-in + slight translateY entrance (200ms)                              |
+| `animate-scale-in`      | Scale-in with spring easing (300ms)                                       |
+| `animate-slide-in`      | Slide-in from right (200ms)                                               |
+| `animate-slide-in-left` | Slide-in from left (250ms)                                                |
+
+---
+
+### Code Splitting
+
+Heavy route pages are lazy-loaded via Solid's `lazy()` for smaller initial bundle:
+
+- `study-mode`, `deck-view`, `settings`, `docs`, `interleaved-study`
 
 ---
 
