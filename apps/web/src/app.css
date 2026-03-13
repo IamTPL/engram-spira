@@ -361,7 +361,9 @@
   }
 
   .transition-smooth {
-    transition: all 200ms ease;
+    transition: color, background-color, border-color, opacity, box-shadow;
+    transition-duration: 200ms;
+    transition-timing-function: ease;
   }
 
   .w-sidebar {
@@ -505,4 +507,22 @@
 
 .animate-confetti-fall {
   animation: confetti-fall 2.5s ease-in forwards;
+}
+
+/* ── Reduced Motion ─────────────────────────────────────────────
+   Disable or simplify animations for users who prefer reduced motion.
+   Reduces unnecessary GPU compositing work.                        */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .preserve-3d {
+    transform-style: flat;
+  }
 }

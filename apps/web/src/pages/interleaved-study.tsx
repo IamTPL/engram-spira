@@ -162,7 +162,7 @@ const InterleavedStudyPage: Component = () => {
       {/* Progress bar */}
       <div class="h-1 bg-secondary">
         <div
-          class="h-full bg-palette-5 transition-all duration-300"
+          class="h-full bg-palette-5 transition-[width] duration-300"
           style={{ width: `${progress()}%` }}
         />
       </div>
@@ -201,19 +201,19 @@ const InterleavedStudyPage: Component = () => {
                 <Show when={stats().again + stats().hard + stats().good > 0}>
                   <div class="grid grid-cols-3 gap-3 text-center">
                     <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold text-destructive">
+                      <p class="text-2xl font-bold tabular-nums text-destructive">
                         {stats().again}
                       </p>
                       <p class="text-xs text-muted-foreground mt-0.5">Again</p>
                     </div>
                     <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold text-amber-500">
+                      <p class="text-2xl font-bold tabular-nums text-amber-500">
                         {stats().hard}
                       </p>
                       <p class="text-xs text-muted-foreground mt-0.5">Hard</p>
                     </div>
                     <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold text-green-500">
+                      <p class="text-2xl font-bold tabular-nums text-green-500">
                         {stats().good}
                       </p>
                       <p class="text-xs text-muted-foreground mt-0.5">Good</p>

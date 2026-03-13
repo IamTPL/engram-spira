@@ -181,7 +181,7 @@ const SettingsPage: Component = () => {
       <Sidebar />
       <div class="flex flex-col flex-1 overflow-hidden">
         <MobileNav />
-        <main class="flex-1 overflow-y-auto pb-mobile-nav">
+        <main id="main-content" class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-8">
               {/* ── Page Header ── */}
@@ -268,7 +268,7 @@ const SettingsPage: Component = () => {
                           {/* Option: no avatar (show initials) */}
                           <button
                             title="Remove avatar"
-                            class={`relative w-11 h-11 rounded-full border-2 transition-all flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
+                            class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
                               selectedAvatar() === null
                                 ? 'border-palette-5 ring-2 ring-palette-5/40'
                                 : 'border-transparent'
@@ -294,7 +294,7 @@ const SettingsPage: Component = () => {
                             {(url) => (
                               <button
                                 title={url.split('/').pop()}
-                                class={`relative w-11 h-11 rounded-full border-2 transition-all overflow-hidden hover:scale-105 ${
+                                class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${
                                   selectedAvatar() === url
                                     ? 'border-palette-5 ring-2 ring-palette-5/40'
                                     : 'border-transparent hover:border-muted-foreground/30'
@@ -405,42 +405,62 @@ const SettingsPage: Component = () => {
                 <Show when={showPwModal()}>
                   <div
                     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="pw-modal-title"
                     onClick={() => setShowPwModal(false)}
                   >
                     <div
                       class="bg-card border rounded-xl shadow-lg w-full max-w-sm mx-4 p-6 space-y-4"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <h3 class="text-lg font-semibold">Change Password</h3>
+                      <h3 id="pw-modal-title" class="text-lg font-semibold">
+                        Change Password
+                      </h3>
                       <div class="space-y-3">
                         <div>
-                          <label class="text-sm text-muted-foreground">
+                          <label
+                            class="text-sm text-muted-foreground"
+                            for="current-pw"
+                          >
                             Current password
                           </label>
                           <Input
+                            id="current-pw"
                             type="password"
+                            autocomplete="current-password"
                             value={currentPw()}
                             onInput={(e) => setCurrentPw(e.currentTarget.value)}
                             class="mt-1"
                           />
                         </div>
                         <div>
-                          <label class="text-sm text-muted-foreground">
+                          <label
+                            class="text-sm text-muted-foreground"
+                            for="new-pw"
+                          >
                             New password
                           </label>
                           <Input
+                            id="new-pw"
                             type="password"
+                            autocomplete="new-password"
                             value={newPw()}
                             onInput={(e) => setNewPw(e.currentTarget.value)}
                             class="mt-1"
                           />
                         </div>
                         <div>
-                          <label class="text-sm text-muted-foreground">
+                          <label
+                            class="text-sm text-muted-foreground"
+                            for="confirm-pw"
+                          >
                             Confirm new password
                           </label>
                           <Input
+                            id="confirm-pw"
                             type="password"
+                            autocomplete="new-password"
                             value={confirmPw()}
                             onInput={(e) => setConfirmPw(e.currentTarget.value)}
                             class="mt-1"
@@ -495,7 +515,7 @@ const SettingsPage: Component = () => {
                         const Icon = opt.icon;
                         return (
                           <button
-                            class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                            class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${
                               theme() === opt.value
                                 ? 'border-palette-5 bg-palette-5/10 text-slate-700'
                                 : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'

@@ -127,6 +127,13 @@
       "when": 1773304100994,
       "tag": "0017_graceful_synch",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1773400000000,
+      "tag": "0018_perf_partial_indexes",
+      "breakpoints": true
     }
   ]
 }

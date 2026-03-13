@@ -142,7 +142,7 @@ const FolderViewPage: Component = () => {
       <Sidebar />
       <div class="flex flex-col flex-1 overflow-hidden">
         <MobileNav />
-        <main class="flex-1 overflow-y-auto pb-mobile-nav">
+        <main id="main-content" class="flex-1 overflow-y-auto pb-mobile-nav">
           {/* ── Hero header ── */}
           <div class="border-b px-6 py-4">
             <div class="max-w-5xl mx-auto">
@@ -313,7 +313,7 @@ const FolderViewPage: Component = () => {
                     <For each={filteredDecks()}>
                       {(deck, index) => (
                         <button
-                          class="group relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          class="group relative overflow-hidden rounded-2xl p-5 text-left transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                           style={{ background: getGradient(index()) }}
                           onClick={() => navigate(`/deck/${deck.id}`)}
                         >
@@ -346,7 +346,7 @@ const FolderViewPage: Component = () => {
                               </span>
 
                               {/* Arrow */}
-                              <ChevronRight class="h-5 w-5 text-slate-500 group-hover:text-slate-800 group-hover:translate-x-0.5 transition-all" />
+                              <ChevronRight class="h-5 w-5 text-slate-500 group-hover:text-slate-800 group-hover:translate-x-0.5 transition-[color,transform]" />
                             </div>
                           </div>
                         </button>

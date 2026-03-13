@@ -296,7 +296,7 @@ const StudyModePage: Component = () => {
       {/* Progress bar */}
       <div class="h-1 bg-secondary">
         <div
-          class="h-full bg-palette-5 transition-all duration-300"
+          class="h-full bg-palette-5 transition-[width] duration-300"
           style={{ width: `${progress()}%` }}
         />
       </div>
@@ -319,11 +319,26 @@ const StudyModePage: Component = () => {
           <Show
             when={!studyData.loading && !checkingMore()}
             fallback={
-              <p class="text-muted-foreground">
-                {checkingMore()
-                  ? 'Checking for more cards...'
-                  : 'Loading cards...'}
-              </p>
+              <div class="w-full max-w-lg space-y-6 px-4">
+                <div class="animate-pulse space-y-4">
+                  <div class="h-48 rounded-2xl bg-muted" />
+                  <div class="space-y-2 px-2">
+                    <div class="h-4 w-3/4 rounded bg-muted" />
+                    <div class="h-4 w-1/2 rounded bg-muted" />
+                  </div>
+                  <div class="flex justify-center gap-3 pt-4">
+                    <div class="h-10 w-20 rounded-lg bg-muted" />
+                    <div class="h-10 w-20 rounded-lg bg-muted" />
+                    <div class="h-10 w-20 rounded-lg bg-muted" />
+                    <div class="h-10 w-20 rounded-lg bg-muted" />
+                  </div>
+                </div>
+                <p class="text-center text-sm text-muted-foreground">
+                  {checkingMore()
+                    ? 'Checking for more cards...'
+                    : 'Loading cards...'}
+                </p>
+              </div>
             }
           >
             <Show
@@ -451,7 +466,7 @@ const StudyModePage: Component = () => {
                           </span>
                         </div>
                         <Show when={countdown()}>
-                          <span class="text-sm font-mono font-semibold text-amber-600 dark:text-amber-400">
+                          <span class="text-sm font-mono font-semibold tabular-nums text-amber-600 dark:text-amber-400">
                             {countdown()}
                           </span>
                         </Show>

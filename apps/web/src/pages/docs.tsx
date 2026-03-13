@@ -416,7 +416,7 @@ const DocsPage: Component = () => {
       <Sidebar />
       <div class="flex flex-col flex-1 overflow-hidden">
         <MobileNav />
-        <main class="flex-1 overflow-y-auto pb-mobile-nav">
+        <main id="main-content" class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6 max-w-6xl mx-auto space-y-6">
             {/* ── Page header ── */}
             <div class="flex items-center gap-3">
@@ -510,7 +510,7 @@ const DocsPage: Component = () => {
                       <button
                         id={`c4-subtab-${d.id}`}
                         onClick={() => setC4Tab(d.id)}
-                        class={`flex flex-col items-start px-4 py-2 rounded-xl border text-left transition-all ${
+                        class={`flex flex-col items-start px-4 py-2 rounded-xl border text-left transition-colors ${
                           c4Tab() === d.id
                             ? 'border-palette-5 bg-palette-5/5 text-palette-5'
                             : 'border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30'

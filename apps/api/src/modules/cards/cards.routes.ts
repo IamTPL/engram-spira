@@ -6,7 +6,7 @@ export const cardsRoutes = new Elysia({ prefix: '/cards' })
   .use(requireAuth)
   .get('/by-deck/:deckId', ({ currentUser, params, query }) =>
     cardsService.listByDeck(params.deckId, currentUser.id, {
-      page: query.page ? Number(query.page) : 1,
+      cursor: query.cursor !== undefined ? Number(query.cursor) : undefined,
       limit: query.limit ? Math.min(Number(query.limit), 200) : 50,
     }),
   )

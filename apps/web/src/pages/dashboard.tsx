@@ -187,7 +187,10 @@ const DashboardPage: Component = () => {
       <Sidebar />
       <div class="flex flex-col flex-1 overflow-hidden">
         <MobileNav />
-        <main class="flex-1 p-6 overflow-y-auto pb-mobile-nav">
+        <main
+          id="main-content"
+          class="flex-1 p-6 overflow-y-auto pb-mobile-nav"
+        >
           <div class="max-w-3xl mx-auto space-y-6">
             {/* ── Greeting ─── */}
             <div>
@@ -372,7 +375,7 @@ const DashboardPage: Component = () => {
                             <Show when={cell()}>
                               {(c) => (
                                 <div
-                                  class={`h-3 rounded-sm transition-all ${
+                                  class={`h-3 rounded-sm transition-opacity ${
                                     c().isFuture
                                       ? 'opacity-0'
                                       : c().isToday

@@ -240,7 +240,7 @@ const DeckViewPage: Component = () => {
     () => params.deckId,
     async (deckId) => {
       const { data } = await api.cards['by-deck']({ deckId }).get();
-      // API now returns paginated { items, total, page, limit, hasMore }
+      // API returns cursor-paginated { items, total, limit, hasMore, nextCursor }
       const list = Array.isArray(data) ? data : ((data as any)?.items ?? []);
       return (list as CardItem[]).sort((a, b) => a.sortOrder - b.sortOrder);
     },
@@ -650,7 +650,7 @@ const DeckViewPage: Component = () => {
   return (
     <div class="h-screen flex overflow-hidden">
       <Sidebar />
-      <main class="flex-1 overflow-y-auto">
+      <main id="main-content" class="flex-1 overflow-y-auto">
         {/* ── Hero header ── */}
         <div class="border-b px-6 py-4">
           <div class="max-w-5xl mx-auto">
@@ -952,6 +952,12 @@ const DeckViewPage: Component = () => {
                           draggable={
                             !selectMode() && editingCardId() !== card.id
                           }
+                          style={{
+                            'touch-action':
+                              !selectMode() && editingCardId() !== card.id
+                                ? 'none'
+                                : undefined,
+                          }}
                           onDragStart={(e) => handleDragStart(index(), e)}
                           onDragOver={(e) => handleDragOver(index(), e)}
                           onDrop={(e) => handleDrop(index(), e)}
@@ -975,6 +981,11 @@ const DeckViewPage: Component = () => {
                               <Show when={selectMode()}>
                                 <button
                                   class="mt-1 shrink-0"
+                                  aria-label={
+                                    selectedIds().has(card.id)
+                                      ? 'Deselect card'
+                                      : 'Select card'
+                                  }
                                   onClick={() => toggleCardSelection(card.id)}
                                 >
                                   <Show
@@ -1083,12 +1094,13 @@ const DeckViewPage: Component = () => {
                                 </Show>
                               </div>
 
-                              {/* Action buttons (visible on hover) */}
-                              <div class="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {/* Action buttons (visible on hover or focus-within) */}
+                              <div class="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   class="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                  aria-label="Edit card"
                                   title="Edit card"
                                   onClick={() => {
                                     const tmpl = template();
@@ -1104,6 +1116,7 @@ const DeckViewPage: Component = () => {
                                       variant="ghost"
                                       size="icon"
                                       class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                      aria-label="Delete card"
                                       title="Delete card"
                                       onClick={() =>
                                         setConfirmDeleteId(card.id)
@@ -1193,16 +1206,24 @@ const DeckViewPage: Component = () => {
       <Show when={showAiModal()}>
         <div
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ai-modal-title"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeAiModal();
           }}
         >
-          <div class="relative bg-card border rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4 animate-fade-in">
+          <div
+            class="relative bg-card border rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4 animate-fade-in"
+            style={{ 'overscroll-behavior': 'contain' }}
+          >
             {/* Header */}
             <div class="flex items-center justify-between p-5 border-b">
               <div class="flex items-center gap-2">
                 <Sparkles class="h-5 w-5 text-palette-4" />
-                <h2 class="text-lg font-semibold">AI Card Generator</h2>
+                <h2 id="ai-modal-title" class="text-lg font-semibold">
+                  AI Card Generator
+                </h2>
                 <Show when={aiGenerating()}>
                   <span class="text-xs text-muted-foreground">Generating…</span>
                 </Show>
@@ -1212,6 +1233,7 @@ const DeckViewPage: Component = () => {
                 size="icon"
                 class="h-8 w-8"
                 onClick={closeAiModal}
+                aria-label="Close"
                 title="Close"
               >
                 <X class="h-4 w-4" />

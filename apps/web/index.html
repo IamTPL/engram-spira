@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/logo-engram.png" />
+    <meta
+      name="theme-color"
+      content="#ffffff"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0a0a0a"
+      media="(prefers-color-scheme: dark)"
+    />
     <title>Engram Spira — Flashcards</title>
     <!-- Inter font: preconnect for performance, then load variable font -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -14,6 +24,26 @@
     />
   </head>
   <body>
+    <a
+      href="#main-content"
+      style="
+        position: absolute;
+        left: -9999px;
+        top: auto;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      "
+      onfocus="
+        this.style.cssText =
+          'position:fixed;top:8px;left:8px;z-index:9999;padding:8px 16px;background:var(--color-background,#fff);color:var(--color-foreground,#000);border-radius:8px;border:1px solid;box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:14px;font-weight:500;text-decoration:none'
+      "
+      onblur="
+        this.style.cssText =
+          'position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden'
+      "
+      >Skip to content</a
+    >
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
   </body>

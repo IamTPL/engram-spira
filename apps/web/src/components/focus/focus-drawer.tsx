@@ -96,7 +96,7 @@ const FocusDrawer: Component = () => {
   const circumference = 2 * Math.PI * 90; // radius = 90
 
   const [showSettings, setShowSettings] = createSignal(false);
-  
+
   const DICE_ICONS = [Dice1, Dice2, Dice3, Dice4, Dice5, Dice6];
 
   return (
@@ -179,7 +179,7 @@ const FocusDrawer: Component = () => {
                     circumference *
                     (1 - progress())
                   ).toString()}
-                  class="transition-all duration-300"
+                  class="transition-[stroke-dashoffset] duration-300"
                 />
                 <defs>
                   <linearGradient
@@ -266,7 +266,7 @@ const FocusDrawer: Component = () => {
               fallback={
                 <button
                   onClick={stopFocusSession}
-                  class="flex items-center gap-2 px-8 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-200 active:scale-95"
+                  class="flex items-center gap-2 px-8 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-[background-color,box-shadow,transform] duration-200 active:scale-95"
                 >
                   <Square class="h-4 w-4" />
                   Stop Session
@@ -275,7 +275,7 @@ const FocusDrawer: Component = () => {
             >
               <button
                 onClick={startFocusSession}
-                class="btn-gradient flex items-center gap-2 px-8 py-3 rounded-xl text-slate-800 font-semibold text-sm shadow-lg hover:opacity-90 hover:shadow-xl transition-all duration-200 active:scale-95"
+                class="btn-gradient flex items-center gap-2 px-8 py-3 rounded-xl text-slate-800 font-semibold text-sm shadow-lg hover:opacity-90 hover:shadow-xl transition-[opacity,box-shadow,transform] duration-200 active:scale-95"
               >
                 <Play class="h-4 w-4" />
                 Start Focus
@@ -308,7 +308,9 @@ const FocusDrawer: Component = () => {
                         <input
                           type="text"
                           value={label}
-                          onInput={(e) => updateRewardLabel(idx(), e.currentTarget.value)}
+                          onInput={(e) =>
+                            updateRewardLabel(idx(), e.currentTarget.value)
+                          }
                           placeholder={`Reward ${idx() + 1}`}
                           class="flex-1 bg-transparent border-b border-border/50 focus:border-blue-700 pb-1 text-sm text-foreground outline-none transition-colors"
                           maxLength={40}

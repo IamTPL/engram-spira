@@ -133,10 +133,36 @@ export async function importCSV(
     );
   }
 
-  let created = 0;
   const skippedRows: number[] = [];
 
-  await db.transaction(async (tx) => {
+  // Pre-parse all rows outside the transaction to minimize lock hold time
+  const validRows: {
+    fieldValues: { templateFieldId: string; value: unknown }[];
+  }[] = [];
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const row = dataRows[i];
+    const fieldValues: { templateFieldId: string; value: unknown }[] = [];
+
+    for (let col = 0; col < columnToFieldId.length; col++) {
+      const fieldId = columnToFieldId[col];
+      if (fieldId && row[col] !== undefined && row[col] !== '') {
+        fieldValues.push({ templateFieldId: fieldId, value: row[col] });
+      }
+    }
+
+    if (fieldValues.length === 0) {
+      skippedRows.push(i + 2); // +2 for 1-based + header
+    } else {
+      validRows.push({ fieldValues });
+    }
+  }
+
+  if (validRows.length === 0) {
+    return { created: 0, skipped: skippedRows.length, skippedRows };
+  }
+
+  const created = await db.transaction(async (tx) => {
     // Lock deck row to serialize sort order assignment per deck.
     await tx.execute(sql`SELECT id FROM decks WHERE id = ${deckId} FOR UPDATE`);
 
@@ -149,37 +175,33 @@ export async function importCSV(
 
     let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
 
-    for (let i = 0; i < dataRows.length; i++) {
-      const row = dataRows[i];
-      const fieldValues: { templateFieldId: string; value: unknown }[] = [];
+    // Batch insert all cards in one statement
+    const createdCards = await tx
+      .insert(cards)
+      .values(validRows.map(() => ({ deckId, sortOrder: nextOrder++ })))
+      .returning({ id: cards.id });
 
-      for (let col = 0; col < columnToFieldId.length; col++) {
-        const fieldId = columnToFieldId[col];
-        if (fieldId && row[col] !== undefined && row[col] !== '') {
-          fieldValues.push({ templateFieldId: fieldId, value: row[col] });
-        }
-      }
-
-      if (fieldValues.length === 0) {
-        skippedRows.push(i + 2); // +2 for 1-based + header
-        continue;
-      }
-
-      const [card] = await tx
-        .insert(cards)
-        .values({ deckId, sortOrder: nextOrder++ })
-        .returning();
-
-      await tx.insert(cardFieldValues).values(
-        fieldValues.map((fv) => ({
-          cardId: card.id,
+    // Batch insert all field values in one statement
+    const allFieldValues: {
+      cardId: string;
+      templateFieldId: string;
+      value: unknown;
+    }[] = [];
+    for (let i = 0; i < createdCards.length; i++) {
+      for (const fv of validRows[i].fieldValues) {
+        allFieldValues.push({
+          cardId: createdCards[i].id,
           templateFieldId: fv.templateFieldId,
           value: fv.value,
-        })),
-      );
-
-      created++;
+        });
+      }
     }
+
+    if (allFieldValues.length > 0) {
+      await tx.insert(cardFieldValues).values(allFieldValues);
+    }
+
+    return createdCards.length;
   });
 
   return { created, skipped: skippedRows.length, skippedRows };

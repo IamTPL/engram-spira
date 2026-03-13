@@ -25,10 +25,7 @@ export const studyDailyLogs = pgTable(
     studyDate: date('study_date').notNull(),
     cardsReviewed: integer('cards_reviewed').notNull().default(0),
   },
-  (table) => [
-    unique('uq_user_study_date').on(table.userId, table.studyDate),
-    index('idx_sdl_user_date').on(table.userId, table.studyDate),
-  ],
+  (table) => [unique('uq_user_study_date').on(table.userId, table.studyDate)],
 );
 
 export const studyDailyLogsRelations = relations(studyDailyLogs, ({ one }) => ({

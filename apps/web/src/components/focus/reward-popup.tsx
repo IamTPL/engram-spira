@@ -1,4 +1,10 @@
-import { type Component, Show, For, createSignal, createEffect } from 'solid-js';
+import {
+  type Component,
+  Show,
+  For,
+  createSignal,
+  createEffect,
+} from 'solid-js';
 import {
   showReward,
   closeReward,
@@ -211,7 +217,7 @@ const RewardPopup: Component = () => {
               <button
                 onClick={handleStartNext}
                 disabled={!showResult()}
-                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl btn-gradient text-slate-800 text-sm font-semibold shadow-md hover:shadow-lg hover:opacity-90 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl btn-gradient text-slate-800 text-sm font-semibold shadow-md hover:shadow-lg hover:opacity-90 transition-[opacity,box-shadow,transform] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Play class="h-3.5 w-3.5" />
                 Next Session

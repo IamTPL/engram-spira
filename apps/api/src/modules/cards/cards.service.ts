@@ -1,4 +1,4 @@
-import { eq, and, inArray, desc, sql, count, asc } from 'drizzle-orm';
+import { eq, and, inArray, desc, sql, count, asc, gt } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
@@ -17,29 +17,35 @@ async function verifyDeckOwnership(deckId: string, userId: string) {
 export async function listByDeck(
   deckId: string,
   userId: string,
-  pagination: { page: number; limit: number } = { page: 1, limit: 50 },
+  pagination: { cursor?: number; limit: number } = { limit: 50 },
 ) {
   await verifyDeckOwnership(deckId, userId);
 
-  const { page, limit } = pagination;
-  const offset = (page - 1) * limit;
+  const { cursor, limit } = pagination;
 
-  // Parallel: paginated card list + total count
+  // Cursor-based: WHERE sort_order > cursor (uses idx_cards_deck_sort composite index)
+  const whereClause =
+    cursor !== undefined
+      ? and(eq(cards.deckId, deckId), gt(cards.sortOrder, cursor))
+      : eq(cards.deckId, deckId);
+
+  // Parallel: cursor-paginated card list + total count
   const [[totalRow], cardList] = await Promise.all([
     db.select({ count: count() }).from(cards).where(eq(cards.deckId, deckId)),
     db
       .select()
       .from(cards)
-      .where(eq(cards.deckId, deckId))
-      .orderBy(cards.sortOrder)
-      .limit(limit)
-      .offset(offset),
+      .where(whereClause)
+      .orderBy(asc(cards.sortOrder))
+      .limit(limit + 1), // fetch one extra to determine hasMore
   ]);
 
   const total = totalRow?.count ?? 0;
+  const hasMore = cardList.length > limit;
+  if (hasMore) cardList.pop(); // remove the peek row
 
   if (cardList.length === 0) {
-    return { items: [], total, page, limit, hasMore: false };
+    return { items: [], total, limit, hasMore: false, nextCursor: null };
   }
 
   const cardIds = cardList.map((c) => c.id);
@@ -80,12 +86,14 @@ export async function listByDeck(
     ),
   }));
 
+  const lastCard = cardList[cardList.length - 1];
+
   return {
     items,
     total,
-    page,
     limit,
-    hasMore: offset + cardList.length < total,
+    hasMore,
+    nextCursor: hasMore ? lastCard.sortOrder : null,
   };
 }
 

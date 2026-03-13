@@ -47,7 +47,13 @@ const LoginPage: Component = () => {
         <form onSubmit={handleSubmit}>
           <CardContent class="space-y-4">
             {error() && (
-              <div class="text-sm text-destructive text-center">{error()}</div>
+              <div
+                id="login-error"
+                role="alert"
+                class="text-sm text-destructive text-center"
+              >
+                {error()}
+              </div>
             )}
             <div class="space-y-2">
               <label class="text-sm font-medium" for="email">
@@ -56,6 +62,7 @@ const LoginPage: Component = () => {
               <Input
                 id="email"
                 type="email"
+                autocomplete="email"
                 placeholder="you@example.com"
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
@@ -69,6 +76,7 @@ const LoginPage: Component = () => {
               <Input
                 id="password"
                 type="password"
+                autocomplete="current-password"
                 placeholder="Enter your password"
                 value={password()}
                 onInput={(e) => setPassword(e.currentTarget.value)}

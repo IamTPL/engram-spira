@@ -94,7 +94,7 @@ const FeedbackPage: Component = () => {
       <Sidebar />
       <div class="flex flex-col flex-1 overflow-hidden">
         <MobileNav />
-        <main class="flex-1 overflow-y-auto pb-mobile-nav">
+        <main id="main-content" class="flex-1 overflow-y-auto pb-mobile-nav">
           <div class="p-6">
             <div class="max-w-2xl mx-auto space-y-6">
               {/* Header */}
@@ -148,7 +148,7 @@ const FeedbackPage: Component = () => {
                     const Icon = opt.icon;
                     return (
                       <button
-                        class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer text-center ${
+                        class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer text-center ${
                           feedbackType() === opt.value
                             ? 'border-palette-5 bg-palette-5/10 text-slate-700 dark:text-palette-5'
                             : 'border bg-card text-muted-foreground hover:bg-muted/50 border-border'

@@ -6,6 +6,7 @@ import { currentUser, isLoading, fetchCurrentUser } from '@/stores/auth.store';
 import AppErrorBoundary from '@/components/ui/app-error-boundary';
 import Toaster from '@/components/ui/toaster';
 import FocusDrawer from '@/components/focus/focus-drawer';
+import RouteAnnouncer from '@/components/route-announcer';
 import LoginPage from '@/pages/login';
 import RegisterPage from '@/pages/register';
 import ResetPasswordPage from '@/pages/reset-password';
@@ -145,6 +146,7 @@ const App: Component = () => {
           />
           <Route path="*" component={NotFoundPage} />
         </Router>
+        <RouteAnnouncer />
         <Toaster />
         <FocusDrawer />
       </QueryClientProvider>

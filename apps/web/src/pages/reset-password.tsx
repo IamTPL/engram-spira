@@ -105,12 +105,15 @@ const ResetPasswordPage: Component = () => {
             <form onSubmit={handleRequestReset}>
               <CardContent class="space-y-4">
                 <Show when={error()}>
-                  <div class="text-sm text-destructive text-center">
+                  <div
+                    role="alert"
+                    class="text-sm text-destructive text-center"
+                  >
                     {error()}
                   </div>
                 </Show>
                 <Show when={success()}>
-                  <div class="text-sm text-green-600 text-center">
+                  <div role="status" class="text-sm text-green-600 text-center">
                     {success()}
                   </div>
                 </Show>
@@ -121,6 +124,7 @@ const ResetPasswordPage: Component = () => {
                   <Input
                     id="email"
                     type="email"
+                    autocomplete="email"
                     placeholder="you@example.com"
                     value={email()}
                     onInput={(e) => setEmail(e.currentTarget.value)}
@@ -145,12 +149,12 @@ const ResetPasswordPage: Component = () => {
           <form onSubmit={handleResetPassword}>
             <CardContent class="space-y-4">
               <Show when={error()}>
-                <div class="text-sm text-destructive text-center">
+                <div role="alert" class="text-sm text-destructive text-center">
                   {error()}
                 </div>
               </Show>
               <Show when={success()}>
-                <div class="text-sm text-green-600 text-center">
+                <div role="status" class="text-sm text-green-600 text-center">
                   {success()}
                 </div>
               </Show>
@@ -161,6 +165,7 @@ const ResetPasswordPage: Component = () => {
                 <Input
                   id="new-password"
                   type="password"
+                  autocomplete="new-password"
                   placeholder="At least 8 characters"
                   value={newPassword()}
                   onInput={(e) => setNewPassword(e.currentTarget.value)}
@@ -174,6 +179,7 @@ const ResetPasswordPage: Component = () => {
                 <Input
                   id="confirm-password"
                   type="password"
+                  autocomplete="new-password"
                   placeholder="Re-enter password"
                   value={confirmPassword()}
                   onInput={(e) => setConfirmPassword(e.currentTarget.value)}
