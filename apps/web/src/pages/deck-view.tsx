@@ -1039,7 +1039,7 @@ const DeckViewPage: Component = () => {
                                       <For each={otherFields}>
                                         {(f) => (
                                           <div class="text-sm">
-                                            <span class="text-muted-foreground capitalize font-medium">
+                                            <span class="text-muted-foreground capitalize font-extrabold">
                                               {f.fieldName}:{' '}
                                             </span>
                                             <span>
@@ -1066,7 +1066,7 @@ const DeckViewPage: Component = () => {
                                     >
                                       {(field) => (
                                         <div class="text-sm">
-                                          <span class="text-muted-foreground capitalize font-medium">
+                                          <span class="text-muted-foreground capitalize font-extrabold">
                                             {field.fieldName}:{' '}
                                           </span>
                                           <span>
