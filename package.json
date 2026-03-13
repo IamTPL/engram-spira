@@ -16,7 +16,8 @@
     "db:studio": "bun run --filter @engram/api db:studio",
     "docs:c4": "docker compose --profile docs up structurizr",
     "docs:export": "bun run scripts/docs-export.ts",
-    "docs:sync": "bun run scripts/docs-sync.ts"
+    "docs:sync": "bun run scripts/docs-sync.ts",
+    "skills:update": "bun run scripts/skills-update.ts"
   },
   "dependencies": {
     "three": "^0.183.2",

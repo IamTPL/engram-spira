@@ -4,12 +4,27 @@
     "elysiajs": {
       "source": "elysiajs/skills",
       "sourceType": "github",
-      "computedHash": "55268e69a2c766ed67e56a0db57544f60cc52dba0c7f024a974baf965e525e1b"
+      "computedHash": "d13212a3759c6cd3c0d1de8b9d44558a1504328b73957392acd1f41250f3ef14"
     },
     "solid-js-best-practices": {
-      "source": "richardcarls/solid-js-best-practices",
+      "source": "solid-js-best-practices/skills",
       "sourceType": "github",
-      "computedHash": "c9c4ac6ee25f469fdf229ef4382eabf56a4acc49feb04dded05e5792be6aa0a9"
+      "computedHash": "59359c6dae3decf8857a03f6525aab0a277debfa01f46b3dacd9be2963c13cda"
+    },
+    "enhance-prompt": {
+      "source": "enhance-prompt/skills",
+      "sourceType": "github",
+      "computedHash": "86860bf96124bd42ef6f2dc185e30c15e7472fe414bb282af342906ef4308e31"
+    },
+    "design-md": {
+      "source": "design-md/skills",
+      "sourceType": "github",
+      "computedHash": "861a5e13f0dbbcba2499422c5bac3beb6ca27ad3b81e9ff451bbabf3586f2c9b"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase-postgres-best-practices/skills",
+      "sourceType": "github",
+      "computedHash": "6108b72558028cd620af0d793a9125fb5b13e4b817f38d61c4c600d7060141c8"
     }
   }
 }
