@@ -25,6 +25,26 @@
       "source": "supabase-postgres-best-practices/skills",
       "sourceType": "github",
       "computedHash": "6108b72558028cd620af0d793a9125fb5b13e4b817f38d61c4c600d7060141c8"
+    },
+    "brainstorming": {
+      "source": "brainstorming/skills",
+      "sourceType": "github",
+      "computedHash": "6ec503c15875136004336afbbd7dae7522c50012d7b934a20546a948513c1ebc"
+    },
+    "systematic-debugging": {
+      "source": "systematic-debugging/skills",
+      "sourceType": "github",
+      "computedHash": "bb065c5addba387560449b6ba26d03ccee7302ca1e592679a6a6eefc5cf8166e"
+    },
+    "writing-plans": {
+      "source": "writing-plans/skills",
+      "sourceType": "github",
+      "computedHash": "296f66c1a393913d4d147275041a0b2adc153c53ffccd638574086a0a94d8926"
+    },
+    "executing-plans": {
+      "source": "executing-plans/skills",
+      "sourceType": "github",
+      "computedHash": "cce4f0dfb1d271421262578832787f1b4a3040fd04f57c76f6d54c1673743a71"
     }
   }
 }
