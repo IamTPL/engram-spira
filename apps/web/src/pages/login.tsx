@@ -11,6 +11,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { login } from '@/stores/auth.store';
+import { getApiError } from '@/api/client';
 import { Mail, Lock } from 'lucide-solid';
 
 const LoginPage: Component = () => {
@@ -29,7 +30,7 @@ const LoginPage: Component = () => {
       await login(email(), password());
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : getApiError(err) || 'Login failed');
     } finally {
       setLoading(false);
     }
