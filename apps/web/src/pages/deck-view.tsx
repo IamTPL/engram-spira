@@ -207,6 +207,7 @@ const DeckViewPage: Component = () => {
   // Drag-drop reorder state
   const [dragIndex, setDragIndex] = createSignal<number | null>(null);
   const [dropIndex, setDropIndex] = createSignal<number | null>(null);
+  const [isDragging, setIsDragging] = createSignal(false);
 
   // ── Data ──────────────────────────────────────────────────────────────
   const [deck] = createResource(
@@ -235,7 +236,7 @@ const DeckViewPage: Component = () => {
     },
   );
 
-  const [cards, { refetch: refetchCards }] = createResource(
+  const [cardsResource, { refetch: refetchCards }] = createResource(
     () => params.deckId,
     async (deckId) => {
       const { data } = await api.cards['by-deck']({ deckId }).get();
@@ -244,6 +245,19 @@ const DeckViewPage: Component = () => {
       return (list as CardItem[]).sort((a, b) => a.sortOrder - b.sortOrder);
     },
   );
+
+  // Local signal for card list — allows optimistic reorder updates
+  const [localCards, setLocalCards] = createSignal<CardItem[]>([]);
+
+  // Sync local signal whenever the resource loads/refetches
+  createEffect(() => {
+    const data = cardsResource();
+    if (data) setLocalCards(data);
+  });
+
+  // Helpers to keep old references working
+  const cards = localCards;
+  const cardLoading = () => cardsResource.loading;
 
   // ── Handlers ─────────────────────────────────────────────────────────
   const sortedFields = () =>
@@ -581,46 +595,91 @@ const DeckViewPage: Component = () => {
   // ── Drag-drop reorder ───────────────────────────────────────────────
   const handleDragStart = (index: number, e: DragEvent) => {
     setDragIndex(index);
+    setIsDragging(true);
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', String(index));
+      // Create a custom drag image for better visual feedback
+      const target = e.currentTarget as HTMLElement;
+      const clone = target.cloneNode(true) as HTMLElement;
+      clone.style.opacity = '0.8';
+      clone.style.transform = 'rotate(2deg)';
+      clone.style.position = 'absolute';
+      clone.style.top = '-9999px';
+      document.body.appendChild(clone);
+      e.dataTransfer.setDragImage(clone, 0, 0);
+      setTimeout(() => document.body.removeChild(clone), 0);
     }
   };
 
   const handleDragOver = (index: number, e: DragEvent) => {
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    setDropIndex(index);
+    const currentDrop = dropIndex();
+    if (currentDrop !== index) {
+      setDropIndex(index);
+    }
   };
 
   const handleDragEnd = () => {
     setDragIndex(null);
     setDropIndex(null);
+    setIsDragging(false);
   };
 
   const handleDrop = async (targetIndex: number, e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const fromIndex = dragIndex();
     if (fromIndex === null || fromIndex === targetIndex) {
       handleDragEnd();
       return;
     }
 
-    const list = [...filteredCards()];
-    const [moved] = list.splice(fromIndex, 1);
-    list.splice(targetIndex, 0, moved);
+    // Work with the full cards array, not filtered
+    const allCards = cards();
+    if (!allCards) {
+      handleDragEnd();
+      return;
+    }
 
-    // Optimistic: update card IDs order in the API
-    const cardIds = list.map((c) => c.id);
+    // Get the actual cards being moved from the filtered view
+    const filtered = filteredCards();
+    const movedCard = filtered[fromIndex];
+    const targetCard = filtered[targetIndex];
+
+    // Find their positions in the full array
+    const fullFromIndex = allCards.findIndex((c) => c.id === movedCard.id);
+    const fullTargetIndex = allCards.findIndex((c) => c.id === targetCard.id);
+
+    // Reorder the full array
+    const reordered = [...allCards];
+    const [moved] = reordered.splice(fullFromIndex, 1);
+    reordered.splice(fullTargetIndex, 0, moved);
+
+    // Update sortOrder for all cards
+    const updatedCards = reordered.map((card, idx) => ({
+      ...card,
+      sortOrder: idx,
+    }));
+
+    const cardIds = reordered.map((c) => c.id);
+
+    // Clear drag state immediately for smooth UX
     handleDragEnd();
 
+    // Optimistic update: update local signal immediately (no network round-trip)
+    setLocalCards(updatedCards);
+
+    // Sync with backend in background
     try {
       await api.cards['by-deck']({ deckId: params.deckId }).reorder.patch({
         cardIds,
       });
-      refetchCards();
-    } catch {
+      // Success - no need to refetch, optimistic update already applied
+    } catch (error) {
       toast.error('Failed to reorder cards');
+      // On error, refetch to restore correct state
       refetchCards();
     }
   };
@@ -643,7 +702,7 @@ const DeckViewPage: Component = () => {
     );
   });
 
-  const cardCount = () => cards()?.length ?? 0;
+  const cardCount = () => localCards().length;
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
@@ -851,7 +910,7 @@ const DeckViewPage: Component = () => {
           </Show>
 
           {/* Card list */}
-          <Show when={cards.loading}>
+          <Show when={cardLoading()}>
             <div class="space-y-3">
               <For each={[1, 2, 3]}>
                 {() => <div class="h-24 rounded-xl bg-muted animate-pulse" />}
@@ -859,7 +918,7 @@ const DeckViewPage: Component = () => {
             </div>
           </Show>
 
-          <Show when={!cards.loading}>
+          <Show when={!cardLoading()}>
             <Show
               when={filteredCards().length > 0}
               fallback={
@@ -933,19 +992,21 @@ const DeckViewPage: Component = () => {
 
                     return (
                       <div
-                        class={`group border rounded-xl bg-card overflow-hidden transition-shadow ${
-                          dragIndex() === index()
-                            ? 'opacity-40'
-                            : dropIndex() === index()
-                              ? 'border-palette-5 shadow-md'
+                        class={`group border rounded-xl bg-card overflow-hidden transition-all duration-200 ease-out ${dragIndex() === index()
+                          ? 'opacity-50 scale-95 shadow-lg rotate-1'
+                          : dropIndex() === index()
+                            ? 'border-palette-5 shadow-lg scale-[1.02] -translate-y-1'
+                            : isDragging()
+                              ? 'transition-transform duration-300'
                               : 'hover:shadow-sm'
-                        }`}
+                          }`}
                         draggable={!selectMode() && editingCardId() !== card.id}
                         style={{
                           'touch-action':
                             !selectMode() && editingCardId() !== card.id
                               ? 'none'
                               : undefined,
+                          'will-change': isDragging() ? 'transform, opacity' : 'auto',
                         }}
                         onDragStart={(e) => handleDragStart(index(), e)}
                         onDragOver={(e) => handleDragOver(index(), e)}
@@ -1045,8 +1106,8 @@ const DeckViewPage: Component = () => {
                                           <span>
                                             {Array.isArray(f.value)
                                               ? (f.value as string[]).join(
-                                                  ' · ',
-                                                )
+                                                ' · ',
+                                              )
                                               : String(f.value)}
                                           </span>
                                         </div>
@@ -1072,8 +1133,8 @@ const DeckViewPage: Component = () => {
                                         <span>
                                           {Array.isArray(field.value)
                                             ? (field.value as string[]).join(
-                                                ' · ',
-                                              )
+                                              ' · ',
+                                            )
                                             : String(field.value)}
                                         </span>
                                       </div>
@@ -1285,11 +1346,10 @@ const DeckViewPage: Component = () => {
                                 <button
                                   type="button"
                                   onClick={() => setAiBackLang(opt.value)}
-                                  class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                                    aiBackLang() === opt.value
-                                      ? 'border-palette-4 bg-palette-4/10 text-foreground'
-                                      : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
-                                  }`}
+                                  class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${aiBackLang() === opt.value
+                                    ? 'border-palette-4 bg-palette-4/10 text-foreground'
+                                    : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
+                                    }`}
                                 >
                                   {opt.label}
                                 </button>
@@ -1320,7 +1380,7 @@ const DeckViewPage: Component = () => {
                               when={
                                 aiSourceText().trim().length > 0 &&
                                 aiSourceText().trim().length <
-                                  AI_SOURCE_MIN_CHARS
+                                AI_SOURCE_MIN_CHARS
                               }
                             >
                               <span class="text-destructive">
@@ -1486,7 +1546,7 @@ const DeckViewPage: Component = () => {
                           onClick={handleAiGenerate}
                           disabled={
                             aiSourceText().trim().length <
-                              AI_SOURCE_MIN_CHARS ||
+                            AI_SOURCE_MIN_CHARS ||
                             aiSourceText().length > AI_SOURCE_MAX_CHARS
                           }
                         >
