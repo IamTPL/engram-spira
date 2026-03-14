@@ -270,14 +270,14 @@ export async function saveGeneratedCards(
   const originalCards = job.generatedCards as GeneratedCard[];
   const cardsToSave: GeneratedCard[] = editedCards
     ? editedCards.map((edited, i) => ({
-        ...(originalCards[i] ?? {}),
-        front: edited.front,
-        back: edited.back,
-        // honour any extra fields explicitly sent by the client
-        ...(edited.ipa !== undefined ? { ipa: edited.ipa } : {}),
-        ...(edited.wordType !== undefined ? { wordType: edited.wordType } : {}),
-        ...(edited.examples !== undefined ? { examples: edited.examples } : {}),
-      }))
+      ...(originalCards[i] ?? {}),
+      front: edited.front,
+      back: edited.back,
+      // honour any extra fields explicitly sent by the client
+      ...(edited.ipa !== undefined ? { ipa: edited.ipa } : {}),
+      ...(edited.wordType !== undefined ? { wordType: edited.wordType } : {}),
+      ...(edited.examples !== undefined ? { examples: edited.examples } : {}),
+    }))
     : originalCards;
 
   if (!cardsToSave || cardsToSave.length === 0) {
@@ -316,13 +316,13 @@ export async function saveGeneratedCards(
           templateFieldId: string;
           value: string;
         }[] = [
-          {
-            cardId: newCard.id,
-            templateFieldId: wordFieldId,
-            value: card.front,
-          },
-          { cardId: newCard.id, templateFieldId: defFieldId, value: card.back },
-        ];
+            {
+              cardId: newCard.id,
+              templateFieldId: wordFieldId,
+              value: card.front,
+            },
+            { cardId: newCard.id, templateFieldId: defFieldId, value: card.back },
+          ];
         if (card.ipa && fieldMap.has('ipa')) {
           fieldValues.push({
             cardId: newCard.id,
@@ -341,7 +341,7 @@ export async function saveGeneratedCards(
           fieldValues.push({
             cardId: newCard.id,
             templateFieldId: fieldMap.get('examples')!,
-            value: card.examples,
+            value: typeof card.examples === 'string' ? [card.examples] : card.examples,
           });
         }
         await tx.insert(cardFieldValues).values(fieldValues);
