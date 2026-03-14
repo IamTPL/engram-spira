@@ -6,6 +6,9 @@
     "dev": "bun run --watch src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:drop": "drizzle-kit drop",
+    "db:reset": "drizzle-kit drop && drizzle-kit push",
     "db:seed": "bun run src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"
