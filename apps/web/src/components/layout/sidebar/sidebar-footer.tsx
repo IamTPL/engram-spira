@@ -3,8 +3,6 @@ import {
   Show,
   For,
   createSignal,
-  createResource,
-  onCleanup,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import {
@@ -22,38 +20,15 @@ import {
 } from 'lucide-solid';
 import { Button } from '@/components/ui/button';
 import { currentUser, logout } from '@/stores/auth.store';
-import { api } from '@/api/client';
-import { NOTIFICATIONS_POLL_MS } from '@/constants';
+import { dueDecks, totalDue, hasDue } from '@/stores/notifications.store';
 import { resolvedTheme, toggleTheme } from '@/stores/theme.store';
 import { openFocusDrawer, isRunning } from '@/stores/focus.store';
-
-interface DueDeckNotification {
-  deckId: string;
-  deckName: string;
-  dueCount: number;
-}
 
 export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
 
-  const [dueDecks, { refetch: refetchDue }] = createResource(
-    () => currentUser()?.id,
-    async () => {
-      const { data } = await (api.notifications as any)['due-decks'].get();
-      return (data ?? []) as DueDeckNotification[];
-    },
-  );
-
-  const timer = setInterval(() => {
-    if (currentUser()) refetchDue();
-  }, NOTIFICATIONS_POLL_MS);
-  onCleanup(() => clearInterval(timer));
-
-  const totalDue = () =>
-    (dueDecks() ?? []).reduce((sum, d) => sum + d.dueCount, 0);
-  const hasDue = () => totalDue() > 0;
   const userInitial = () => {
     const email = currentUser()?.email ?? '';
     return email.charAt(0).toUpperCase();
@@ -108,9 +83,8 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
               onClick={() => setShowNotifications(false)}
             />
             <div
-              class={`fixed z-40 w-80 max-w-[90vw] rounded-xl border bg-card shadow-xl overflow-hidden ${
-                props.compact ? 'left-14 bottom-14' : 'left-64 bottom-2'
-              }`}
+              class={`fixed z-40 w-80 max-w-[90vw] rounded-xl border bg-card shadow-xl overflow-hidden ${props.compact ? 'left-14 bottom-14' : 'left-64 bottom-2'
+                }`}
             >
               <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
                 <div class="flex items-center gap-2">
@@ -222,9 +196,8 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
                 </p>
               </div>
               <ChevronDown
-                class={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${
-                  showUserMenu() ? 'rotate-180' : ''
-                }`}
+                class={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${showUserMenu() ? 'rotate-180' : ''
+                  }`}
               />
             </Show>
           </button>
@@ -235,9 +208,8 @@ export const SidebarFooter: Component<{ compact?: boolean }> = (props) => {
               onClick={() => setShowUserMenu(false)}
             />
             <div
-              class={`fixed z-40 w-64 rounded-xl border bg-card shadow-xl overflow-hidden ${
-                props.compact ? 'left-14 bottom-2' : 'left-64 bottom-2'
-              }`}
+              class={`fixed z-40 w-64 rounded-xl border bg-card shadow-xl overflow-hidden ${props.compact ? 'left-14 bottom-2' : 'left-64 bottom-2'
+                }`}
             >
               <div class="px-4 py-3 border-b bg-muted/30">
                 <div class="flex items-center gap-3">

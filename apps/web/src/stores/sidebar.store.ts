@@ -6,9 +6,9 @@ const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
 /** Mobile drawer open state — only used on screens < md */
 const [mobileDrawerOpen, setMobileDrawerOpen] = createSignal(false);
 
-/** Expanded class IDs in the sidebar tree */
-const [expandedClasses, setExpandedClasses] = createSignal<Set<string>>(
-  new Set(),
+/** Expanded class IDs — Record<string, boolean> for O(1) toggle without Set copy */
+const [expandedClasses, setExpandedClasses] = createSignal<Record<string, boolean>>(
+  {},
 );
 
 /** Lazy-loaded folders per class */
@@ -23,11 +23,11 @@ const [foldersByClass, setFoldersByClass] = createSignal<
 
 /** Toggle a class open/closed, lazy-loading folders on first expand */
 const toggleClass = async (classId: string) => {
-  const s = new Set(expandedClasses());
-  if (s.has(classId)) {
-    s.delete(classId);
+  const isExpanded = expandedClasses()[classId];
+  if (isExpanded) {
+    setExpandedClasses((prev) => ({ ...prev, [classId]: false }));
   } else {
-    s.add(classId);
+    setExpandedClasses((prev) => ({ ...prev, [classId]: true }));
     if (!foldersByClass()[classId]) {
       const { data } = await api.folders['by-class']({ classId }).get();
       setFoldersByClass((prev) => ({
@@ -36,14 +36,12 @@ const toggleClass = async (classId: string) => {
       }));
     }
   }
-  setExpandedClasses(s);
 };
 
 /** Ensure a class is expanded (used for auto-expand on navigation) */
 const ensureClassExpanded = async (classId: string) => {
-  const s = new Set(expandedClasses());
-  if (s.has(classId)) return;
-  s.add(classId);
+  if (expandedClasses()[classId]) return;
+  setExpandedClasses((prev) => ({ ...prev, [classId]: true }));
   if (!foldersByClass()[classId]) {
     const { data } = await api.folders['by-class']({ classId }).get();
     setFoldersByClass((prev) => ({
@@ -51,7 +49,6 @@ const ensureClassExpanded = async (classId: string) => {
       [classId]: (data ?? []) as FolderItem[],
     }));
   }
-  setExpandedClasses(s);
 };
 
 /** Update cached folders for a class */
@@ -61,9 +58,7 @@ const updateFoldersForClass = (classId: string, folders: FolderItem[]) => {
 
 /** Remove a class from expanded set and folder cache */
 const removeClassFromCache = (classId: string) => {
-  const s = new Set(expandedClasses());
-  s.delete(classId);
-  setExpandedClasses(s);
+  setExpandedClasses((prev) => ({ ...prev, [classId]: false }));
   setFoldersByClass((prev) => {
     const n = { ...prev };
     delete n[classId];

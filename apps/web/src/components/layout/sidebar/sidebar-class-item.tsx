@@ -81,7 +81,7 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
               onClick={() => toggleClass(props.cls.id)}
             >
               <Show
-                when={expandedClasses().has(props.cls.id)}
+                when={expandedClasses()[props.cls.id]}
                 fallback={<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />}
               >
                 <ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -168,7 +168,7 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
       </div>
 
       {/* Expanded class content — folders only */}
-      <Show when={expandedClasses().has(props.cls.id)}>
+      <Show when={expandedClasses()[props.cls.id]}>
         <div class="ml-4 mt-0.5 space-y-0.5">
           {/* New Folder form */}
           <Show when={creatingFolderForClass() === props.cls.id}>

@@ -3,8 +3,6 @@ import {
   Show,
   For,
   createSignal,
-  createResource,
-  onCleanup,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
@@ -20,8 +18,7 @@ import {
 import { currentUser, logout } from '@/stores/auth.store';
 import { sidebarCollapsed, toggleSidebar } from '@/stores/sidebar.store';
 import { resolvedTheme, toggleTheme } from '@/stores/theme.store';
-import { api } from '@/api/client';
-import { NOTIFICATIONS_POLL_MS } from '@/constants';
+import { dueDecks, totalDue, hasDue } from '@/stores/notifications.store';
 import {
   Bell,
   LogOut,
@@ -38,34 +35,10 @@ import {
 } from 'lucide-solid';
 import { openFocusDrawer, isRunning } from '@/stores/focus.store';
 
-interface DueDeckNotification {
-  deckId: string;
-  deckName: string;
-  dueCount: number;
-}
-
 const Header: Component = () => {
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
-
-  // Poll due-decks every NOTIFICATIONS_POLL_MS when user is authenticated
-  const [dueDecks, { refetch: refetchDue }] = createResource(
-    () => currentUser()?.id,
-    async () => {
-      const { data } = await (api.notifications as any)['due-decks'].get();
-      return (data ?? []) as DueDeckNotification[];
-    },
-  );
-
-  // Auto-refresh timer
-  const timer = setInterval(() => {
-    if (currentUser()) refetchDue();
-  }, NOTIFICATIONS_POLL_MS);
-  onCleanup(() => clearInterval(timer));
-
-  const totalDue = () => (dueDecks() ?? []).reduce((s, d) => s + d.dueCount, 0);
-  const hasDue = () => totalDue() > 0;
 
   const userInitial = () => {
     const email = currentUser()?.email ?? '';
@@ -94,9 +67,8 @@ const Header: Component = () => {
             class="hidden md:flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-[--duration-fast] cursor-pointer"
           >
             <PanelLeft
-              class={`h-4 w-4 transition-transform duration-300 ${
-                sidebarCollapsed() ? 'rotate-180' : ''
-              }`}
+              class={`h-4 w-4 transition-transform duration-300 ${sidebarCollapsed() ? 'rotate-180' : ''
+                }`}
             />
           </button>
 
@@ -241,9 +213,8 @@ const Header: Component = () => {
                     />
                   </Show>
                   <ChevronDown
-                    class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
-                      showUserMenu() ? 'rotate-180' : ''
-                    }`}
+                    class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${showUserMenu() ? 'rotate-180' : ''
+                      }`}
                   />
                 </button>
               </DropdownMenuTrigger>

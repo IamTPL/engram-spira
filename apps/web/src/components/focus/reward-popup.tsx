@@ -4,15 +4,21 @@ import {
   For,
   createSignal,
   createEffect,
+  lazy,
+  Suspense,
 } from 'solid-js';
 import {
   showReward,
   closeReward,
   startFocusSession,
 } from '@/stores/focus.store';
-import CubeDice, { type Reward } from './dodecahedron-dice';
+import type { Reward } from './dodecahedron-dice';
 import { playDiceRollSound, playRewardRevealSound } from './focus-sounds';
 import { X, RotateCcw, Play } from 'lucide-solid';
+import Spinner from '@/components/ui/spinner';
+
+// Lazy-load CubeDice — pulls in Three.js (~500KB), only needed when reward popup opens
+const CubeDice = lazy(() => import('./dodecahedron-dice'));
 
 /* ══════════════════════════════════════════════════════════════
    REWARD POPUP
@@ -160,13 +166,15 @@ const RewardPopup: Component = () => {
               </p>
             </div>
 
-            {/* 3D Dice */}
+            {/* 3D Dice (lazy-loaded with Three.js) */}
             <div class="px-6 py-4">
-              <CubeDice
-                onResult={handleResult}
-                rolling={rolling()}
-                onRollingChange={handleRollingChange}
-              />
+              <Suspense fallback={<div class="w-full aspect-square max-w-72 mx-auto flex items-center justify-center"><Spinner size="lg" /></div>}>
+                <CubeDice
+                  onResult={handleResult}
+                  rolling={rolling()}
+                  onRollingChange={handleRollingChange}
+                />
+              </Suspense>
             </div>
 
             {/* Result card */}

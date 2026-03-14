@@ -1,25 +1,28 @@
-import { type Component, Show, lazy, onMount } from 'solid-js';
+import { type Component, Show, lazy, onMount, Suspense } from 'solid-js';
 import { Router, Route, Navigate } from '@solidjs/router';
 import { QueryClientProvider } from '@tanstack/solid-query';
 import { queryClient } from '@/lib/query-client';
 import { currentUser, isLoading, fetchCurrentUser } from '@/stores/auth.store';
 import AppErrorBoundary from '@/components/ui/app-error-boundary';
 import Toaster from '@/components/ui/toaster';
-import FocusDrawer from '@/components/focus/focus-drawer';
 import RouteAnnouncer from '@/components/route-announcer';
-import LoginPage from '@/pages/login';
-import RegisterPage from '@/pages/register';
-import ResetPasswordPage from '@/pages/reset-password';
-import DashboardPage from '@/pages/dashboard';
+
+// Lazy-load ALL pages for optimal code splitting
+const LoginPage = lazy(() => import('@/pages/login'));
+const RegisterPage = lazy(() => import('@/pages/register'));
+const ResetPasswordPage = lazy(() => import('@/pages/reset-password'));
+const DashboardPage = lazy(() => import('@/pages/dashboard'));
 const FeedbackPage = lazy(() => import('@/pages/feedback'));
 const FolderViewPage = lazy(() => import('@/pages/folder-view'));
-
 const StudyModePage = lazy(() => import('@/pages/study-mode'));
 const DeckViewPage = lazy(() => import('@/pages/deck-view'));
 const SettingsPage = lazy(() => import('@/pages/settings'));
 const DocsPage = lazy(() => import('@/pages/docs'));
 const InterleavedStudyPage = lazy(() => import('@/pages/interleaved-study'));
 const NotFoundPage = lazy(() => import('@/pages/not-found'));
+
+// Lazy-load FocusDrawer — it pulls in Three.js (~500KB) via reward popup
+const FocusDrawer = lazy(() => import('@/components/focus/focus-drawer'));
 
 const LoadingScreen = () => (
   <div class="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
@@ -49,6 +52,7 @@ const LoadingScreen = () => (
   </div>
 );
 
+// Stable wrapper components — defined once, not inline per-route
 const ProtectedRoute: Component<{ children: any }> = (props) => {
   return (
     <Show when={!isLoading()} fallback={<LoadingScreen />}>
@@ -69,6 +73,15 @@ const GuestRoute: Component<{ children: any }> = (props) => {
   );
 };
 
+// Stable route wrapper factories — avoids recreating component functions on navigation
+const guest = (Page: Component) => () => (
+  <GuestRoute><Page /></GuestRoute>
+);
+
+const protect = (Page: Component) => () => (
+  <ProtectedRoute><Page /></ProtectedRoute>
+);
+
 const App: Component = () => {
   onMount(() => {
     fetchCurrentUser();
@@ -77,93 +90,27 @@ const App: Component = () => {
   return (
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <Router>
-          <Route
-            path="/login"
-            component={() => (
-              <GuestRoute>
-                <LoginPage />
-              </GuestRoute>
-            )}
-          />
-          <Route
-            path="/register"
-            component={() => (
-              <GuestRoute>
-                <RegisterPage />
-              </GuestRoute>
-            )}
-          />
-          <Route path="/reset-password" component={ResetPasswordPage} />
-          <Route
-            path="/"
-            component={() => (
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/folder/:folderId"
-            component={() => (
-              <ProtectedRoute>
-                <FolderViewPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/deck/:deckId"
-            component={() => (
-              <ProtectedRoute>
-                <DeckViewPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/study/interleaved"
-            component={() => (
-              <ProtectedRoute>
-                <InterleavedStudyPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/study/:deckId"
-            component={() => (
-              <ProtectedRoute>
-                <StudyModePage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/settings"
-            component={() => (
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/feedback"
-            component={() => (
-              <ProtectedRoute>
-                <FeedbackPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route
-            path="/docs"
-            component={() => (
-              <ProtectedRoute>
-                <DocsPage />
-              </ProtectedRoute>
-            )}
-          />
-          <Route path="*" component={NotFoundPage} />
-        </Router>
+        <Suspense fallback={<LoadingScreen />}>
+          <Router>
+            <Route path="/login" component={guest(LoginPage)} />
+            <Route path="/register" component={guest(RegisterPage)} />
+            <Route path="/reset-password" component={ResetPasswordPage} />
+            <Route path="/" component={protect(DashboardPage)} />
+            <Route path="/folder/:folderId" component={protect(FolderViewPage)} />
+            <Route path="/deck/:deckId" component={protect(DeckViewPage)} />
+            <Route path="/study/interleaved" component={protect(InterleavedStudyPage)} />
+            <Route path="/study/:deckId" component={protect(StudyModePage)} />
+            <Route path="/settings" component={protect(SettingsPage)} />
+            <Route path="/feedback" component={protect(FeedbackPage)} />
+            <Route path="/docs" component={protect(DocsPage)} />
+            <Route path="*" component={NotFoundPage} />
+          </Router>
+        </Suspense>
         <RouteAnnouncer />
         <Toaster />
-        <FocusDrawer />
+        <Suspense>
+          <FocusDrawer />
+        </Suspense>
       </QueryClientProvider>
     </AppErrorBoundary>
   );

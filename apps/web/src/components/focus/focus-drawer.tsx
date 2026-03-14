@@ -45,6 +45,56 @@ import { onCleanup, createSignal, For, type Accessor } from 'solid-js';
    — Timer display, duration config, start/stop, stats
    ══════════════════════════════════════════════════════════════ */
 
+// ── Extracted from IIFE to proper component (Solid.js best practice) ──
+const DURATION_STEPS = [1 / 60, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
+
+const DurationStepper: Component = () => {
+  const curIdx = () => {
+    const cur = durationMin();
+    let best = 0;
+    let bestDiff = Infinity;
+    for (let i = 0; i < DURATION_STEPS.length; i++) {
+      const d = Math.abs(DURATION_STEPS[i] - cur);
+      if (d < bestDiff) {
+        bestDiff = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  return (
+    <div class="flex items-center gap-4 mb-8">
+      <button
+        onClick={() =>
+          setDurationMin(DURATION_STEPS[Math.max(0, curIdx() - 1)])
+        }
+        disabled={curIdx() <= 0}
+        class="h-9 w-9 rounded-full border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <Minus class="h-4 w-4" />
+      </button>
+      <div class="text-center min-w-20">
+        <span class="text-sm font-medium text-foreground">
+          {durationMin() < 1 ? '1s' : `${Math.round(durationMin())} min`}
+        </span>
+        <p class="text-xs text-muted-foreground">Focus duration</p>
+      </div>
+      <button
+        onClick={() =>
+          setDurationMin(
+            DURATION_STEPS[Math.min(DURATION_STEPS.length - 1, curIdx() + 1)],
+          )
+        }
+        disabled={curIdx() >= DURATION_STEPS.length - 1}
+        class="h-9 w-9 rounded-full border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <Plus class="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
+
 const FocusDrawer: Component = () => {
   // Escape key to close drawer
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -212,56 +262,7 @@ const FocusDrawer: Component = () => {
 
               {/* Duration setting (only when not running) */}
               <Show when={!isRunning()}>
-                {(() => {
-                  const STEPS = [1 / 60, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
-                  const curIdx = () => {
-                    const cur = durationMin();
-                    let best = 0;
-                    let bestDiff = Infinity;
-                    for (let i = 0; i < STEPS.length; i++) {
-                      const d = Math.abs(STEPS[i] - cur);
-                      if (d < bestDiff) {
-                        bestDiff = d;
-                        best = i;
-                      }
-                    }
-                    return best;
-                  };
-                  return (
-                    <div class="flex items-center gap-4 mb-8">
-                      <button
-                        onClick={() =>
-                          setDurationMin(STEPS[Math.max(0, curIdx() - 1)])
-                        }
-                        disabled={curIdx() <= 0}
-                        class="h-9 w-9 rounded-full border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Minus class="h-4 w-4" />
-                      </button>
-                      <div class="text-center min-w-20">
-                        <span class="text-sm font-medium text-foreground">
-                          {durationMin() < 1
-                            ? '1s'
-                            : `${Math.round(durationMin())} min`}
-                        </span>
-                        <p class="text-xs text-muted-foreground">
-                          Focus duration
-                        </p>
-                      </div>
-                      <button
-                        onClick={() =>
-                          setDurationMin(
-                            STEPS[Math.min(STEPS.length - 1, curIdx() + 1)],
-                          )
-                        }
-                        disabled={curIdx() >= STEPS.length - 1}
-                        class="h-9 w-9 rounded-full border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Plus class="h-4 w-4" />
-                      </button>
-                    </div>
-                  );
-                })()}
+                <DurationStepper />
               </Show>
 
               {/* Start / Stop button */}
