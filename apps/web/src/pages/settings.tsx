@@ -6,6 +6,7 @@ import {
   createResource,
   createEffect,
 } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { useNavigate } from '@solidjs/router';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
@@ -260,8 +261,8 @@ const SettingsPage: Component = () => {
                     <button
                       title="Remove avatar"
                       class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${selectedAvatar() === null
-                          ? 'border-palette-5 ring-2 ring-palette-5/40'
-                          : 'border-transparent'
+                        ? 'border-palette-5 ring-2 ring-palette-5/40'
+                        : 'border-transparent'
                         }`}
                       onClick={() => {
                         setSelectedAvatar(null);
@@ -285,8 +286,8 @@ const SettingsPage: Component = () => {
                         <button
                           title={url.split('/').pop()}
                           class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${selectedAvatar() === url
-                              ? 'border-palette-5 ring-2 ring-palette-5/40'
-                              : 'border-transparent hover:border-muted-foreground/30'
+                            ? 'border-palette-5 ring-2 ring-palette-5/40'
+                            : 'border-transparent hover:border-muted-foreground/30'
                             }`}
                           onClick={() => {
                             setSelectedAvatar(url);
@@ -388,91 +389,93 @@ const SettingsPage: Component = () => {
 
           {/* Change password modal */}
           <Show when={showPwModal()}>
-            <div
-              class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="pw-modal-title"
-              onClick={() => setShowPwModal(false)}
-            >
+            <Portal>
               <div
-                class="bg-card border rounded-xl shadow-lg w-full max-w-sm mx-4 p-6 space-y-4"
-                onClick={(e) => e.stopPropagation()}
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pw-modal-title"
+                onClick={() => setShowPwModal(false)}
               >
-                <h3 id="pw-modal-title" class="text-lg font-semibold">
-                  Change Password
-                </h3>
-                <div class="space-y-3">
-                  <div>
-                    <label
-                      class="text-sm text-muted-foreground"
-                      for="current-pw"
+                <div
+                  class="bg-card border rounded-xl shadow-lg w-full max-w-sm mx-4 p-6 space-y-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 id="pw-modal-title" class="text-lg font-semibold">
+                    Change Password
+                  </h3>
+                  <div class="space-y-3">
+                    <div>
+                      <label
+                        class="text-sm text-muted-foreground"
+                        for="current-pw"
+                      >
+                        Current password
+                      </label>
+                      <Input
+                        id="current-pw"
+                        type="password"
+                        autocomplete="current-password"
+                        value={currentPw()}
+                        onInput={(e) => setCurrentPw(e.currentTarget.value)}
+                        class="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label class="text-sm text-muted-foreground" for="new-pw">
+                        New password
+                      </label>
+                      <Input
+                        id="new-pw"
+                        type="password"
+                        autocomplete="new-password"
+                        value={newPw()}
+                        onInput={(e) => setNewPw(e.currentTarget.value)}
+                        class="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        class="text-sm text-muted-foreground"
+                        for="confirm-pw"
+                      >
+                        Confirm new password
+                      </label>
+                      <Input
+                        id="confirm-pw"
+                        type="password"
+                        autocomplete="new-password"
+                        value={confirmPw()}
+                        onInput={(e) => setConfirmPw(e.currentTarget.value)}
+                        class="mt-1"
+                      />
+                    </div>
+                  </div>
+                  <div class="flex justify-end gap-2 pt-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowPwModal(false)}
+                      disabled={pwSaving()}
                     >
-                      Current password
-                    </label>
-                    <Input
-                      id="current-pw"
-                      type="password"
-                      autocomplete="current-password"
-                      value={currentPw()}
-                      onInput={(e) => setCurrentPw(e.currentTarget.value)}
-                      class="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label class="text-sm text-muted-foreground" for="new-pw">
-                      New password
-                    </label>
-                    <Input
-                      id="new-pw"
-                      type="password"
-                      autocomplete="new-password"
-                      value={newPw()}
-                      onInput={(e) => setNewPw(e.currentTarget.value)}
-                      class="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      class="text-sm text-muted-foreground"
-                      for="confirm-pw"
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleChangePassword}
+                      disabled={
+                        pwSaving() || !currentPw() || !newPw() || !confirmPw()
+                      }
                     >
-                      Confirm new password
-                    </label>
-                    <Input
-                      id="confirm-pw"
-                      type="password"
-                      autocomplete="new-password"
-                      value={confirmPw()}
-                      onInput={(e) => setConfirmPw(e.currentTarget.value)}
-                      class="mt-1"
-                    />
+                      <Show when={pwSaving()} fallback='Save'>
+                        <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        Saving...
+                      </Show>
+                    </Button>
                   </div>
-                </div>
-                <div class="flex justify-end gap-2 pt-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowPwModal(false)}
-                    disabled={pwSaving()}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleChangePassword}
-                    disabled={
-                      pwSaving() || !currentPw() || !newPw() || !confirmPw()
-                    }
-                  >
-                    <Show when={pwSaving()} fallback="Save">
-                      <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                      Saving...
-                    </Show>
-                  </Button>
                 </div>
               </div>
-            </div>
+            </Portal>
           </Show>
         </section>
 
@@ -493,8 +496,8 @@ const SettingsPage: Component = () => {
                   return (
                     <button
                       class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${theme() === opt.value
-                          ? 'border-palette-5 bg-palette-5/10 text-slate-700'
-                          : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
+                        ? 'border-palette-5 bg-palette-5/10 text-slate-700'
+                        : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
                         }`}
                       onClick={() => setTheme(opt.value)}
                     >
