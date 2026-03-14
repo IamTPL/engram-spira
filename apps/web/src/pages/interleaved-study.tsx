@@ -7,7 +7,7 @@ import {
   Show,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import { api } from '@/api/client';
+import { api, getApiError } from '@/api/client';
 import type { ReviewAction } from '@/../../api/src/shared/constants';
 import Flashcard from '@/components/flashcard/flashcard';
 import StudyControls from '@/components/flashcard/study-controls';
@@ -73,7 +73,8 @@ const InterleavedStudyPage: Component = () => {
     if (pending.length === 0) return;
     if (!force && pending.length < 8) return;
 
-    await (api.study as any)['review-batch'].post({ items: pending });
+    const { error: reviewBatchError } = await (api.study as any)['review-batch'].post({ items: pending });
+    if (reviewBatchError) throw new Error(getApiError(reviewBatchError));
     setPendingReviews((prev) => prev.slice(pending.length));
   };
 

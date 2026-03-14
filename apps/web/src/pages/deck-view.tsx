@@ -10,7 +10,7 @@ import {
 } from 'solid-js';
 import { createStore, reconcile, produce } from 'solid-js/store';
 import { useParams, useNavigate } from '@solidjs/router';
-import { api } from '@/api/client';
+import { api, getApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -273,15 +273,16 @@ const DeckViewPage: Component = () => {
         templateFieldId: f.id,
         value: addInputs()[f.id] ?? (f.fieldType === 'json_array' ? [] : ''),
       }));
-      await api.cards['by-deck']({ deckId: params.deckId }).post({
+      const { error: addError } = await api.cards['by-deck']({ deckId: params.deckId }).post({
         fieldValues,
       });
+      if (addError) throw new Error(getApiError(addError));
       setAddInputs({});
       setShowAddCard(false);
       refetchCards();
       toast.success('Card added successfully');
-    } catch {
-      toast.error('Failed to add card');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to add card');
     } finally {
       setSaving(false);
     }
@@ -308,12 +309,13 @@ const DeckViewPage: Component = () => {
         templateFieldId: f.id,
         value: editInputs()[f.id] ?? (f.fieldType === 'json_array' ? [] : ''),
       }));
-      await (api.cards as any)[cardId].patch({ fieldValues });
+      const { error: editError } = await (api.cards as any)[cardId].patch({ fieldValues });
+      if (editError) throw new Error(getApiError(editError));
       setEditingCardId(null);
       refetchCards();
       toast.success('Card updated');
-    } catch {
-      toast.error('Failed to update card');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to update card');
     } finally {
       setEditSaving(false);
     }
@@ -321,12 +323,13 @@ const DeckViewPage: Component = () => {
 
   const handleDeleteCard = async (cardId: string) => {
     try {
-      await (api.cards as any)[cardId].delete();
+      const { error: deleteError } = await (api.cards as any)[cardId].delete();
+      if (deleteError) throw new Error(getApiError(deleteError));
       setConfirmDeleteId(null);
       refetchCards();
       toast.success('Card deleted');
-    } catch {
-      toast.error('Failed to delete card');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to delete card');
     }
   };
 
@@ -455,7 +458,7 @@ const DeckViewPage: Component = () => {
         sourceText: text,
         backLanguage: aiBackLang(),
       });
-      if (error) throw new Error(error.error ?? 'Generation failed');
+      if (error) throw new Error(getApiError(error));
       setAiJobId(data.jobId);
       startPolling(data.jobId);
     } catch (err: any) {
@@ -482,7 +485,7 @@ const DeckViewPage: Component = () => {
           ...(c.examples != null ? { examples: c.examples } : {}),
         })),
       });
-      if (error) throw new Error(error.error ?? 'Save failed');
+      if (error) throw new Error(getApiError(error));
       toast.success(`${aiPreviewCards.length} cards saved!`);
       setShowAiModal(false);
       setAiPreviewOpen(false);
@@ -538,13 +541,14 @@ const DeckViewPage: Component = () => {
         const { data, error } = await (api.ai as any)
           .jobs({ jobId: job.id })
           .get();
-        if (error || !data) throw new Error('Failed to fetch job');
+        if (error) throw new Error(getApiError(error));
+        if (!data) throw new Error('Failed to fetch job');
         setAiPreviewCards(reconcile((data.generatedCards as any[]) ?? []));
         setAiJobId(data.id);
         setAiPreviewOpen(true);
         setPendingJobDismissed(false);
-      } catch {
-        toast.error('Failed to resume session');
+      } catch (err: any) {
+        toast.error(err?.message ?? 'Failed to resume session');
         setShowAiModal(false);
       }
     }
@@ -578,15 +582,16 @@ const DeckViewPage: Component = () => {
     if (ids.length === 0) return;
     setBulkDeleting(true);
     try {
-      await (api.cards['by-deck']({ deckId: params.deckId }) as any)[
+      const { error: bulkDeleteError } = await (api.cards['by-deck']({ deckId: params.deckId }) as any)[
         'batch'
       ].delete({ cardIds: ids });
+      if (bulkDeleteError) throw new Error(getApiError(bulkDeleteError));
       toast.success(`${ids.length} card${ids.length > 1 ? 's' : ''} deleted`);
       setSelectedIds(new Set<string>());
       setSelectMode(false);
       refetchCards();
-    } catch {
-      toast.error('Failed to delete cards');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to delete cards');
     } finally {
       setBulkDeleting(false);
     }
@@ -672,13 +677,11 @@ const DeckViewPage: Component = () => {
     setLocalCards(updatedCards);
 
     // Sync with backend in background
-    try {
-      await api.cards['by-deck']({ deckId: params.deckId }).reorder.patch({
-        cardIds,
-      });
-      // Success - no need to refetch, optimistic update already applied
-    } catch (error) {
-      toast.error('Failed to reorder cards');
+    const { error: reorderError } = await api.cards['by-deck']({ deckId: params.deckId }).reorder.patch({
+      cardIds,
+    });
+    if (reorderError) {
+      toast.error(getApiError(reorderError) || 'Failed to reorder cards');
       // On error, refetch to restore correct state
       refetchCards();
     }

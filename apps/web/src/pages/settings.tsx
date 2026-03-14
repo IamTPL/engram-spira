@@ -18,7 +18,7 @@ import {
   type Theme,
 } from '@/stores/theme.store';
 import { toast } from '@/stores/toast.store';
-import { api } from '@/api/client';
+import { api, getApiError } from '@/api/client';
 import {
   ArrowLeft,
   User,
@@ -127,8 +127,7 @@ const SettingsPage: Component = () => {
         currentPassword: currentPw(),
         newPassword: newPw(),
       });
-      if (error)
-        throw new Error(error.value?.message ?? 'Failed to change password');
+      if (error) throw new Error(getApiError(error));
       toast.success('Password changed successfully!');
       setShowPwModal(false);
       setCurrentPw('');
@@ -260,11 +259,10 @@ const SettingsPage: Component = () => {
                     {/* Option: no avatar (show initials) */}
                     <button
                       title="Remove avatar"
-                      class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
-                        selectedAvatar() === null
+                      class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${selectedAvatar() === null
                           ? 'border-palette-5 ring-2 ring-palette-5/40'
                           : 'border-transparent'
-                      }`}
+                        }`}
                       onClick={() => {
                         setSelectedAvatar(null);
                         markDirty();
@@ -286,11 +284,10 @@ const SettingsPage: Component = () => {
                       {(url) => (
                         <button
                           title={url.split('/').pop()}
-                          class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${
-                            selectedAvatar() === url
+                          class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${selectedAvatar() === url
                               ? 'border-palette-5 ring-2 ring-palette-5/40'
                               : 'border-transparent hover:border-muted-foreground/30'
-                          }`}
+                            }`}
                           onClick={() => {
                             setSelectedAvatar(url);
                             markDirty();
@@ -495,11 +492,10 @@ const SettingsPage: Component = () => {
                   const Icon = opt.icon;
                   return (
                     <button
-                      class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${
-                        theme() === opt.value
+                      class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${theme() === opt.value
                           ? 'border-palette-5 bg-palette-5/10 text-slate-700'
                           : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
-                      }`}
+                        }`}
                       onClick={() => setTheme(opt.value)}
                     >
                       <Icon class="h-5 w-5" />

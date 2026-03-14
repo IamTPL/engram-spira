@@ -6,7 +6,7 @@ import {
   For,
 } from 'solid-js';
 import { useParams, useNavigate } from '@solidjs/router';
-import { api } from '@/api/client';
+import { api, getApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageShell from '@/components/layout/page-shell';
@@ -114,17 +114,18 @@ const FolderViewPage: Component = () => {
     if (!name || !templateId) return;
     setCreating(true);
     try {
-      await api.decks['by-folder']({ folderId: params.folderId }).post({
+      const { error: createError } = await api.decks['by-folder']({ folderId: params.folderId }).post({
         name,
         cardTemplateId: templateId,
       });
+      if (createError) throw new Error(getApiError(createError));
       setNewDeckName('');
       setNewDeckTemplateId('');
       setShowNewDeck(false);
       refetchDecks();
       toast.success('Deck created successfully');
-    } catch {
-      toast.error('Failed to create deck');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to create deck');
     } finally {
       setCreating(false);
     }

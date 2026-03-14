@@ -6,6 +6,7 @@ import {
   createEffect,
   onCleanup,
 } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-solid';
 
@@ -37,15 +38,17 @@ export const Dialog: Component<DialogProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <div class="fixed inset-0 z-50 flex items-center justify-center">
-        {/* Backdrop */}
-        <div
-          class="absolute inset-0 overlay-backdrop animate-fade-in"
-          onClick={() => props.onOpenChange(false)}
-        />
-        {/* Content */}
-        <div class="relative z-10 animate-scale-in">{props.children}</div>
-      </div>
+      <Portal>
+        <div class="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            class="absolute inset-0 overlay-backdrop animate-fade-in"
+            onClick={() => props.onOpenChange(false)}
+          />
+          {/* Content */}
+          <div class="relative z-10 animate-scale-in">{props.children}</div>
+        </div>
+      </Portal>
     </Show>
   );
 };

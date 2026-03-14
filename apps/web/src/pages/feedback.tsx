@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { currentUser } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
-import { api } from '@/api/client';
+import { api, getApiError } from '@/api/client';
 import {
   ArrowLeft,
   MessageSquare,
@@ -25,25 +25,25 @@ const FEEDBACK_TYPES: {
   icon: any;
   description: string;
 }[] = [
-  {
-    value: 'bug',
-    label: 'Bug Report',
-    icon: Bug,
-    description: 'Something is broken or not working as expected',
-  },
-  {
-    value: 'feature',
-    label: 'Feature Request',
-    icon: Lightbulb,
-    description: 'Suggest a new feature or improvement',
-  },
-  {
-    value: 'general',
-    label: 'General Feedback',
-    icon: HelpCircle,
-    description: 'Share your thoughts or ask a question',
-  },
-];
+    {
+      value: 'bug',
+      label: 'Bug Report',
+      icon: Bug,
+      description: 'Something is broken or not working as expected',
+    },
+    {
+      value: 'feature',
+      label: 'Feature Request',
+      icon: Lightbulb,
+      description: 'Suggest a new feature or improvement',
+    },
+    {
+      value: 'general',
+      label: 'General Feedback',
+      icon: HelpCircle,
+      description: 'Share your thoughts or ask a question',
+    },
+  ];
 
 const FeedbackPage: Component = () => {
   const navigate = useNavigate();
@@ -63,7 +63,7 @@ const FeedbackPage: Component = () => {
     }
     setSending(true);
     try {
-      await (api as any).feedback.post({
+      const { error } = await (api as any).feedback.post({
         type: feedbackType(),
         subject:
           subject().trim() ||
@@ -71,10 +71,11 @@ const FeedbackPage: Component = () => {
         message: message().trim(),
         contactEmail: contactEmail().trim() || undefined,
       });
+      if (error) throw new Error(getApiError(error));
       setSent(true);
       toast.success('Feedback sent successfully!');
-    } catch {
-      toast.error('Failed to send feedback. Please try again.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to send feedback. Please try again.');
     } finally {
       setSending(false);
     }
@@ -140,11 +141,10 @@ const FeedbackPage: Component = () => {
               const Icon = opt.icon;
               return (
                 <button
-                  class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer text-center ${
-                    feedbackType() === opt.value
+                  class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer text-center ${feedbackType() === opt.value
                       ? 'border-palette-5 bg-palette-5/10 text-foreground'
                       : 'border bg-card text-muted-foreground hover:bg-muted/50 border-border'
-                  }`}
+                    }`}
                   onClick={() => setFeedbackType(opt.value)}
                 >
                   <Icon class="h-5 w-5" />

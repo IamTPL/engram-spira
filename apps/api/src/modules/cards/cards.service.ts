@@ -170,7 +170,13 @@ export async function update(
       });
   }
 
-  return { id: cardId, updated: true };
+  const [updated] = await db
+    .select()
+    .from(cards)
+    .where(eq(cards.id, cardId))
+    .limit(1);
+
+  return updated;
 }
 
 export async function remove(cardId: string, userId: string) {

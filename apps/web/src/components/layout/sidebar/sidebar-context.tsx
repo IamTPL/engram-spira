@@ -7,7 +7,7 @@ import {
   type Setter,
   type Resource,
 } from 'solid-js';
-import { api } from '@/api/client';
+import { api, getApiError } from '@/api/client';
 import { currentUser } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import {
@@ -131,11 +131,10 @@ export function SidebarProvider(props: { children: any }) {
     mutateClasses(reordered);
     resetDrag();
 
-    try {
-      await api.classes.reorder.patch({ classIds: reordered.map((c) => c.id) });
-    } catch {
+    const { error: reorderError } = await api.classes.reorder.patch({ classIds: reordered.map((c) => c.id) });
+    if (reorderError) {
       refetchClasses();
-      toast.error('Failed to reorder classes');
+      toast.error(getApiError(reorderError) || 'Failed to reorder classes');
     }
   };
 
@@ -176,14 +175,13 @@ export function SidebarProvider(props: { children: any }) {
     updateFoldersForClass(sourceClassId, reordered);
     resetDrag();
 
-    try {
-      await api.folders['by-class']({ classId: sourceClassId }).reorder.patch({
-        folderIds: reordered.map((f) => f.id),
-      });
-    } catch {
+    const { error: reorderFolderError } = await api.folders['by-class']({ classId: sourceClassId }).reorder.patch({
+      folderIds: reordered.map((f) => f.id),
+    });
+    if (reorderFolderError) {
       const { data } = await api.folders['by-class']({ classId: sourceClassId }).get();
       updateFoldersForClass(sourceClassId, (data ?? []) as FolderItem[]);
-      toast.error('Failed to reorder folders');
+      toast.error(getApiError(reorderFolderError) || 'Failed to reorder folders');
     }
   };
 
@@ -193,21 +191,31 @@ export function SidebarProvider(props: { children: any }) {
     e.preventDefault();
     const name = newClassName().trim();
     if (!name) return;
-    await api.classes.post({ name });
-    setNewClassName('');
-    setShowNewClass(false);
-    refetchClasses();
+    try {
+      const { error } = await api.classes.post({ name });
+      if (error) throw new Error(getApiError(error));
+      setNewClassName('');
+      setShowNewClass(false);
+      refetchClasses();
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to create class');
+    }
   };
 
   const handleCreateFolder = async (e: Event, classId: string) => {
     e.preventDefault();
     const name = newFolderName().trim();
     if (!name) return;
-    await api.folders['by-class']({ classId }).post({ name });
-    const { data } = await api.folders['by-class']({ classId }).get();
-    updateFoldersForClass(classId, (data ?? []) as FolderItem[]);
-    setNewFolderName('');
-    setCreatingFolderForClass(null);
+    try {
+      const { error } = await api.folders['by-class']({ classId }).post({ name });
+      if (error) throw new Error(getApiError(error));
+      const { data } = await api.folders['by-class']({ classId }).get();
+      updateFoldersForClass(classId, (data ?? []) as FolderItem[]);
+      setNewFolderName('');
+      setCreatingFolderForClass(null);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to create folder');
+    }
   };
 
   const openNewFolder = (e: Event, classId: string) => {
@@ -243,10 +251,12 @@ export function SidebarProvider(props: { children: any }) {
     const context = renamingContext();
     try {
       if (type === 'class') {
-        await (api.classes as any)[id].patch({ name });
+        const { error } = await (api.classes as any)[id].patch({ name });
+        if (error) throw new Error(getApiError(error));
         refetchClasses();
       } else if (type === 'folder') {
-        await (api.folders as any)[id].patch({ name });
+        const { error } = await (api.folders as any)[id].patch({ name });
+        if (error) throw new Error(getApiError(error));
         if (context) {
           updateFoldersForClass(
             context,
@@ -254,6 +264,8 @@ export function SidebarProvider(props: { children: any }) {
           );
         }
       }
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to rename');
     } finally {
       cancelRename();
     }
@@ -262,28 +274,30 @@ export function SidebarProvider(props: { children: any }) {
   const handleDeleteClass = async (e: Event, id: string) => {
     e.stopPropagation();
     try {
-      await (api.classes as any)[id].delete();
+      const { error: deleteClassError } = await (api.classes as any)[id].delete();
+      if (deleteClassError) throw new Error(getApiError(deleteClassError));
       setConfirmDeleteId(null);
       removeClassFromCache(id);
       refetchClasses();
       toast.success('Class deleted');
-    } catch {
-      toast.error('Failed to delete class');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to delete class');
     }
   };
 
   const handleDeleteFolder = async (e: Event, classId: string, folderId: string) => {
     e.stopPropagation();
     try {
-      await (api.folders as any)[folderId].delete();
+      const { error: deleteFolderError } = await (api.folders as any)[folderId].delete();
+      if (deleteFolderError) throw new Error(getApiError(deleteFolderError));
       setConfirmDeleteId(null);
       updateFoldersForClass(
         classId,
         (foldersByClass()[classId] ?? []).filter((f) => f.id !== folderId),
       );
       toast.success('Folder deleted');
-    } catch {
-      toast.error('Failed to delete folder');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to delete folder');
     }
   };
 
