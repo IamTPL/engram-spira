@@ -11,15 +11,15 @@ import LoginPage from '@/pages/login';
 import RegisterPage from '@/pages/register';
 import ResetPasswordPage from '@/pages/reset-password';
 import DashboardPage from '@/pages/dashboard';
-import NotFoundPage from '@/pages/not-found';
-import FeedbackPage from '@/pages/feedback';
-import FolderViewPage from '@/pages/folder-view';
+const FeedbackPage = lazy(() => import('@/pages/feedback'));
+const FolderViewPage = lazy(() => import('@/pages/folder-view'));
 
 const StudyModePage = lazy(() => import('@/pages/study-mode'));
 const DeckViewPage = lazy(() => import('@/pages/deck-view'));
 const SettingsPage = lazy(() => import('@/pages/settings'));
 const DocsPage = lazy(() => import('@/pages/docs'));
 const InterleavedStudyPage = lazy(() => import('@/pages/interleaved-study'));
+const NotFoundPage = lazy(() => import('@/pages/not-found'));
 
 const LoadingScreen = () => (
   <div class="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">

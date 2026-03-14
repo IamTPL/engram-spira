@@ -5,6 +5,7 @@ import {
   createMemo,
   createEffect,
   onCleanup,
+  batch,
   Show,
   For,
 } from 'solid-js';
@@ -261,8 +262,9 @@ const DeckViewPage: Component = () => {
   const cardLoading = () => cardsResource.loading;
 
   // ── Handlers ─────────────────────────────────────────────────────────
-  const sortedFields = () =>
-    [...(template()?.fields ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sortedFields = createMemo(() =>
+    [...(template()?.fields ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
+  );
 
   const handleAddCard = async (e: Event) => {
     e.preventDefault();
@@ -515,13 +517,15 @@ const DeckViewPage: Component = () => {
   const forceCloseAiModal = () => {
     const hadActiveJob = !!aiJobId();
     stopPolling();
-    setAiConfirmDiscard(false);
-    setShowAiModal(false);
-    setAiPreviewOpen(false);
+    batch(() => {
+      setAiConfirmDiscard(false);
+      setShowAiModal(false);
+      setAiPreviewOpen(false);
+      setAiJobId(null);
+      setAiSourceText('');
+      setAiBackLang('vi');
+    });
     setAiPreviewCards(reconcile([]));
-    setAiJobId(null);
-    setAiSourceText('');
-    setAiBackLang('vi');
     // If a job was in progress, refetch so the resume banner shows immediately
     if (hadActiveJob) refetchPendingJob();
   };
@@ -557,13 +561,10 @@ const DeckViewPage: Component = () => {
 
   // ── Bulk selection handlers ──────────────────────────────────────────
   const toggleSelectMode = () => {
-    if (selectMode()) {
-      setSelectMode(false);
+    batch(() => {
+      setSelectMode((v) => !v);
       setSelectedIds(new Set<string>());
-    } else {
-      setSelectMode(true);
-      setSelectedIds(new Set<string>());
-    }
+    });
   };
 
   const toggleCardSelection = (cardId: string) => {
@@ -588,8 +589,10 @@ const DeckViewPage: Component = () => {
       ].delete({ cardIds: ids });
       if (bulkDeleteError) throw new Error(getApiError(bulkDeleteError));
       toast.success(`${ids.length} card${ids.length > 1 ? 's' : ''} deleted`);
-      setSelectedIds(new Set<string>());
-      setSelectMode(false);
+      batch(() => {
+        setSelectedIds(new Set<string>());
+        setSelectMode(false);
+      });
       refetchCards();
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to delete cards');
@@ -600,8 +603,10 @@ const DeckViewPage: Component = () => {
 
   // ── Drag-drop reorder ───────────────────────────────────────────────
   const handleDragStart = (index: number, e: DragEvent) => {
-    setDragIndex(index);
-    setIsDragging(true);
+    batch(() => {
+      setDragIndex(index);
+      setIsDragging(true);
+    });
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', String(index));
@@ -628,9 +633,11 @@ const DeckViewPage: Component = () => {
   };
 
   const handleDragEnd = () => {
-    setDragIndex(null);
-    setDropIndex(null);
-    setIsDragging(false);
+    batch(() => {
+      setDragIndex(null);
+      setDropIndex(null);
+      setIsDragging(false);
+    });
   };
 
   const handleDrop = async (targetIndex: number, e: DragEvent) => {

@@ -2,9 +2,11 @@ import {
   type Component,
   createSignal,
   createResource,
+  createMemo,
   createEffect,
   onMount,
   onCleanup,
+  batch,
   Show,
   For,
 } from 'solid-js';
@@ -107,18 +109,22 @@ const StudyModePage: Component = () => {
     },
   );
 
-  const currentCard = () => {
+  const currentCard = createMemo(() => {
     const data = studyData();
     if (!data || data.cards.length === 0) return null;
     const idx = currentIndex();
     return idx < data.cards.length ? data.cards[idx] : null;
-  };
+  });
 
-  const progress = () => {
+  const progress = createMemo(() => {
     const data = studyData();
     if (!data || data.due === 0) return 100;
     return Math.round((currentIndex() / data.due) * 100);
-  };
+  });
+
+  const hasReviewedCards = createMemo(() =>
+    stats().again + stats().hard + stats().good + stats().easy > 0
+  );
 
   const flushPendingReviews = async (force = false) => {
     const pending = pendingReviews();
@@ -138,18 +144,18 @@ const StudyModePage: Component = () => {
     try {
       setPendingReviews((prev) => [...prev, { cardId: card.id, action }]);
       await flushPendingReviews(false);
-      // Track stats
-      setStats((s) => ({
-        ...s,
-        again: action === REVIEW_ACTIONS.AGAIN ? s.again + 1 : s.again,
-        hard: action === REVIEW_ACTIONS.HARD ? s.hard + 1 : s.hard,
-        good: action === REVIEW_ACTIONS.GOOD ? s.good + 1 : s.good,
-        easy: action === REVIEW_ACTIONS.EASY ? s.easy + 1 : s.easy,
-      }));
-      setIsFlipped(false);
-
       const nextIndex = currentIndex() + 1;
-      setCurrentIndex(nextIndex);
+      batch(() => {
+        setStats((s) => ({
+          ...s,
+          again: action === REVIEW_ACTIONS.AGAIN ? s.again + 1 : s.again,
+          hard: action === REVIEW_ACTIONS.HARD ? s.hard + 1 : s.hard,
+          good: action === REVIEW_ACTIONS.GOOD ? s.good + 1 : s.good,
+          easy: action === REVIEW_ACTIONS.EASY ? s.easy + 1 : s.easy,
+        }));
+        setIsFlipped(false);
+        setCurrentIndex(nextIndex);
+      });
 
       // If we just reviewed the last card in this batch, auto-refetch
       // to pick up learning/relearning cards that became due during the session
@@ -171,35 +177,43 @@ const StudyModePage: Component = () => {
   };
 
   const handleRestart = () => {
-    setCurrentIndex(0);
-    setStats({ again: 0, hard: 0, good: 0, easy: 0 });
-    setIsFlipped(false);
-    setStudyMode('due');
+    batch(() => {
+      setCurrentIndex(0);
+      setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+      setIsFlipped(false);
+      setStudyMode('due');
+    });
     refetch();
   };
 
   // Continue session without resetting stats (used by countdown timer)
   const handleContinue = () => {
-    setCurrentIndex(0);
-    setIsFlipped(false);
-    setStudyMode('due');
+    batch(() => {
+      setCurrentIndex(0);
+      setIsFlipped(false);
+      setStudyMode('due');
+    });
     refetch();
   };
 
   const handleReviewAll = () => {
-    setCurrentIndex(0);
-    setStats({ again: 0, hard: 0, good: 0, easy: 0 });
-    setIsFlipped(false);
-    setStudyMode('all');
+    batch(() => {
+      setCurrentIndex(0);
+      setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+      setIsFlipped(false);
+      setStudyMode('all');
+    });
   };
 
   const handleResetProgress = async () => {
     try {
       await (api.study.deck as any)[params.deckId]['reset-progress'].post();
-      setCurrentIndex(0);
-      setStats({ again: 0, hard: 0, good: 0, easy: 0 });
-      setIsFlipped(false);
-      setStudyMode('due');
+      batch(() => {
+        setCurrentIndex(0);
+        setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+        setIsFlipped(false);
+        setStudyMode('due');
+      });
       refetch();
     } catch {
       // ignore
@@ -223,12 +237,8 @@ const StudyModePage: Component = () => {
 
   // Countdown timer: auto-refetch when next due-soon card becomes due
   const [countdown, setCountdown] = createSignal('');
-  let countdownTimer: ReturnType<typeof setInterval> | undefined;
 
   createEffect(() => {
-    // Clear any existing timer first
-    if (countdownTimer) clearInterval(countdownTimer);
-
     const sched = schedule();
     if (!sched || !sched.nextReviewDate || sched.dueSoon === 0) {
       setCountdown('');
@@ -236,12 +246,13 @@ const StudyModePage: Component = () => {
     }
 
     const nextDue = new Date(sched.nextReviewDate).getTime();
+    let timer: ReturnType<typeof setInterval>;
 
     const tick = () => {
       const remaining = nextDue - Date.now();
       if (remaining <= 0) {
         setCountdown('');
-        if (countdownTimer) clearInterval(countdownTimer);
+        clearInterval(timer);
         // Auto-continue when cards become due (keep stats)
         handleContinue();
         return;
@@ -252,14 +263,14 @@ const StudyModePage: Component = () => {
     };
 
     tick();
-    countdownTimer = setInterval(tick, 1000);
+    timer = setInterval(tick, 1000);
+    onCleanup(() => clearInterval(timer));
   });
 
   onMount(() => document.addEventListener('keydown', handleKeyDown));
   onCleanup(() => {
     void flushPendingReviews(true);
     document.removeEventListener('keydown', handleKeyDown);
-    if (countdownTimer) clearInterval(countdownTimer);
   });
 
   return (
@@ -353,13 +364,7 @@ const StudyModePage: Component = () => {
 
                   {/* Title changes based on whether a session was just completed */}
                   <Show
-                    when={
-                      stats().again +
-                      stats().hard +
-                      stats().good +
-                      stats().easy >
-                      0
-                    }
+                    when={hasReviewedCards()}
                     fallback={
                       <div>
                         <h2 class="text-2xl font-bold">All caught up!</h2>
@@ -379,13 +384,7 @@ const StudyModePage: Component = () => {
 
                   {/* Session stats — only shown when a session was completed */}
                   <Show
-                    when={
-                      stats().again +
-                      stats().hard +
-                      stats().good +
-                      stats().easy >
-                      0
-                    }
+                    when={hasReviewedCards()}
                   >
                     <div class="grid grid-cols-4 gap-3 text-center">
                       <div class="rounded-lg border p-3 bg-card">

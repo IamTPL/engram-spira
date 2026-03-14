@@ -2,8 +2,10 @@ import {
   type Component,
   createSignal,
   createResource,
+  createMemo,
   onMount,
   onCleanup,
+  batch,
   Show,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
@@ -55,18 +57,22 @@ const InterleavedStudyPage: Component = () => {
     } | null;
   });
 
-  const currentCard = () => {
+  const currentCard = createMemo(() => {
     const data = studyData();
     if (!data || data.cards.length === 0) return null;
     const idx = currentIndex();
     return idx < data.cards.length ? data.cards[idx] : null;
-  };
+  });
 
-  const progress = () => {
+  const progress = createMemo(() => {
     const data = studyData();
     if (!data || data.due === 0) return 100;
     return Math.round((currentIndex() / data.due) * 100);
-  };
+  });
+
+  const hasReviewedCards = createMemo(() =>
+    stats().again + stats().hard + stats().good > 0
+  );
 
   const flushPendingReviews = async (force = false) => {
     const pending = pendingReviews();
@@ -86,24 +92,28 @@ const InterleavedStudyPage: Component = () => {
     try {
       setPendingReviews((prev) => [...prev, { cardId: card.id, action }]);
       await flushPendingReviews(false);
-      setStats((s) => ({
-        ...s,
-        again: action === REVIEW_ACTIONS.AGAIN ? s.again + 1 : s.again,
-        hard: action === REVIEW_ACTIONS.HARD ? s.hard + 1 : s.hard,
-        good: action === REVIEW_ACTIONS.GOOD ? s.good + 1 : s.good,
-        easy: action === REVIEW_ACTIONS.EASY ? s.easy + 1 : s.easy,
-      }));
-      setIsFlipped(false);
-      setCurrentIndex((i) => i + 1);
+      batch(() => {
+        setStats((s) => ({
+          ...s,
+          again: action === REVIEW_ACTIONS.AGAIN ? s.again + 1 : s.again,
+          hard: action === REVIEW_ACTIONS.HARD ? s.hard + 1 : s.hard,
+          good: action === REVIEW_ACTIONS.GOOD ? s.good + 1 : s.good,
+          easy: action === REVIEW_ACTIONS.EASY ? s.easy + 1 : s.easy,
+        }));
+        setIsFlipped(false);
+        setCurrentIndex((i) => i + 1);
+      });
     } finally {
       setReviewing(false);
     }
   };
 
   const handleRestart = () => {
-    setCurrentIndex(0);
-    setStats({ again: 0, hard: 0, good: 0, easy: 0 });
-    setIsFlipped(false);
+    batch(() => {
+      setCurrentIndex(0);
+      setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+      setIsFlipped(false);
+    });
     refetch();
   };
 
@@ -181,7 +191,7 @@ const InterleavedStudyPage: Component = () => {
                 <CheckCircle class="h-16 w-16 text-green-500 mx-auto" />
 
                 <Show
-                  when={stats().again + stats().hard + stats().good > 0}
+                  when={hasReviewedCards()}
                   fallback={
                     <div>
                       <h2 class="text-2xl font-bold">All caught up!</h2>
@@ -199,7 +209,7 @@ const InterleavedStudyPage: Component = () => {
                   </div>
                 </Show>
 
-                <Show when={stats().again + stats().hard + stats().good > 0}>
+                <Show when={hasReviewedCards()}>
                   <div class="grid grid-cols-3 gap-3 text-center">
                     <div class="rounded-lg border p-3 bg-card">
                       <p class="text-2xl font-bold tabular-nums text-destructive">

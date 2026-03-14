@@ -3,6 +3,7 @@ import {
   useContext,
   createSignal,
   createResource,
+  batch,
   type Accessor,
   type Setter,
   type Resource,
@@ -94,15 +95,19 @@ export function SidebarProvider(props: { children: any }) {
   const [dropTargetId, setDropTargetId] = createSignal<string | null>(null);
 
   const resetDrag = () => {
-    setDragType(null);
-    setDragId(null);
-    setDragClassContext(null);
-    setDropTargetId(null);
+    batch(() => {
+      setDragType(null);
+      setDragId(null);
+      setDragClassContext(null);
+      setDropTargetId(null);
+    });
   };
 
   const handleClassDragStart = (classId: string, e: DragEvent) => {
-    setDragType('class');
-    setDragId(classId);
+    batch(() => {
+      setDragType('class');
+      setDragId(classId);
+    });
     e.dataTransfer!.effectAllowed = 'move';
     e.dataTransfer!.setData('text/plain', classId);
   };
@@ -139,9 +144,11 @@ export function SidebarProvider(props: { children: any }) {
   };
 
   const handleFolderDragStart = (classId: string, folderId: string, e: DragEvent) => {
-    setDragType('folder');
-    setDragId(folderId);
-    setDragClassContext(classId);
+    batch(() => {
+      setDragType('folder');
+      setDragId(folderId);
+      setDragClassContext(classId);
+    });
     e.dataTransfer!.effectAllowed = 'move';
     e.dataTransfer!.setData('text/plain', folderId);
   };
@@ -228,17 +235,21 @@ export function SidebarProvider(props: { children: any }) {
   const startRename = (e: Event, type: 'class' | 'folder', id: string, currentName: string, context?: string) => {
     e.stopPropagation();
     e.preventDefault();
-    setRenamingId(id);
-    setRenamingType(type);
-    setRenamingContext(context ?? null);
-    setRenameValue(currentName);
+    batch(() => {
+      setRenamingId(id);
+      setRenamingType(type);
+      setRenamingContext(context ?? null);
+      setRenameValue(currentName);
+    });
   };
 
   const cancelRename = () => {
-    setRenamingId(null);
-    setRenamingType(null);
-    setRenamingContext(null);
-    setRenameValue('');
+    batch(() => {
+      setRenamingId(null);
+      setRenamingType(null);
+      setRenamingContext(null);
+      setRenameValue('');
+    });
   };
 
   const submitRename = async (id: string) => {

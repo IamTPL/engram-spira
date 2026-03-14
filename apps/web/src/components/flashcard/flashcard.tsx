@@ -1,4 +1,4 @@
-import { type Component, createSignal, Show, For } from 'solid-js';
+import { type Component, createSignal, createMemo, Show, For } from 'solid-js';
 import { cn } from '@/lib/utils';
 
 interface FieldData {
@@ -16,14 +16,16 @@ interface FlashcardProps {
 }
 
 const Flashcard: Component<FlashcardProps> = (props) => {
-  const frontFields = () =>
+  const frontFields = createMemo(() =>
     props.fields
       .filter((f) => f.side === 'front')
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-  const backFields = () =>
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  );
+  const backFields = createMemo(() =>
     props.fields
       .filter((f) => f.side === 'back')
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  );
 
   const renderFieldValue = (field: FieldData) => {
     const val = field.value;
