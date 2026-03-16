@@ -45,6 +45,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
   const [aiSourceText, setAiSourceText] = createSignal('');
   const [aiBackLang, setAiBackLang] = createSignal<'vi' | 'en'>('vi');
   const [aiGenerating, setAiGenerating] = createSignal(false);
+  const [aiFetching, setAiFetching] = createSignal(false);
   const [aiPreviewOpen, setAiPreviewOpen] = createSignal(false);
   const [aiPreviewCards, setAiPreviewCards] = createStore<AiPreviewCard[]>([]);
   const [aiJobId, setAiJobId] = createSignal<string | null>(null);
@@ -60,18 +61,19 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
   // Reset state when modal opens
   createEffect(() => {
     if (props.open) {
-      // If resuming a pending job, load its data
+      // If resuming a pending/processing job, load its data
       const job = props.pendingJob;
       if (job) {
+        setAiJobId(job.id);
         if (job.status === 'processing') {
-          setAiJobId(job.id);
           setAiGenerating(true);
-          startPolling(job.id);
-        } else if (job.status === 'pending' && job.generatedCards) {
-          setAiPreviewCards(reconcile(job.generatedCards as AiPreviewCard[]));
-          setAiJobId(job.id);
-          setAiPreviewOpen(true);
+        } else if (job.status === 'pending') {
+          // It's already pending, but we need the full generatedCards payload
+          // which might not be in the list endpoint from parent. 
+          // Polling once will fetch it and transition to preview phase.
+          setAiFetching(true); // Show fetching spinner
         }
+        startPolling(job.id);
       }
     }
   });
@@ -92,11 +94,13 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
         if (data.status === 'pending') {
           stopPolling();
           setAiGenerating(false);
+          setAiFetching(false);
           setAiPreviewCards(reconcile((data.generatedCards as any[]) ?? []));
           setAiPreviewOpen(true);
         } else if (data.status === 'failed') {
           stopPolling();
           setAiGenerating(false);
+          setAiFetching(false);
           setAiJobId(null);
           toast.error(data.errorMessage ?? 'AI generation failed');
         }
@@ -171,6 +175,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
       setAiSourceText('');
       setAiBackLang('vi');
       setAiGenerating(false);
+      setAiFetching(false);
     });
     setAiPreviewCards(reconcile([]));
     props.onClose();
@@ -184,6 +189,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
       setAiJobId(null);
       setAiSourceText('');
       setAiGenerating(false);
+      setAiFetching(false);
     });
     setAiPreviewCards(reconcile([]));
     props.onClose();
@@ -267,97 +273,115 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                 when={aiPreviewOpen()}
                 fallback={
                   <Show
-                    when={aiGenerating()}
+                    when={aiFetching()}
                     fallback={
-                      /* ── Input phase ── */
-                      <div class="space-y-4">
-                        {/* Back language selector */}
-                        <div class="space-y-2">
-                          <label class="text-sm font-medium text-foreground">
-                            Back (explanation) language
-                          </label>
-                          <div class="flex gap-2">
-                            <For
-                              each={
-                                [
-                                  { value: 'vi', label: '🇻🇳 Tiếng Việt' },
-                                  { value: 'en', label: '🇬🇧 English' },
-                                ] as const
-                              }
-                            >
-                              {(opt) => (
-                                <button
-                                  type="button"
-                                  onClick={() => setAiBackLang(opt.value)}
-                                  class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                                    aiBackLang() === opt.value
-                                      ? 'border-palette-4 bg-palette-4/10 text-foreground'
-                                      : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
-                                  }`}
+                      <Show
+                        when={aiGenerating()}
+                        fallback={
+                          /* ── Input phase ── */
+                          <div class="space-y-4">
+                            {/* Back language selector */}
+                            <div class="space-y-2">
+                              <label class="text-sm font-medium text-foreground">
+                                Back (explanation) language
+                              </label>
+                              <div class="flex gap-2">
+                                <For
+                                  each={
+                                    [
+                                      { value: 'vi', label: '🇻🇳 Tiếng Việt' },
+                                      { value: 'en', label: '🇬🇧 English' },
+                                    ] as const
+                                  }
                                 >
-                                  {opt.label}
-                                </button>
-                              )}
-                            </For>
+                                  {(opt) => (
+                                    <button
+                                      type="button"
+                                      onClick={() => setAiBackLang(opt.value)}
+                                      class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                                        aiBackLang() === opt.value
+                                          ? 'border-palette-4 bg-palette-4/10 text-foreground'
+                                          : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
+                                      }`}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  )}
+                                </For>
+                              </div>
+                            </div>
+    
+                            {/* Source text */}
+                            <div class="space-y-2">
+                              <label class="text-sm font-medium text-foreground">
+                                Paste your notes, text, or describe a topic
+                              </label>
+                              <Textarea
+                                placeholder={`Enter or paste text to generate flashcards from... (min ${AI_SOURCE_MIN_CHARS} characters)`}
+                                value={aiSourceText()}
+                                onInput={(e) => {
+                                  const raw = e.currentTarget.value;
+                                  const val = raw.slice(0, AI_SOURCE_MAX_CHARS);
+                                  if (raw !== val) e.currentTarget.value = val;
+                                  setAiSourceText(val);
+                                }}
+                                class="min-h-50 resize-y"
+                              />
+                              <div class="flex justify-between text-xs">
+                                <Show
+                                  when={
+                                    aiSourceText().trim().length > 0 &&
+                                    aiSourceText().trim().length < AI_SOURCE_MIN_CHARS
+                                  }
+                                >
+                                  <span class="text-destructive">
+                                    Need at least {AI_SOURCE_MIN_CHARS} characters
+                                  </span>
+                                </Show>
+                                <span
+                                  class="ml-auto"
+                                  classList={{
+                                    'text-destructive':
+                                      aiSourceText().length >= AI_SOURCE_MAX_CHARS,
+                                    'text-amber-500':
+                                      aiSourceText().length >= AI_SOURCE_MAX_CHARS * 0.9,
+                                    'text-muted-foreground':
+                                      aiSourceText().length < AI_SOURCE_MAX_CHARS * 0.9,
+                                  }}
+                                >
+                                  {aiSourceText().length.toLocaleString()} /{' '}
+                                  {AI_SOURCE_MAX_CHARS.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      >
+                        {/* ── Generating state ── */}
+                        <div class="flex flex-col items-center justify-center py-16 gap-6">
+                          <Spinner size="lg" />
+                          <div class="text-center space-y-1.5">
+                            <p class="text-sm font-medium text-foreground">
+                              AI is generating your flashcards…
+                            </p>
+                            <p class="text-xs text-muted-foreground max-w-xs">
+                              You can close this modal anytime — generation runs in
+                              the background and you can resume when it's done.
+                            </p>
                           </div>
                         </div>
-
-                        {/* Source text */}
-                        <div class="space-y-2">
-                          <label class="text-sm font-medium text-foreground">
-                            Paste your notes, text, or describe a topic
-                          </label>
-                          <Textarea
-                            placeholder={`Enter or paste text to generate flashcards from... (min ${AI_SOURCE_MIN_CHARS} characters)`}
-                            value={aiSourceText()}
-                            onInput={(e) => {
-                              const raw = e.currentTarget.value;
-                              const val = raw.slice(0, AI_SOURCE_MAX_CHARS);
-                              if (raw !== val) e.currentTarget.value = val;
-                              setAiSourceText(val);
-                            }}
-                            class="min-h-50 resize-y"
-                          />
-                          <div class="flex justify-between text-xs">
-                            <Show
-                              when={
-                                aiSourceText().trim().length > 0 &&
-                                aiSourceText().trim().length < AI_SOURCE_MIN_CHARS
-                              }
-                            >
-                              <span class="text-destructive">
-                                Need at least {AI_SOURCE_MIN_CHARS} characters
-                              </span>
-                            </Show>
-                            <span
-                              class="ml-auto"
-                              classList={{
-                                'text-destructive':
-                                  aiSourceText().length >= AI_SOURCE_MAX_CHARS,
-                                'text-amber-500':
-                                  aiSourceText().length >= AI_SOURCE_MAX_CHARS * 0.9,
-                                'text-muted-foreground':
-                                  aiSourceText().length < AI_SOURCE_MAX_CHARS * 0.9,
-                              }}
-                            >
-                              {aiSourceText().length.toLocaleString()} /{' '}
-                              {AI_SOURCE_MAX_CHARS.toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                      </Show>
                     }
                   >
-                    {/* ── Generating state ── */}
+                    {/* ── Fetching state ── */}
                     <div class="flex flex-col items-center justify-center py-16 gap-6">
                       <Spinner size="lg" />
                       <div class="text-center space-y-1.5">
                         <p class="text-sm font-medium text-foreground">
-                          AI is generating your flashcards…
+                          Loading your cards…
                         </p>
-                        <p class="text-xs text-muted-foreground max-w-xs">
-                          You can close this modal anytime — generation runs in
-                          the background and you can resume when it's done.
+                        <p class="text-xs text-muted-foreground max-w-xs mx-auto">
+                          Please wait a moment while we retrieve your generated cards.
                         </p>
                       </div>
                     </div>
@@ -462,7 +486,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                 when={aiPreviewOpen()}
                 fallback={
                   <Show
-                    when={aiGenerating()}
+                    when={aiGenerating() || aiFetching()}
                     fallback={
                       <>
                         <Button variant="outline" onClick={closeModal}>
@@ -482,7 +506,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                     }
                   >
                     <Button variant="outline" onClick={closeModal}>
-                      Close — run in background
+                      {aiFetching() ? 'Close' : 'Close — run in background'}
                     </Button>
                   </Show>
                 }
