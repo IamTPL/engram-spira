@@ -4,7 +4,6 @@ import {
   createResource,
   createMemo,
   createEffect,
-  onMount,
   onCleanup,
   batch,
   Show,
@@ -16,7 +15,6 @@ import { useNavigate } from '@solidjs/router';
 import { api, getApiError } from '@/api/client';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
-import Spinner from '@/components/ui/spinner';
 import { toast } from '@/stores/toast.store';
 import { Sparkles, Loader2, X, Plus, Layers } from 'lucide-solid';
 import {
@@ -25,7 +23,7 @@ import {
 } from '@/constants';
 
 import { useDeckData } from './use-deck-data';
-import type { CardItem, TemplateField } from './types';
+import type { CardItem } from './types';
 import DeckHeader from './deck-header';
 import CardItemRow from './card-item';
 import AddCardForm from './add-card-form';
@@ -48,6 +46,9 @@ const DeckViewPage: Component = () => {
     localCards,
     setLocalCards,
     refetchCards,
+    hasMore: hasMoreServer,
+    fetchMore,
+    fetchingMore,
   } = useDeckData();
 
   // ── Add card state ──────────────────────────────────────────────
@@ -61,7 +62,9 @@ const DeckViewPage: Component = () => {
   const [editSaving, setEditSaving] = createSignal(false);
 
   // ── Delete confirm state ────────────────────────────────────────
-  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(
+    null,
+  );
 
   // ── AI generation state ─────────────────────────────────────────
   const [showAiModal, setShowAiModal] = createSignal(false);
@@ -148,7 +151,9 @@ const DeckViewPage: Component = () => {
       card.fields.some((f) => {
         if (Array.isArray(f.value))
           return (f.value as string[]).some((v) => v.toLowerCase().includes(q));
-        return String(f.value ?? '').toLowerCase().includes(q);
+        return String(f.value ?? '')
+          .toLowerCase()
+          .includes(q);
       }),
     );
   });
@@ -156,11 +161,10 @@ const DeckViewPage: Component = () => {
   // ── Progressive rendering — render cards in batches to avoid DOM flood ──
   const BATCH_SIZE = 30;
   const [visibleLimit, setVisibleLimit] = createSignal(BATCH_SIZE);
-  let sentinelRef!: HTMLDivElement;
 
-  // Reset limit when filtered cards change (search, refetch)
+  // Reset visible limit only when search query changes (NOT on fetchMore appends)
   createEffect(() => {
-    filteredCards(); // track dependency
+    searchQuery(); // track only search changes
     setVisibleLimit(BATCH_SIZE);
   });
 
@@ -168,21 +172,45 @@ const DeckViewPage: Component = () => {
     filteredCards().slice(0, visibleLimit()),
   );
 
-  const hasMoreCards = () => visibleLimit() < filteredCards().length;
+  const hasMoreCards = () =>
+    visibleLimit() < filteredCards().length || hasMoreServer();
 
-  // IntersectionObserver to auto-load more cards when sentinel is visible
-  onMount(() => {
-    if (!sentinelRef) return;
-    const observer = new IntersectionObserver(
+  // Callback ref for sentinel — fires when the element actually enters the DOM.
+  // Using onMount would fail because the sentinel is inside <Show when={!cardLoading()}>.
+  let sentinelObserver: IntersectionObserver | null = null;
+  onCleanup(() => sentinelObserver?.disconnect());
+
+  const sentinelRef = (el: HTMLDivElement) => {
+    // Disconnect any previous observer (e.g. if <Show> re-creates the element)
+    sentinelObserver?.disconnect();
+
+    const scrollRoot = document.getElementById('main-content');
+    sentinelObserver = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasMoreCards()) {
-          setVisibleLimit((prev) => Math.min(prev + BATCH_SIZE, filteredCards().length));
+        if (!entries[0]?.isIntersecting) return;
+
+        // Still have loaded cards to reveal → bump visible limit
+        if (visibleLimit() < filteredCards().length) {
+          setVisibleLimit((prev) =>
+            Math.min(prev + BATCH_SIZE, filteredCards().length),
+          );
+        }
+        // All loaded cards visible but server has more → fetch next page
+        else if (hasMoreServer() && !fetchingMore()) {
+          fetchMore();
         }
       },
-      { rootMargin: '200px' },
+      { root: scrollRoot, rootMargin: '200px' },
     );
-    observer.observe(sentinelRef);
-    onCleanup(() => observer.disconnect());
+    sentinelObserver.observe(el);
+  };
+
+  // When fetchMore appends new cards, auto-reveal the next batch
+  createEffect(() => {
+    const total = filteredCards().length;
+    if (total > 0 && visibleLimit() < total) {
+      setVisibleLimit((prev) => Math.min(prev + BATCH_SIZE, total));
+    }
   });
 
   // ── Handlers ────────────────────────────────────────────────────
@@ -196,7 +224,9 @@ const DeckViewPage: Component = () => {
         templateFieldId: f.id,
         value: addInputs()[f.id] ?? (f.fieldType === 'json_array' ? [] : ''),
       }));
-      const { error: addError } = await api.cards['by-deck']({ deckId: params.deckId }).post({
+      const { error: addError } = await api.cards['by-deck']({
+        deckId: params.deckId,
+      }).post({
         fieldValues,
       });
       if (addError) throw new Error(getApiError(addError));
@@ -234,7 +264,9 @@ const DeckViewPage: Component = () => {
         templateFieldId: f.id,
         value: editInputs()[f.id] ?? (f.fieldType === 'json_array' ? [] : ''),
       }));
-      const { error: editError } = await (api.cards as any)[cardId].patch({ fieldValues });
+      const { error: editError } = await (api.cards as any)[cardId].patch({
+        fieldValues,
+      });
       if (editError) throw new Error(getApiError(editError));
       setEditingCardId(null);
       refetchCards();
@@ -275,7 +307,12 @@ const DeckViewPage: Component = () => {
 
   const selectAll = () => {
     const all = filteredCards();
-    setSelectedIds(new Set(all.map((c) => c.id)));
+    // Toggle: if all are already selected → deselect all, else select all
+    if (selectedIds().size === all.length) {
+      setSelectedIds(new Set<string>());
+    } else {
+      setSelectedIds(new Set(all.map((c) => c.id)));
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -283,9 +320,9 @@ const DeckViewPage: Component = () => {
     if (ids.length === 0) return;
     setBulkDeleting(true);
     try {
-      const { error: bulkDeleteError } = await (api.cards['by-deck']({ deckId: params.deckId }) as any)[
-        'batch'
-      ].delete({ cardIds: ids });
+      const { error: bulkDeleteError } = await (
+        api.cards['by-deck']({ deckId: params.deckId }) as any
+      )['batch'].delete({ cardIds: ids });
       if (bulkDeleteError) throw new Error(getApiError(bulkDeleteError));
       toast.success(`${ids.length} card${ids.length > 1 ? 's' : ''} deleted`);
       batch(() => {
@@ -361,7 +398,9 @@ const DeckViewPage: Component = () => {
     handleDragEnd();
     setLocalCards(updatedCards);
 
-    const { error: reorderError } = await api.cards['by-deck']({ deckId: params.deckId }).reorder.patch({
+    const { error: reorderError } = await api.cards['by-deck']({
+      deckId: params.deckId,
+    }).reorder.patch({
       cardIds,
     });
     if (reorderError) {
@@ -398,7 +437,13 @@ const DeckViewPage: Component = () => {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         showAddCard={showAddCard}
-        setShowAddCard={setShowAddCard}
+        setShowAddCard={(v: boolean) => {
+          setShowAddCard(v);
+          if (v)
+            document
+              .getElementById('main-content')
+              ?.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
         setAddInputs={() => setAddInputs({})}
         showAiModal={showAiModal}
         setShowAiModal={setShowAiModal}
@@ -471,6 +516,7 @@ const DeckViewPage: Component = () => {
           <Show when={selectMode()}>
             <BulkActionsBar
               selectedCount={selectedIds().size}
+              totalCount={filteredCards().length}
               bulkDeleting={bulkDeleting()}
               onSelectAll={selectAll}
               onBulkDelete={handleBulkDelete}
@@ -565,11 +611,16 @@ const DeckViewPage: Component = () => {
                   )}
                 </For>
                 {/* Sentinel for infinite scroll — loads next batch when visible */}
-                <div ref={sentinelRef!} class="h-1" />
-                <Show when={hasMoreCards()}>
-                  <p class="text-center text-xs text-muted-foreground py-2">
-                    Showing {visibleLimit()} of {filteredCards().length} cards…
-                  </p>
+                <div ref={sentinelRef} class="h-1" />
+                <Show when={hasMoreCards() || fetchingMore()}>
+                  <div class="flex items-center justify-center gap-2 py-3">
+                    <Show when={fetchingMore()}>
+                      <Loader2 class="h-3.5 w-3.5 text-muted-foreground animate-spin" />
+                    </Show>
+                    <p class="text-xs text-muted-foreground">
+                      Showing {visibleCards().length} of {cardCount()} cards…
+                    </p>
+                  </div>
                 </Show>
               </div>
             </Show>

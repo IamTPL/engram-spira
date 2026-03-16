@@ -4,6 +4,7 @@ import { Trash2 } from 'lucide-solid';
 
 interface BulkActionsBarProps {
   selectedCount: number;
+  totalCount: number;
   bulkDeleting: boolean;
   onSelectAll: () => void;
   onBulkDelete: () => void;
@@ -13,7 +14,9 @@ const BulkActionsBar: Component<BulkActionsBarProps> = (props) => {
   return (
     <div class="flex items-center gap-3 p-3 border rounded-xl bg-accent/50">
       <Button variant="ghost" size="sm" onClick={props.onSelectAll}>
-        Select All
+        {props.selectedCount === props.totalCount
+          ? 'Deselect All'
+          : 'Select All'}
       </Button>
       <span class="text-sm text-muted-foreground">
         {props.selectedCount} selected

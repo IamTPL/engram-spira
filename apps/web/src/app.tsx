@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/solid-query';
 import { queryClient } from '@/lib/query-client';
 import { currentUser, isLoading, fetchCurrentUser } from '@/stores/auth.store';
 import AppErrorBoundary from '@/components/ui/app-error-boundary';
+import Spinner from '@/components/ui/spinner';
 import Toaster from '@/components/ui/toaster';
 import RouteAnnouncer from '@/components/route-announcer';
 
@@ -28,30 +29,8 @@ const NotFoundPage = lazy(() => import('@/pages/not-found'));
 const FocusDrawer = lazy(() => import('@/components/focus/focus-drawer'));
 
 const LoadingScreen = () => (
-  <div class="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
-    <img
-      src="/logo-engram.webp"
-      alt="Engram Spira"
-      class="h-10 w-auto opacity-60 animate-pulse"
-    />
-    <div class="flex items-center gap-2 text-muted-foreground text-sm">
-      <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-        <circle
-          class="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          stroke-width="3"
-        />
-        <path
-          class="opacity-75"
-          fill="currentColor"
-          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-        />
-      </svg>
-      Loading...
-    </div>
+  <div class="min-h-screen flex items-center justify-center bg-background">
+    <Spinner size="lg" />
   </div>
 );
 

@@ -1,4 +1,4 @@
-import { createResource, createSignal, createEffect, createMemo } from 'solid-js';
+import { createResource, createSignal, createMemo, batch } from 'solid-js';
 import { useParams } from '@solidjs/router';
 import { api } from '@/api/client';
 import type { TemplateField, CardItem } from './types';
@@ -15,6 +15,8 @@ export interface TemplateData {
   name: string;
   fields: TemplateField[];
 }
+
+const PAGE_SIZE = 50;
 
 export function useDeckData() {
   const params = useParams<{ deckId: string }>();
@@ -36,23 +38,64 @@ export function useDeckData() {
     },
   );
 
+  // ── Cursor-based pagination state ─────────────────────────────
+  const [localCards, setLocalCards] = createSignal<CardItem[]>([]);
+  const [totalCount, setTotalCount] = createSignal(0);
+  const [nextCursor, setNextCursor] = createSignal<number | null>(null);
+  const [hasMore, setHasMore] = createSignal(false);
+  const [fetchingMore, setFetchingMore] = createSignal(false);
+
+  // Initial page fetch (resets accumulator)
   const [cardsResource, { refetch: refetchCards }] = createResource(
     () => params.deckId,
     async (deckId) => {
-      const { data } = await api.cards['by-deck']({ deckId }).get();
-      const list = Array.isArray(data) ? data : ((data as any)?.items ?? []);
-      return (list as CardItem[]).sort((a, b) => a.sortOrder - b.sortOrder);
+      const { data } = await api.cards['by-deck']({ deckId }).get({
+        query: { limit: PAGE_SIZE },
+      });
+      const payload = data as any;
+      const items = Array.isArray(payload) ? payload : (payload?.items ?? []);
+      const sorted = (items as CardItem[]).sort(
+        (a, b) => a.sortOrder - b.sortOrder,
+      );
+
+      batch(() => {
+        setLocalCards(sorted);
+        setTotalCount(payload?.total ?? sorted.length);
+        setNextCursor(payload?.nextCursor ?? null);
+        setHasMore(payload?.hasMore ?? false);
+      });
+
+      return sorted;
     },
   );
 
-  // Local signal for card list — allows optimistic reorder updates
-  const [localCards, setLocalCards] = createSignal<CardItem[]>([]);
+  // Fetch next page and append to existing cards
+  const fetchMore = async () => {
+    const cursor = nextCursor();
+    if (!hasMore() || cursor === null || fetchingMore()) return;
 
-  // Sync local signal whenever the resource loads/refetches
-  createEffect(() => {
-    const data = cardsResource();
-    if (data) setLocalCards(data);
-  });
+    setFetchingMore(true);
+    try {
+      const { data } = await api.cards['by-deck']({
+        deckId: params.deckId,
+      }).get({
+        query: { limit: PAGE_SIZE, cursor },
+      });
+      const payload = data as any;
+      const items = Array.isArray(payload) ? payload : (payload?.items ?? []);
+      const sorted = (items as CardItem[]).sort(
+        (a, b) => a.sortOrder - b.sortOrder,
+      );
+
+      batch(() => {
+        setLocalCards((prev) => [...prev, ...sorted]);
+        setNextCursor(payload?.nextCursor ?? null);
+        setHasMore(payload?.hasMore ?? false);
+      });
+    } finally {
+      setFetchingMore(false);
+    }
+  };
 
   const cards = localCards;
   const cardLoading = () => cardsResource.loading;
@@ -61,7 +104,8 @@ export function useDeckData() {
     [...(template()?.fields ?? [])].sort((a, b) => a.sortOrder - b.sortOrder),
   );
 
-  const cardCount = () => localCards().length;
+  // Use server-reported total for accurate count
+  const cardCount = () => totalCount();
 
   return {
     params,
@@ -74,5 +118,8 @@ export function useDeckData() {
     localCards,
     setLocalCards,
     refetchCards,
+    hasMore,
+    fetchMore,
+    fetchingMore,
   };
 }
