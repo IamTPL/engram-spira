@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal, createEffect, createRoot } from 'solid-js';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -39,14 +39,17 @@ export function toggleTheme() {
 }
 
 // Sync <html> class and resolved theme reactively
-createEffect(() => {
-  const t = theme();
-  const resolved = getResolvedTheme(t);
-  setResolvedTheme(resolved);
+// Wrapped in createRoot because this runs at module scope (before render())
+createRoot(() => {
+  createEffect(() => {
+    const t = theme();
+    const resolved = getResolvedTheme(t);
+    setResolvedTheme(resolved);
 
-  const html = document.documentElement;
-  html.classList.remove('light', 'dark');
-  html.classList.add(resolved);
+    const html = document.documentElement;
+    html.classList.remove('light', 'dark');
+    html.classList.add(resolved);
+  });
 });
 
 // Listen for system theme changes when mode is 'system'

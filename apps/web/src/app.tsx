@@ -7,11 +7,14 @@ import AppErrorBoundary from '@/components/ui/app-error-boundary';
 import Toaster from '@/components/ui/toaster';
 import RouteAnnouncer from '@/components/route-announcer';
 
-// Lazy-load ALL pages for optimal code splitting
-const LoginPage = lazy(() => import('@/pages/login'));
-const RegisterPage = lazy(() => import('@/pages/register'));
-const ResetPasswordPage = lazy(() => import('@/pages/reset-password'));
-const DashboardPage = lazy(() => import('@/pages/dashboard'));
+// Direct imports for critical-path pages (login, register, dashboard)
+// to avoid lazy-load Suspense interaction with the Router
+import LoginPage from '@/pages/login';
+import RegisterPage from '@/pages/register';
+import ResetPasswordPage from '@/pages/reset-password';
+import DashboardPage from '@/pages/dashboard';
+
+// Lazy-load secondary pages for code splitting
 const FeedbackPage = lazy(() => import('@/pages/feedback'));
 const FolderViewPage = lazy(() => import('@/pages/folder-view'));
 const StudyModePage = lazy(() => import('@/pages/study-mode'));
@@ -75,11 +78,15 @@ const GuestRoute: Component<{ children: any }> = (props) => {
 
 // Stable route wrapper factories — avoids recreating component functions on navigation
 const guest = (Page: Component) => () => (
-  <GuestRoute><Page /></GuestRoute>
+  <GuestRoute>
+    <Page />
+  </GuestRoute>
 );
 
 const protect = (Page: Component) => () => (
-  <ProtectedRoute><Page /></ProtectedRoute>
+  <ProtectedRoute>
+    <Page />
+  </ProtectedRoute>
 );
 
 const App: Component = () => {
@@ -90,22 +97,23 @@ const App: Component = () => {
   return (
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <Suspense fallback={<LoadingScreen />}>
-          <Router>
-            <Route path="/login" component={guest(LoginPage)} />
-            <Route path="/register" component={guest(RegisterPage)} />
-            <Route path="/reset-password" component={ResetPasswordPage} />
-            <Route path="/" component={protect(DashboardPage)} />
-            <Route path="/folder/:folderId" component={protect(FolderViewPage)} />
-            <Route path="/deck/:deckId" component={protect(DeckViewPage)} />
-            <Route path="/study/interleaved" component={protect(InterleavedStudyPage)} />
-            <Route path="/study/:deckId" component={protect(StudyModePage)} />
-            <Route path="/settings" component={protect(SettingsPage)} />
-            <Route path="/feedback" component={protect(FeedbackPage)} />
-            <Route path="/docs" component={protect(DocsPage)} />
-            <Route path="*" component={NotFoundPage} />
-          </Router>
-        </Suspense>
+        <Router>
+          <Route path="/login" component={guest(LoginPage)} />
+          <Route path="/register" component={guest(RegisterPage)} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/" component={protect(DashboardPage)} />
+          <Route path="/folder/:folderId" component={protect(FolderViewPage)} />
+          <Route path="/deck/:deckId" component={protect(DeckViewPage)} />
+          <Route
+            path="/study/interleaved"
+            component={protect(InterleavedStudyPage)}
+          />
+          <Route path="/study/:deckId" component={protect(StudyModePage)} />
+          <Route path="/settings" component={protect(SettingsPage)} />
+          <Route path="/feedback" component={protect(FeedbackPage)} />
+          <Route path="/docs" component={protect(DocsPage)} />
+          <Route path="*" component={NotFoundPage} />
+        </Router>
         <RouteAnnouncer />
         <Toaster />
         <Suspense>

@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal } from 'solid-js';
 
 /* ══════════════════════════════════════════════════════════════
    FOCUS MODE STORE
@@ -98,7 +98,7 @@ const DEFAULT_LABELS = [
 
 /** Custom rewards set by user */
 const [rewardLabels, setRewardLabelsSignal] = createSignal<string[]>(
-  initial.rewardLabels || DEFAULT_LABELS
+  initial.rewardLabels || DEFAULT_LABELS,
 );
 
 /** Timer tick interval id */

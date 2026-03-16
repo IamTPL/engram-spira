@@ -1,9 +1,4 @@
-import {
-  type Component,
-  Show,
-  For,
-  createSignal,
-} from 'solid-js';
+import { type Component, Show, For, createSignal } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +13,12 @@ import {
 import { currentUser, logout } from '@/stores/auth.store';
 import { sidebarCollapsed, toggleSidebar } from '@/stores/sidebar.store';
 import { resolvedTheme, toggleTheme } from '@/stores/theme.store';
-import { dueDecks, totalDue, hasDue } from '@/stores/notifications.store';
+import {
+  dueDecks,
+  dueDeckLoading,
+  totalDue,
+  hasDue,
+} from '@/stores/notifications.store';
 import {
   Bell,
   LogOut,
@@ -67,8 +67,9 @@ const Header: Component = () => {
             class="hidden md:flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-[--duration-fast] cursor-pointer"
           >
             <PanelLeft
-              class={`h-4 w-4 transition-transform duration-300 ${sidebarCollapsed() ? 'rotate-180' : ''
-                }`}
+              class={`h-4 w-4 transition-transform duration-300 ${
+                sidebarCollapsed() ? 'rotate-180' : ''
+              }`}
             />
           </button>
 
@@ -134,7 +135,7 @@ const Header: Component = () => {
                   </div>
                   <div class="max-h-80 overflow-y-auto">
                     <Show
-                      when={!dueDecks.loading}
+                      when={!dueDeckLoading()}
                       fallback={
                         <div class="px-4 py-6 text-center text-sm text-muted-foreground">
                           Loading...
@@ -157,7 +158,7 @@ const Header: Component = () => {
                           </div>
                         }
                       >
-                        <For each={dueDecks() ?? []}>
+                        <For each={dueDecks()}>
                           {(deck) => (
                             <button
                               class="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors duration-[--duration-fast] text-left border-b border-border/50 last:border-0 cursor-pointer"
@@ -213,8 +214,9 @@ const Header: Component = () => {
                     />
                   </Show>
                   <ChevronDown
-                    class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${showUserMenu() ? 'rotate-180' : ''
-                      }`}
+                    class={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
+                      showUserMenu() ? 'rotate-180' : ''
+                    }`}
                   />
                 </button>
               </DropdownMenuTrigger>

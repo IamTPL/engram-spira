@@ -8,6 +8,7 @@ import { SidebarClassItem } from './sidebar-class-item';
 export function SidebarClassList() {
   const {
     classes,
+    classesLoading,
     showNewClass,
     setShowNewClass,
     newClassName,
@@ -63,7 +64,7 @@ export function SidebarClassList() {
 
       {/* Classes list */}
       <Show
-        when={!classes.loading}
+        when={!classesLoading()}
         fallback={
           <div class="space-y-2 mt-2">
             <For each={[1, 2, 3]}>
@@ -73,7 +74,7 @@ export function SidebarClassList() {
         }
       >
         <Show
-          when={(classes() ?? []).length > 0}
+          when={classes().length > 0}
           fallback={
             <p class="text-xs text-muted-foreground text-center py-6 leading-relaxed">
               No classes yet.

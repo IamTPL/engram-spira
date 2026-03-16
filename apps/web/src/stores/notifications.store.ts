@@ -1,4 +1,4 @@
-import { createSignal, createResource, onCleanup } from 'solid-js';
+import { createSignal, createRoot, createEffect, on } from 'solid-js';
 import { api } from '@/api/client';
 import { currentUser } from './auth.store';
 import { NOTIFICATIONS_POLL_MS } from '@/constants';
@@ -9,14 +9,39 @@ interface DueDeckNotification {
   dueCount: number;
 }
 
-// Single shared resource — avoids duplicate polling from header + sidebar-footer
-const [dueDecks, { refetch: refetchDue }] = createResource(
-  () => currentUser()?.id,
-  async () => {
+// Use plain signals instead of createResource to avoid triggering <Suspense>
+// boundaries when the data is read inside the component tree.
+const [dueDecks, setDueDecks] = createSignal<DueDeckNotification[]>([]);
+const [dueDeckLoading, setDueDeckLoading] = createSignal(false);
+
+async function refetchDue() {
+  if (!currentUser()) return;
+  setDueDeckLoading(true);
+  try {
     const { data } = await (api.notifications as any)['due-decks'].get();
-    return (data ?? []) as DueDeckNotification[];
-  },
-);
+    setDueDecks((data ?? []) as DueDeckNotification[]);
+  } catch {
+    /* network errors are non-fatal for notifications */
+  } finally {
+    setDueDeckLoading(false);
+  }
+}
+
+// Auto-fetch when currentUser changes (login / logout)
+createRoot(() => {
+  createEffect(
+    on(
+      () => currentUser()?.id,
+      (id) => {
+        if (id) {
+          refetchDue();
+        } else {
+          setDueDecks([]);
+        }
+      },
+    ),
+  );
+});
 
 // Visibility-aware polling — pauses when tab is hidden to save battery/CPU
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -52,13 +77,8 @@ if (typeof document !== 'undefined') {
 }
 
 // Derived helpers
-const totalDue = () => (dueDecks() ?? []).reduce((sum, d) => sum + d.dueCount, 0);
+const totalDue = () => dueDecks().reduce((sum, d) => sum + d.dueCount, 0);
 const hasDue = () => totalDue() > 0;
 
-export {
-  dueDecks,
-  refetchDue,
-  totalDue,
-  hasDue,
-};
+export { dueDecks, dueDeckLoading, refetchDue, totalDue, hasDue };
 export type { DueDeckNotification };

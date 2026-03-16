@@ -2,11 +2,11 @@ import {
   createContext,
   useContext,
   createSignal,
-  createResource,
+  createEffect,
+  on,
   batch,
   type Accessor,
   type Setter,
-  type Resource,
 } from 'solid-js';
 import { api, getApiError } from '@/api/client';
 import { currentUser } from '@/stores/auth.store';
@@ -26,8 +26,9 @@ export interface ClassItem {
 }
 
 interface SidebarContextType {
-  classes: Resource<ClassItem[]>;
-  refetchClasses: (info?: unknown) => void;
+  classes: Accessor<ClassItem[]>;
+  classesLoading: Accessor<boolean>;
+  refetchClasses: () => void;
   showNewClass: Accessor<boolean>;
   setShowNewClass: Setter<boolean>;
   newClassName: Accessor<string>;
@@ -49,49 +50,96 @@ interface SidebarContextType {
   handleClassDragStart: (classId: string, e: DragEvent) => void;
   handleClassDragOver: (classId: string, e: DragEvent) => void;
   handleClassDrop: (targetClassId: string, e: DragEvent) => Promise<void>;
-  handleFolderDragStart: (classId: string, folderId: string, e: DragEvent) => void;
+  handleFolderDragStart: (
+    classId: string,
+    folderId: string,
+    e: DragEvent,
+  ) => void;
   handleFolderDragOver: (folderId: string, e: DragEvent) => void;
-  handleFolderDrop: (targetClassId: string, targetFolderId: string, e: DragEvent) => Promise<void>;
+  handleFolderDrop: (
+    targetClassId: string,
+    targetFolderId: string,
+    e: DragEvent,
+  ) => Promise<void>;
   handleDragEnd: () => void;
 
   handleCreateClass: (e: Event) => Promise<void>;
   handleCreateFolder: (e: Event, classId: string) => Promise<void>;
   openNewFolder: (e: Event, classId: string) => void;
 
-  startRename: (e: Event, type: 'class' | 'folder', id: string, currentName: string, context?: string) => void;
+  startRename: (
+    e: Event,
+    type: 'class' | 'folder',
+    id: string,
+    currentName: string,
+    context?: string,
+  ) => void;
   cancelRename: () => void;
   submitRename: (id: string) => Promise<void>;
 
   handleDeleteClass: (e: Event, id: string) => Promise<void>;
-  handleDeleteFolder: (e: Event, classId: string, folderId: string) => Promise<void>;
+  handleDeleteFolder: (
+    e: Event,
+    classId: string,
+    folderId: string,
+  ) => Promise<void>;
 }
 
 const SidebarContext = createContext<SidebarContextType>();
 
 export function SidebarProvider(props: { children: any }) {
-  const [classes, { refetch: refetchClasses, mutate: mutateClasses }] = createResource(
-    () => currentUser()?.id,
-    async () => {
+  const [classes, setClasses] = createSignal<ClassItem[]>([]);
+  const [classesLoading, setClassesLoading] = createSignal(false);
+
+  async function fetchClasses() {
+    if (!currentUser()) return;
+    setClassesLoading(true);
+    try {
       const { data } = await api.classes.get();
-      return (data ?? []) as ClassItem[];
-    },
+      setClasses((data ?? []) as ClassItem[]);
+    } catch {
+      /* non-fatal */
+    } finally {
+      setClassesLoading(false);
+    }
+  }
+
+  // Auto-fetch when currentUser changes
+  createEffect(
+    on(
+      () => currentUser()?.id,
+      (id) => {
+        if (id) fetchClasses();
+        else setClasses([]);
+      },
+    ),
   );
 
   const [showNewClass, setShowNewClass] = createSignal(false);
   const [newClassName, setNewClassName] = createSignal('');
-  const [creatingFolderForClass, setCreatingFolderForClass] = createSignal<string | null>(null);
+  const [creatingFolderForClass, setCreatingFolderForClass] = createSignal<
+    string | null
+  >(null);
   const [newFolderName, setNewFolderName] = createSignal('');
 
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
-  const [renamingType, setRenamingType] = createSignal<'class' | 'folder' | null>(null);
-  const [renamingContext, setRenamingContext] = createSignal<string | null>(null);
+  const [renamingType, setRenamingType] = createSignal<
+    'class' | 'folder' | null
+  >(null);
+  const [renamingContext, setRenamingContext] = createSignal<string | null>(
+    null,
+  );
   const [renameValue, setRenameValue] = createSignal('');
 
-  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(
+    null,
+  );
 
   const [dragType, setDragType] = createSignal<'class' | 'folder' | null>(null);
   const [dragId, setDragId] = createSignal<string | null>(null);
-  const [dragClassContext, setDragClassContext] = createSignal<string | null>(null);
+  const [dragClassContext, setDragClassContext] = createSignal<string | null>(
+    null,
+  );
   const [dropTargetId, setDropTargetId] = createSignal<string | null>(null);
 
   const resetDrag = () => {
@@ -122,9 +170,10 @@ export function SidebarProvider(props: { children: any }) {
   const handleClassDrop = async (targetClassId: string, e: DragEvent) => {
     e.preventDefault();
     const sourceId = dragId();
-    if (!sourceId || sourceId === targetClassId || dragType() !== 'class') return;
+    if (!sourceId || sourceId === targetClassId || dragType() !== 'class')
+      return;
 
-    const list = classes() ?? [];
+    const list = classes();
     const fromIdx = list.findIndex((c) => c.id === sourceId);
     const toIdx = list.findIndex((c) => c.id === targetClassId);
     if (fromIdx === -1 || toIdx === -1) return;
@@ -133,17 +182,23 @@ export function SidebarProvider(props: { children: any }) {
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
 
-    mutateClasses(reordered);
+    setClasses(reordered);
     resetDrag();
 
-    const { error: reorderError } = await api.classes.reorder.patch({ classIds: reordered.map((c) => c.id) });
+    const { error: reorderError } = await api.classes.reorder.patch({
+      classIds: reordered.map((c) => c.id),
+    });
     if (reorderError) {
-      refetchClasses();
+      fetchClasses();
       toast.error(getApiError(reorderError) || 'Failed to reorder classes');
     }
   };
 
-  const handleFolderDragStart = (classId: string, folderId: string, e: DragEvent) => {
+  const handleFolderDragStart = (
+    classId: string,
+    folderId: string,
+    e: DragEvent,
+  ) => {
     batch(() => {
       setDragType('folder');
       setDragId(folderId);
@@ -160,11 +215,21 @@ export function SidebarProvider(props: { children: any }) {
     setDropTargetId(folderId);
   };
 
-  const handleFolderDrop = async (targetClassId: string, targetFolderId: string, e: DragEvent) => {
+  const handleFolderDrop = async (
+    targetClassId: string,
+    targetFolderId: string,
+    e: DragEvent,
+  ) => {
     e.preventDefault();
     const sourceId = dragId();
     const sourceClassId = dragClassContext();
-    if (!sourceId || !sourceClassId || sourceId === targetFolderId || dragType() !== 'folder') return;
+    if (
+      !sourceId ||
+      !sourceClassId ||
+      sourceId === targetFolderId ||
+      dragType() !== 'folder'
+    )
+      return;
     if (sourceClassId !== targetClassId) {
       resetDrag();
       return;
@@ -182,13 +247,19 @@ export function SidebarProvider(props: { children: any }) {
     updateFoldersForClass(sourceClassId, reordered);
     resetDrag();
 
-    const { error: reorderFolderError } = await api.folders['by-class']({ classId: sourceClassId }).reorder.patch({
+    const { error: reorderFolderError } = await api.folders['by-class']({
+      classId: sourceClassId,
+    }).reorder.patch({
       folderIds: reordered.map((f) => f.id),
     });
     if (reorderFolderError) {
-      const { data } = await api.folders['by-class']({ classId: sourceClassId }).get();
+      const { data } = await api.folders['by-class']({
+        classId: sourceClassId,
+      }).get();
       updateFoldersForClass(sourceClassId, (data ?? []) as FolderItem[]);
-      toast.error(getApiError(reorderFolderError) || 'Failed to reorder folders');
+      toast.error(
+        getApiError(reorderFolderError) || 'Failed to reorder folders',
+      );
     }
   };
 
@@ -203,7 +274,7 @@ export function SidebarProvider(props: { children: any }) {
       if (error) throw new Error(getApiError(error));
       setNewClassName('');
       setShowNewClass(false);
-      refetchClasses();
+      fetchClasses();
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to create class');
     }
@@ -214,7 +285,9 @@ export function SidebarProvider(props: { children: any }) {
     const name = newFolderName().trim();
     if (!name) return;
     try {
-      const { error } = await api.folders['by-class']({ classId }).post({ name });
+      const { error } = await api.folders['by-class']({ classId }).post({
+        name,
+      });
       if (error) throw new Error(getApiError(error));
       const { data } = await api.folders['by-class']({ classId }).get();
       updateFoldersForClass(classId, (data ?? []) as FolderItem[]);
@@ -232,7 +305,13 @@ export function SidebarProvider(props: { children: any }) {
     ensureClassExpanded(classId);
   };
 
-  const startRename = (e: Event, type: 'class' | 'folder', id: string, currentName: string, context?: string) => {
+  const startRename = (
+    e: Event,
+    type: 'class' | 'folder',
+    id: string,
+    currentName: string,
+    context?: string,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
     batch(() => {
@@ -264,14 +343,16 @@ export function SidebarProvider(props: { children: any }) {
       if (type === 'class') {
         const { error } = await (api.classes as any)[id].patch({ name });
         if (error) throw new Error(getApiError(error));
-        refetchClasses();
+        fetchClasses();
       } else if (type === 'folder') {
         const { error } = await (api.folders as any)[id].patch({ name });
         if (error) throw new Error(getApiError(error));
         if (context) {
           updateFoldersForClass(
             context,
-            (foldersByClass()[context] ?? []).map((f) => (f.id === id ? { ...f, name } : f)),
+            (foldersByClass()[context] ?? []).map((f) =>
+              f.id === id ? { ...f, name } : f,
+            ),
           );
         }
       }
@@ -285,21 +366,29 @@ export function SidebarProvider(props: { children: any }) {
   const handleDeleteClass = async (e: Event, id: string) => {
     e.stopPropagation();
     try {
-      const { error: deleteClassError } = await (api.classes as any)[id].delete();
+      const { error: deleteClassError } = await (api.classes as any)[
+        id
+      ].delete();
       if (deleteClassError) throw new Error(getApiError(deleteClassError));
       setConfirmDeleteId(null);
       removeClassFromCache(id);
-      refetchClasses();
+      fetchClasses();
       toast.success('Class deleted');
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to delete class');
     }
   };
 
-  const handleDeleteFolder = async (e: Event, classId: string, folderId: string) => {
+  const handleDeleteFolder = async (
+    e: Event,
+    classId: string,
+    folderId: string,
+  ) => {
     e.stopPropagation();
     try {
-      const { error: deleteFolderError } = await (api.folders as any)[folderId].delete();
+      const { error: deleteFolderError } = await (api.folders as any)[
+        folderId
+      ].delete();
       if (deleteFolderError) throw new Error(getApiError(deleteFolderError));
       setConfirmDeleteId(null);
       updateFoldersForClass(
@@ -316,7 +405,8 @@ export function SidebarProvider(props: { children: any }) {
     <SidebarContext.Provider
       value={{
         classes,
-        refetchClasses,
+        classesLoading,
+        refetchClasses: fetchClasses,
         showNewClass,
         setShowNewClass,
         newClassName,
