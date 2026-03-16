@@ -6,7 +6,9 @@ import type { TemplateField } from './types';
 interface EditCardFormProps {
   sortedFields: () => TemplateField[];
   editInputs: () => Record<string, unknown>;
-  setEditInputs: (fn: (prev: Record<string, unknown>) => Record<string, unknown>) => void;
+  setEditInputs: (
+    fn: (prev: Record<string, unknown>) => Record<string, unknown>,
+  ) => void;
   editSaving: () => boolean;
   onSubmit: (e: Event) => void;
   onCancel: () => void;
@@ -14,7 +16,10 @@ interface EditCardFormProps {
 
 const EditCardForm: Component<EditCardFormProps> = (props) => {
   return (
-    <form onSubmit={props.onSubmit} class="p-5 space-y-3 bg-accent/30">
+    <form
+      onSubmit={props.onSubmit}
+      class="p-5 space-y-3 bg-white dark:bg-gray-900"
+    >
       <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
         Editing card
       </p>
