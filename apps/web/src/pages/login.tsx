@@ -41,7 +41,7 @@ const LoginPage: Component = () => {
       <Card class="w-full max-w-sm animate-scale-in" variant="elevated">
         <CardHeader class="text-center items-center">
           <img
-            src="/logo-engram-full.png"
+            src="/logo-engram-full.webp"
             alt="Engram Spira"
             class="h-40 w-auto mb-2"
           />

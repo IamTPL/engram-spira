@@ -79,7 +79,7 @@ const Header: Component = () => {
             title="Go to Dashboard"
           >
             <img
-              src="/logo-engram.png"
+              src="/logo-engram.webp"
               alt="Engram Spira logo"
               class="h-7 w-auto"
             />

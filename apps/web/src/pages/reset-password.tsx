@@ -85,7 +85,7 @@ const ResetPasswordPage: Component = () => {
       <Card class="w-full max-w-sm">
         <CardHeader class="text-center items-center">
           <img
-            src="/logo-engram-full.png"
+            src="/logo-engram-full.webp"
             alt="Engram Spira"
             class="h-20 w-auto mb-2"
           />

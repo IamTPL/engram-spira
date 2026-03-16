@@ -30,7 +30,7 @@ const FocusDrawer = lazy(() => import('@/components/focus/focus-drawer'));
 const LoadingScreen = () => (
   <div class="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
     <img
-      src="/logo-engram.png"
+      src="/logo-engram.webp"
       alt="Engram Spira"
       class="h-10 w-auto opacity-60 animate-pulse"
     />

@@ -109,7 +109,7 @@ export function SidebarContent() {
                 onClick={() => navigate('/')}
                 title="Go to Dashboard"
               >
-                <img src="/logo-engram.png" alt="Engram Spira logo" class="h-7 w-auto" />
+                <img src="/logo-engram.webp" alt="Engram Spira logo" class="h-7 w-auto" />
                 <span class="text-base font-bold tracking-tight text-foreground truncate">
                   Engram Spira
                 </span>

@@ -155,7 +155,7 @@ export function sendBreakTimeNotification() {
   try {
     new Notification('⏰ Break Time!', {
       body: 'Great focus session! Time to roll the dice and claim your reward.',
-      icon: '/logo-engram.png',
+      icon: '/logo-engram.webp',
       tag: 'focus-break',
       requireInteraction: false,
     });
