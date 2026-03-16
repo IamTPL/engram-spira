@@ -5,7 +5,6 @@ import {
   Trash2,
   Check,
   X,
-  GripVertical,
   CheckSquare,
   Square,
 } from 'lucide-solid';
@@ -68,7 +67,7 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
 
   return (
     <div
-      class={`group border rounded-xl bg-card overflow-hidden transition-shadow duration-200 ease-out ${
+      class={`group border rounded-xl bg-card overflow-hidden transition-shadow duration-200 ease-out cursor-grab active:cursor-grabbing ${
         props.isDragSource
           ? 'opacity-50 scale-95 shadow-lg rotate-1'
           : props.isDropTarget
@@ -92,15 +91,7 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
       {/* Normal view */}
       <Show when={!props.isEditing}>
         <div class="p-4 flex items-start gap-3">
-          {/* Drag handle */}
-          <Show when={!props.selectMode}>
-            <div
-              class="mt-1 shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-              title="Drag to reorder"
-            >
-              <GripVertical class="h-4 w-4" />
-            </div>
-          </Show>
+
 
           {/* Checkbox for bulk select */}
           <Show when={props.selectMode}>

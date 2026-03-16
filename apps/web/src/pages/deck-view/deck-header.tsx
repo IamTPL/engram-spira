@@ -1,7 +1,8 @@
-import { type Component, Show } from 'solid-js';
+import { type Component, Show, createSignal, onMount, onCleanup } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import {
   ArrowLeft,
   Plus,
@@ -32,9 +33,54 @@ interface DeckHeaderProps {
 
 const DeckHeader: Component<DeckHeaderProps> = (props) => {
   const navigate = useNavigate();
+  const [isVisible, setIsVisible] = createSignal(true);
+  const [isScrolled, setIsScrolled] = createSignal(false);
+
+  onMount(() => {
+    const scrollContainer = document.getElementById('main-content');
+    if (!scrollContainer) return;
+
+    let lastScrollY = scrollContainer.scrollTop;
+    
+    // We only want it to hide if we've scrolled past the header height.
+    const HEADER_HEIGHT = 100;
+
+    const handleScroll = () => {
+      const currentScrollY = scrollContainer.scrollTop;
+      
+      // Update basic scrolled state (for adding shadow when not at top)
+      setIsScrolled(currentScrollY > 10);
+
+      // Only hide if we scroll down significantly.
+      if (currentScrollY > lastScrollY && currentScrollY > HEADER_HEIGHT) {
+        setIsVisible(false);
+      } else if (currentScrollY < lastScrollY) {
+        setIsVisible(true);
+      }
+      
+      // Allow it to bounce back to visible at the very top.
+      if (currentScrollY <= 0) {
+        setIsVisible(true);
+      }
+
+      lastScrollY = currentScrollY;
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    
+    onCleanup(() => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+    });
+  });
 
   return (
-    <div class="border-b px-6 py-4">
+    <div
+      class={cn(
+        "sticky top-0 z-20 bg-background transition-all duration-300 ease-in-out border-b px-6 pb-4 pt-4 -mt-4",
+        !isVisible() ? "-translate-y-full border-transparent" : "translate-y-0",
+        isScrolled() && isVisible() && "shadow-sm border-border"
+      )}
+    >
       <div class="max-w-5xl mx-auto">
         <div class="flex items-center gap-3 mb-3">
           <Button
@@ -91,7 +137,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
             variant="outline"
             onClick={() => props.setShowAiModal(true)}
             disabled={props.showAiModal()}
-            class="text-palette-5 border-palette-5/30 hover:bg-palette-5/10"
+            class="text-palette-5 border-palette-5/30 hover:bg-palette-5/10 bg-background"
           >
             <Sparkles class="h-4 w-4 mr-2" />
             AI Generate
@@ -99,6 +145,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
           <Button
             variant={props.selectMode() ? 'default' : 'outline'}
             onClick={props.toggleSelectMode}
+            class="bg-background"
           >
             <CheckSquare class="h-4 w-4 mr-2" />
             {props.selectMode() ? 'Cancel' : 'Select'}
@@ -108,7 +155,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="Search cards..."
-              class="pl-9 h-9 text-sm"
+              class="pl-9 h-9 text-sm bg-background"
               value={props.searchQuery()}
               onInput={(e) => props.setSearchQuery(e.currentTarget.value)}
             />

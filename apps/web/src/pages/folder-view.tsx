@@ -114,7 +114,9 @@ const FolderViewPage: Component = () => {
     if (!name || !templateId) return;
     setCreating(true);
     try {
-      const { error: createError } = await api.decks['by-folder']({ folderId: params.folderId }).post({
+      const { error: createError } = await api.decks['by-folder']({
+        folderId: params.folderId,
+      }).post({
         name,
         cardTemplateId: templateId,
       });
@@ -140,7 +142,7 @@ const FolderViewPage: Component = () => {
   return (
     <PageShell maxWidth={false} class="p-0">
       {/* ── Hero header ── */}
-      <div class="border-b px-6 py-4">
+      <div class="border-b px-6 pb-4">
         <div class="max-w-5xl mx-auto">
           <div class="flex items-center gap-3 mb-3">
             <Button
