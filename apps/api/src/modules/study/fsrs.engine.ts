@@ -21,6 +21,7 @@ export interface FsrsState {
   difficulty: number;
   fsrsState: string;
   lastElapsedDays: number;
+  learningSteps: number;
 }
 
 export interface FsrsResult {
@@ -30,6 +31,7 @@ export interface FsrsResult {
   fsrsState: string;
   lastElapsedDays: number;
   intervalDays: number;
+  learningSteps: number;
 }
 
 /**
@@ -44,9 +46,20 @@ export function calculateFsrsReview(
   current: Partial<FsrsState> | null,
   params?: Partial<FSRSParameters>,
 ): FsrsResult {
-  const f = fsrs(params ? generatorParameters(params) : generatorParameters());
+  // Default: 1 min first step, 15 min second step (graduation threshold)
+  const defaultParams = generatorParameters({
+    learning_steps: ['1m', '15m'],
+    relearning_steps: ['10m'],
+  });
+  const f = fsrs(
+    params
+      ? generatorParameters({ ...defaultParams, ...params })
+      : defaultParams,
+  );
 
-  // Build card state from current progress or empty
+  // Build card state from current progress or empty.
+  // learning_steps MUST be restored — it tracks which step the card is on.
+  // Without it every Learning review restarts at step 1 and Good can never graduate.
   const card: Card = current?.stability
     ? {
         due: new Date(),
@@ -54,7 +67,7 @@ export function calculateFsrsReview(
         difficulty: current.difficulty ?? 0,
         elapsed_days: current.lastElapsedDays ?? 0,
         scheduled_days: 0,
-        learning_steps: 0,
+        learning_steps: current.learningSteps ?? 0,
         reps: 0,
         lapses: 0,
         state: mapStateFromString(current.fsrsState ?? 'new'),
@@ -73,6 +86,7 @@ export function calculateFsrsReview(
     fsrsState: mapStateToString(result.card.state),
     lastElapsedDays: result.card.elapsed_days,
     intervalDays: Math.ceil(result.card.scheduled_days), // for display only
+    learningSteps: result.card.learning_steps,
   };
 }
 

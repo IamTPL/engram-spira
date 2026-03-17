@@ -332,6 +332,7 @@ export async function reviewCardBatch(
         difficulty: studyProgress.difficulty,
         fsrsState: studyProgress.fsrsState,
         lastElapsedDays: studyProgress.lastElapsedDays,
+        fsrsLearningSteps: studyProgress.fsrsLearningSteps,
       })
       .from(cards)
       .innerJoin(
@@ -403,6 +404,7 @@ export async function reviewCardBatch(
             difficulty: prev.difficulty ?? 0,
             fsrsState: prev.fsrsState ?? 'new',
             lastElapsedDays: prev.lastElapsedDays ?? 0,
+            learningSteps: prev.fsrsLearningSteps ?? 0,
           }
         : null,
       userFsrsParams,
@@ -422,6 +424,7 @@ export async function reviewCardBatch(
         difficulty: r.difficulty,
         fsrsState: r.fsrsState,
         lastElapsedDays: r.lastElapsedDays,
+        fsrsLearningSteps: r.learningSteps,
       });
     } else {
       const r = dispatch.result;
@@ -460,6 +463,7 @@ export async function reviewCardBatch(
     conflictSet.stability = sql`excluded.stability`;
     conflictSet.difficulty = sql`excluded.difficulty`;
     conflictSet.fsrsState = sql`excluded.fsrs_state`;
+    conflictSet.fsrsLearningSteps = sql`excluded.fsrs_learning_steps`;
     conflictSet.lastElapsedDays = sql`excluded.last_elapsed_days`;
   }
 
@@ -496,6 +500,7 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     db
       .select({
         boxLevel: studyProgress.boxLevel,
+        fsrsState: studyProgress.fsrsState,
         nextReviewAt: studyProgress.nextReviewAt,
       })
       .from(studyProgress)
@@ -513,8 +518,12 @@ export async function getDeckSchedule(deckId: string, userId: string) {
     };
   }
 
-  // "Learned" = graduated past learning phase (boxLevel > 0)
-  const learnedCards = progress.filter((p) => p.boxLevel > 0).length;
+  // "Learned" = graduated past learning phase
+  // SM-2: boxLevel > 0 means card has been successfully reviewed at least once
+  // FSRS: fsrsState === 'review' means card graduated from learning to long-term review
+  const learnedCards = progress.filter(
+    (p) => p.boxLevel > 0 || p.fsrsState === 'review',
+  ).length;
 
   // Group future reviews by day offset
   const buckets = new Map<number, number>();

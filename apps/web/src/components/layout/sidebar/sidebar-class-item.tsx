@@ -13,11 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useSidebar, type ClassItem } from './sidebar-context';
 import { SidebarFolderItem } from './sidebar-folder-item';
-import {
-  expandedClasses,
-  foldersByClass,
-  toggleClass,
-} from '@/stores/sidebar.store';
+import { expandedClasses, toggleClass } from '@/stores/sidebar.store';
 
 interface SidebarClassItemProps {
   cls: ClassItem;
@@ -25,6 +21,7 @@ interface SidebarClassItemProps {
 
 export function SidebarClassItem(props: SidebarClassItemProps) {
   const {
+    foldersByClass,
     renamingId,
     renamingType,
     renameValue,
@@ -52,7 +49,9 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
 
   return (
     <div
-      draggable={renamingId() !== props.cls.id && confirmDeleteId() !== props.cls.id}
+      draggable={
+        renamingId() !== props.cls.id && confirmDeleteId() !== props.cls.id
+      }
       onDragStart={(e) => handleClassDragStart(props.cls.id, e)}
       onDragOver={(e) => handleClassDragOver(props.cls.id, e)}
       onDrop={(e) => handleClassDrop(props.cls.id, e)}
@@ -82,7 +81,9 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
             >
               <Show
                 when={expandedClasses()[props.cls.id]}
-                fallback={<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />}
+                fallback={
+                  <ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+                }
               >
                 <ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
               </Show>
@@ -121,7 +122,9 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
                 <button
                   class="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent shrink-0 transition-opacity"
                   title="Rename class"
-                  onClick={(e) => startRename(e, 'class', props.cls.id, props.cls.name)}
+                  onClick={(e) =>
+                    startRename(e, 'class', props.cls.id, props.cls.name)
+                  }
                 >
                   <Pencil class="h-3 w-3" />
                 </button>
@@ -172,7 +175,10 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
         <div class="ml-4 mt-0.5 space-y-0.5">
           {/* New Folder form */}
           <Show when={creatingFolderForClass() === props.cls.id}>
-            <form onSubmit={(e) => handleCreateFolder(e, props.cls.id)} class="flex gap-1 py-1">
+            <form
+              onSubmit={(e) => handleCreateFolder(e, props.cls.id)}
+              class="flex gap-1 py-1"
+            >
               <Input
                 placeholder="Folder name..."
                 value={newFolderName()}
@@ -191,7 +197,9 @@ export function SidebarClassItem(props: SidebarClassItemProps) {
 
           {/* Folders */}
           <For each={foldersByClass()[props.cls.id] ?? []}>
-            {(folder) => <SidebarFolderItem folder={folder} classId={props.cls.id} />}
+            {(folder) => (
+              <SidebarFolderItem folder={folder} classId={props.cls.id} />
+            )}
           </For>
         </div>
       </Show>

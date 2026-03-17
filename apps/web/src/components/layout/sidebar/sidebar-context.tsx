@@ -2,21 +2,21 @@ import {
   createContext,
   useContext,
   createSignal,
+  createMemo,
   createEffect,
   on,
   batch,
   type Accessor,
   type Setter,
 } from 'solid-js';
+import { createQuery } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
+import { queryClient } from '@/lib/query-client';
 import { currentUser } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import {
-  foldersByClass,
-  updateFoldersForClass,
-  removeClassFromCache,
   ensureClassExpanded,
-  prefetchAllFolders,
+  setExpandedClasses,
   type FolderItem,
 } from '@/stores/sidebar.store';
 
@@ -29,6 +29,7 @@ export interface ClassItem {
 interface SidebarContextType {
   classes: Accessor<ClassItem[]>;
   classesLoading: Accessor<boolean>;
+  foldersByClass: Accessor<Record<string, FolderItem[]>>;
   refetchClasses: () => void;
   showNewClass: Accessor<boolean>;
   setShowNewClass: Setter<boolean>;
@@ -89,32 +90,47 @@ interface SidebarContextType {
 const SidebarContext = createContext<SidebarContextType>();
 
 export function SidebarProvider(props: { children: any }) {
-  const [classes, setClasses] = createSignal<ClassItem[]>([]);
-  const [classesLoading, setClassesLoading] = createSignal(false);
-
-  async function fetchClasses() {
-    if (!currentUser()) return;
-    setClassesLoading(true);
-    try {
+  // ── TanStack Query: classes ──────────────────────────────────────────
+  const classesQuery = createQuery(() => ({
+    queryKey: ['sidebar-classes'],
+    queryFn: async () => {
       const { data } = await api.classes.get();
-      setClasses((data ?? []) as ClassItem[]);
-    } catch {
-      /* non-fatal */
-    } finally {
-      setClassesLoading(false);
-    }
-  }
+      return (data ?? []) as ClassItem[];
+    },
+    enabled: !!currentUser()?.id,
+  }));
+  const classes = () => classesQuery.data ?? [];
+  const classesLoading = () => classesQuery.isLoading;
 
-  // Auto-fetch when currentUser changes
+  // ── TanStack Query: all folders (batch) ─────────────────────────────
+  const allFoldersQuery = createQuery(() => ({
+    queryKey: ['sidebar-folders'],
+    queryFn: async () => {
+      const { data } = await (api.folders as any).all.get();
+      return (Array.isArray(data) ? data : []) as FolderItem[];
+    },
+    enabled: !!currentUser()?.id,
+  }));
+
+  /** Grouped folders derived from flat query data (rule 1-2: createMemo) */
+  const foldersByClass = createMemo(() => {
+    const data = allFoldersQuery.data ?? [];
+    const grouped: Record<string, FolderItem[]> = {};
+    for (const f of data) {
+      (grouped[f.classId] ??= []).push(f);
+    }
+    return grouped;
+  });
+
+  // Clear caches on logout
   createEffect(
     on(
       () => currentUser()?.id,
       (id) => {
-        if (id) {
-          fetchClasses();
-          prefetchAllFolders();
-        } else {
-          setClasses([]);
+        if (!id) {
+          queryClient.removeQueries({ queryKey: ['sidebar-classes'] });
+          queryClient.removeQueries({ queryKey: ['sidebar-folders'] });
+          setExpandedClasses({});
         }
       },
     ),
@@ -187,14 +203,14 @@ export function SidebarProvider(props: { children: any }) {
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
 
-    setClasses(reordered);
+    queryClient.setQueryData(['sidebar-classes'], reordered);
     resetDrag();
 
     const { error: reorderError } = await api.classes.reorder.patch({
       classIds: reordered.map((c) => c.id),
     });
     if (reorderError) {
-      fetchClasses();
+      queryClient.invalidateQueries({ queryKey: ['sidebar-classes'] });
       toast.error(getApiError(reorderError) || 'Failed to reorder classes');
     }
   };
@@ -249,7 +265,11 @@ export function SidebarProvider(props: { children: any }) {
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
 
-    updateFoldersForClass(sourceClassId, reordered);
+    // Optimistic: replace this class's folders in the flat cache
+    queryClient.setQueryData<FolderItem[]>(['sidebar-folders'], (old) => {
+      if (!old) return reordered;
+      return [...old.filter((f) => f.classId !== sourceClassId), ...reordered];
+    });
     resetDrag();
 
     const { error: reorderFolderError } = await api.folders['by-class']({
@@ -258,10 +278,7 @@ export function SidebarProvider(props: { children: any }) {
       folderIds: reordered.map((f) => f.id),
     });
     if (reorderFolderError) {
-      const { data } = await api.folders['by-class']({
-        classId: sourceClassId,
-      }).get();
-      updateFoldersForClass(sourceClassId, (data ?? []) as FolderItem[]);
+      queryClient.invalidateQueries({ queryKey: ['sidebar-folders'] });
       toast.error(
         getApiError(reorderFolderError) || 'Failed to reorder folders',
       );
@@ -279,7 +296,7 @@ export function SidebarProvider(props: { children: any }) {
       if (error) throw new Error(getApiError(error));
       setNewClassName('');
       setShowNewClass(false);
-      fetchClasses();
+      queryClient.invalidateQueries({ queryKey: ['sidebar-classes'] });
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to create class');
     }
@@ -294,8 +311,7 @@ export function SidebarProvider(props: { children: any }) {
         name,
       });
       if (error) throw new Error(getApiError(error));
-      const { data } = await api.folders['by-class']({ classId }).get();
-      updateFoldersForClass(classId, (data ?? []) as FolderItem[]);
+      queryClient.invalidateQueries({ queryKey: ['sidebar-folders'] });
       setNewFolderName('');
       setCreatingFolderForClass(null);
     } catch (err: any) {
@@ -348,18 +364,15 @@ export function SidebarProvider(props: { children: any }) {
       if (type === 'class') {
         const { error } = await (api.classes as any)[id].patch({ name });
         if (error) throw new Error(getApiError(error));
-        fetchClasses();
+        queryClient.invalidateQueries({ queryKey: ['sidebar-classes'] });
       } else if (type === 'folder') {
         const { error } = await (api.folders as any)[id].patch({ name });
         if (error) throw new Error(getApiError(error));
-        if (context) {
-          updateFoldersForClass(
-            context,
-            (foldersByClass()[context] ?? []).map((f) =>
-              f.id === id ? { ...f, name } : f,
-            ),
-          );
-        }
+        // Optimistic: update the folder name in the flat cache
+        queryClient.setQueryData<FolderItem[]>(
+          ['sidebar-folders'],
+          (old) => old?.map((f) => (f.id === id ? { ...f, name } : f)) ?? [],
+        );
       }
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to rename');
@@ -376,8 +389,13 @@ export function SidebarProvider(props: { children: any }) {
       ].delete();
       if (deleteClassError) throw new Error(getApiError(deleteClassError));
       setConfirmDeleteId(null);
-      removeClassFromCache(id);
-      fetchClasses();
+      setExpandedClasses((prev) => {
+        const n = { ...prev };
+        delete n[id];
+        return n;
+      });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-classes'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar-folders'] });
       toast.success('Class deleted');
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to delete class');
@@ -396,9 +414,10 @@ export function SidebarProvider(props: { children: any }) {
       ].delete();
       if (deleteFolderError) throw new Error(getApiError(deleteFolderError));
       setConfirmDeleteId(null);
-      updateFoldersForClass(
-        classId,
-        (foldersByClass()[classId] ?? []).filter((f) => f.id !== folderId),
+      // Optimistic: remove from flat cache
+      queryClient.setQueryData<FolderItem[]>(
+        ['sidebar-folders'],
+        (old) => old?.filter((f) => f.id !== folderId) ?? [],
       );
       toast.success('Folder deleted');
     } catch (err: any) {
@@ -411,7 +430,9 @@ export function SidebarProvider(props: { children: any }) {
       value={{
         classes,
         classesLoading,
-        refetchClasses: fetchClasses,
+        foldersByClass,
+        refetchClasses: () =>
+          queryClient.invalidateQueries({ queryKey: ['sidebar-classes'] }),
         showNewClass,
         setShowNewClass,
         newClassName,

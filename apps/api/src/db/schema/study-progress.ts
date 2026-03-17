@@ -34,6 +34,7 @@ export const studyProgress = pgTable(
     difficulty: real('difficulty'),
     fsrsState: varchar('fsrs_state', { length: 15 }).default('new'),
     lastElapsedDays: real('last_elapsed_days').default(0),
+    fsrsLearningSteps: integer('fsrs_learning_steps').default(0),
   },
   (table) => [
     unique('uq_user_card_progress').on(table.userId, table.cardId),

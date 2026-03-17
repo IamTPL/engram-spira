@@ -1,13 +1,19 @@
 import { Show, createEffect, on } from 'solid-js';
 import { useNavigate, useLocation } from '@solidjs/router';
 import { PanelLeft, LayoutDashboard } from 'lucide-solid';
-import { ensureClassExpanded, foldersByClass, sidebarCollapsed, toggleSidebar } from '@/stores/sidebar.store';
+import {
+  ensureClassExpanded,
+  sidebarCollapsed,
+  toggleSidebar,
+} from '@/stores/sidebar.store';
 import { api } from '@/api/client';
+import { useSidebar } from './sidebar-context';
 import { SidebarFooter } from './sidebar-footer';
 import { SidebarClassList } from './sidebar-class-list';
 
 /** Shared sidebar content — reused for both desktop aside and mobile drawer */
 export function SidebarContent() {
+  const { foldersByClass } = useSidebar();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -44,7 +50,9 @@ export function SidebarContent() {
           try {
             const { data } = await (api.decks as any)[deckId].get();
             if (data?.folderId) {
-              const { data: folderData } = await (api.folders as any)[data.folderId].get();
+              const { data: folderData } = await (api.folders as any)[
+                data.folderId
+              ].get();
               if (folderData?.classId) {
                 await ensureClassExpanded(folderData.classId);
               }
@@ -109,7 +117,11 @@ export function SidebarContent() {
                 onClick={() => navigate('/')}
                 title="Go to Dashboard"
               >
-                <img src="/logo-engram.webp" alt="Engram Spira logo" class="h-7 w-auto" />
+                <img
+                  src="/logo-engram.webp"
+                  alt="Engram Spira logo"
+                  class="h-7 w-auto"
+                />
                 <span class="text-base font-bold tracking-tight text-foreground truncate">
                   Engram Spira
                 </span>
