@@ -1,8 +1,11 @@
 import Elysia, { t } from 'elysia';
+import { eq } from 'drizzle-orm';
 import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from '../auth/auth.middleware';
 import * as studyService from './study.service';
 import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
+import { db } from '../../db';
+import { users } from '../../db/schema';
 
 const VALID_ACTIONS = Object.values(REVIEW_ACTIONS);
 const reviewActionSchema = t.Union(VALID_ACTIONS.map((a) => t.Literal(a)));
@@ -149,6 +152,30 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
       query: t.Object({
         topN: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
         limit: t.Optional(t.Numeric({ minimum: 1, maximum: 200 })),
+      }),
+    },
+  )
+  // --------------- Algorithm Selection ---------------
+  .get('/algorithm', async ({ currentUser }) => {
+    const [row] = await db
+      .select({ srsAlgorithm: users.srsAlgorithm })
+      .from(users)
+      .where(eq(users.id, currentUser.id))
+      .limit(1);
+    return { algorithm: row?.srsAlgorithm ?? 'sm2' };
+  })
+  .patch(
+    '/algorithm',
+    async ({ currentUser, body }) => {
+      await db
+        .update(users)
+        .set({ srsAlgorithm: body.algorithm })
+        .where(eq(users.id, currentUser.id));
+      return { algorithm: body.algorithm };
+    },
+    {
+      body: t.Object({
+        algorithm: t.Union([t.Literal('sm2'), t.Literal('fsrs')]),
       }),
     },
   );

@@ -1,6 +1,8 @@
-import { createSignal, createRoot, createEffect, on } from 'solid-js';
+import { createRoot } from 'solid-js';
+import { createQuery } from '@tanstack/solid-query';
 import { api } from '@/api/client';
 import { currentUser } from './auth.store';
+import { queryClient } from '@/lib/query-client';
 import { NOTIFICATIONS_POLL_MS } from '@/constants';
 
 interface DueDeckNotification {
@@ -9,76 +11,34 @@ interface DueDeckNotification {
   dueCount: number;
 }
 
-// Use plain signals instead of createResource to avoid triggering <Suspense>
-// boundaries when the data is read inside the component tree.
-const [dueDecks, setDueDecks] = createSignal<DueDeckNotification[]>([]);
-const [dueDeckLoading, setDueDeckLoading] = createSignal(false);
+// Wrap in createRoot so reactive primitives have ownership outside components.
+const { dueDecks, dueDeckLoading, refetchDue, totalDue, hasDue } = createRoot(
+  () => {
+    const notifQuery = createQuery(
+      () => ({
+        queryKey: ['notifications'],
+        queryFn: async () => {
+          const { data } = await (api.notifications as any)['due-decks'].get();
+          return (data ?? []) as DueDeckNotification[];
+        },
+        enabled: !!currentUser(),
+        refetchInterval: NOTIFICATIONS_POLL_MS,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
+      }),
+      () => queryClient,
+    );
 
-async function refetchDue() {
-  if (!currentUser()) return;
-  setDueDeckLoading(true);
-  try {
-    const { data } = await (api.notifications as any)['due-decks'].get();
-    setDueDecks((data ?? []) as DueDeckNotification[]);
-  } catch {
-    /* network errors are non-fatal for notifications */
-  } finally {
-    setDueDeckLoading(false);
-  }
-}
+    const dueDecks = () => notifQuery.data ?? [];
+    const dueDeckLoading = () => notifQuery.isLoading;
+    const refetchDue = () =>
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    const totalDue = () => dueDecks().reduce((sum, d) => sum + d.dueCount, 0);
+    const hasDue = () => totalDue() > 0;
 
-// Auto-fetch when currentUser changes (login / logout)
-createRoot(() => {
-  createEffect(
-    on(
-      () => currentUser()?.id,
-      (id) => {
-        if (id) {
-          refetchDue();
-        } else {
-          setDueDecks([]);
-        }
-      },
-    ),
-  );
-});
-
-// Visibility-aware polling — pauses when tab is hidden to save battery/CPU
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-function startPolling() {
-  stopPolling();
-  pollTimer = setInterval(() => {
-    if (currentUser() && !document.hidden) refetchDue();
-  }, NOTIFICATIONS_POLL_MS);
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
-
-// Start polling immediately, pause/resume on visibility change
-function handleVisibilityChange() {
-  if (document.hidden) {
-    stopPolling();
-  } else {
-    // Refetch immediately when tab becomes visible again
-    if (currentUser()) refetchDue();
-    startPolling();
-  }
-}
-
-if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  startPolling();
-}
-
-// Derived helpers
-const totalDue = () => dueDecks().reduce((sum, d) => sum + d.dueCount, 0);
-const hasDue = () => totalDue() > 0;
+    return { dueDecks, dueDeckLoading, refetchDue, totalDue, hasDue };
+  },
+);
 
 export { dueDecks, dueDeckLoading, refetchDue, totalDue, hasDue };
 export type { DueDeckNotification };

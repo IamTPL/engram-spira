@@ -4,6 +4,7 @@ import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 
 const MAX_IMPORT_ROWS = 10_000;
+const EXPORT_CHUNK_SIZE = 500;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -229,23 +230,9 @@ export async function exportCSV(deckId: string, userId: string) {
     return { csv: header + '\n', deckName: deck.name, cardCount: 0 };
   }
 
-  // Fetch all field values for these cards
+  // Fetch field values in chunks to avoid huge IN clauses
   const cardIds = allCards.map((c) => c.id);
-  const fieldValuesAll = await db
-    .select({
-      cardId: cardFieldValues.cardId,
-      templateFieldId: cardFieldValues.templateFieldId,
-      value: cardFieldValues.value,
-    })
-    .from(cardFieldValues)
-    .where(inArray(cardFieldValues.cardId, cardIds));
-
-  // Group by card
-  const byCard = new Map<string, Map<string, unknown>>();
-  for (const fv of fieldValuesAll) {
-    if (!byCard.has(fv.cardId)) byCard.set(fv.cardId, new Map());
-    byCard.get(fv.cardId)!.set(fv.templateFieldId, fv.value);
-  }
+  const byCard = await fetchFieldValuesChunked(cardIds);
 
   // Build CSV
   const header = fields.map((f) => escapeCSVField(f.name)).join(',');
@@ -292,20 +279,7 @@ export async function exportJSON(deckId: string, userId: string) {
   }
 
   const cardIds = allCards.map((c) => c.id);
-  const fieldValuesAll = await db
-    .select({
-      cardId: cardFieldValues.cardId,
-      templateFieldId: cardFieldValues.templateFieldId,
-      value: cardFieldValues.value,
-    })
-    .from(cardFieldValues)
-    .where(inArray(cardFieldValues.cardId, cardIds));
-
-  const byCard = new Map<string, Map<string, unknown>>();
-  for (const fv of fieldValuesAll) {
-    if (!byCard.has(fv.cardId)) byCard.set(fv.cardId, new Map());
-    byCard.get(fv.cardId)!.set(fv.templateFieldId, fv.value);
-  }
+  const byCard = await fetchFieldValuesChunked(cardIds);
 
   const jsonCards = allCards.map((card) => {
     const fieldMap = byCard.get(card.id) ?? new Map();
@@ -325,6 +299,29 @@ export async function exportJSON(deckId: string, userId: string) {
     deckName: deck.name,
     cardCount: allCards.length,
   };
+}
+
+/** Fetch card field values in chunks to avoid unbounded IN clauses */
+async function fetchFieldValuesChunked(
+  cardIds: string[],
+): Promise<Map<string, Map<string, unknown>>> {
+  const byCard = new Map<string, Map<string, unknown>>();
+  for (let i = 0; i < cardIds.length; i += EXPORT_CHUNK_SIZE) {
+    const chunk = cardIds.slice(i, i + EXPORT_CHUNK_SIZE);
+    const rows = await db
+      .select({
+        cardId: cardFieldValues.cardId,
+        templateFieldId: cardFieldValues.templateFieldId,
+        value: cardFieldValues.value,
+      })
+      .from(cardFieldValues)
+      .where(inArray(cardFieldValues.cardId, chunk));
+    for (const fv of rows) {
+      if (!byCard.has(fv.cardId)) byCard.set(fv.cardId, new Map());
+      byCard.get(fv.cardId)!.set(fv.templateFieldId, fv.value);
+    }
+  }
+  return byCard;
 }
 
 function escapeCSVField(value: string): string {

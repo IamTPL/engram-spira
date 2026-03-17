@@ -11,6 +11,9 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   displayName: varchar('display_name', { length: 50 }),
   avatarUrl: text('avatar_url'),
+  srsAlgorithm: varchar('srs_algorithm', { length: 10 })
+    .notNull()
+    .default('sm2'),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

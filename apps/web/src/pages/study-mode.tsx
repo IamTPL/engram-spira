@@ -1,7 +1,6 @@
 import {
   type Component,
   createSignal,
-  createResource,
   createMemo,
   createEffect,
   onMount,
@@ -11,7 +10,9 @@ import {
   For,
 } from 'solid-js';
 import { useParams, useNavigate } from '@solidjs/router';
+import { createQuery, createMutation } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
+import { queryClient } from '@/lib/query-client';
 import type { ReviewAction } from '@/../../api/src/shared/constants';
 import Flashcard from '@/components/flashcard/flashcard';
 import StudyControls from '@/components/flashcard/study-controls';
@@ -50,19 +51,20 @@ const StudyModePage: Component = () => {
   const [studyError, setStudyError] = createSignal<string | null>(null);
 
   // Fetch deck name
-  const [deck] = createResource(
-    () => params.deckId,
-    async (deckId) => {
-      const { data } = await (api.decks as any)[deckId].get();
-      return data as { id: string; name: string } | null;
+  const deckQuery = createQuery(() => ({
+    queryKey: ['deck', params.deckId],
+    queryFn: async () => {
+      const { data } = await (api.decks as any)[params.deckId].get();
+      return (data as { id: string; name: string }) ?? null;
     },
-  );
+    enabled: !!params.deckId,
+  }));
 
-  const [studyData, { refetch }] = createResource(
-    () => ({ deckId: params.deckId, mode: studyMode() }),
-    async ({ deckId, mode }) => {
-      const { data, error } = await (api.study.deck as any)[deckId].get({
-        query: mode === 'all' ? { mode: 'all' } : {},
+  const studyQuery = createQuery(() => ({
+    queryKey: ['studyData', params.deckId, studyMode()],
+    queryFn: async () => {
+      const { data, error } = await (api.study.deck as any)[params.deckId].get({
+        query: studyMode() === 'all' ? { mode: 'all' } : {},
       });
       if (error || !data) {
         setStudyError(
@@ -87,18 +89,16 @@ const StudyModePage: Component = () => {
         due: number;
       };
     },
-  );
+    enabled: !!params.deckId,
+  }));
 
   // Fetch review schedule — only when there are no due cards and in due mode
-  const [schedule] = createResource(
-    () => {
-      const data = studyData();
-      return data && data.due === 0 && studyMode() === 'due'
-        ? params.deckId
-        : null;
-    },
-    async (deckId) => {
-      const { data } = await (api.study.deck as any)[deckId].schedule.get();
+  const scheduleQuery = createQuery(() => ({
+    queryKey: ['schedule', params.deckId],
+    queryFn: async () => {
+      const { data } = await (api.study.deck as any)[
+        params.deckId
+      ].schedule.get();
       return data as {
         totalCards: number;
         learnedCards: number;
@@ -107,7 +107,26 @@ const StudyModePage: Component = () => {
         nextReviewDate: string | null;
       } | null;
     },
-  );
+    enabled:
+      !!params.deckId && studyQuery.data?.due === 0 && studyMode() === 'due',
+  }));
+
+  const reviewBatchMutation = createMutation(() => ({
+    mutationFn: async (items: { cardId: string; action: ReviewAction }[]) => {
+      const { error } = await (api.study as any)['review-batch'].post({
+        items,
+      });
+      if (error) throw new Error(getApiError(error));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['studyData', params.deckId] });
+      queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  }));
+
+  const studyData = () => studyQuery.data;
 
   const currentCard = createMemo(() => {
     const data = studyData();
@@ -122,8 +141,8 @@ const StudyModePage: Component = () => {
     return Math.round((currentIndex() / data.due) * 100);
   });
 
-  const hasReviewedCards = createMemo(() =>
-    stats().again + stats().hard + stats().good + stats().easy > 0
+  const hasReviewedCards = createMemo(
+    () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
   const flushPendingReviews = async (force = false) => {
@@ -131,8 +150,7 @@ const StudyModePage: Component = () => {
     if (pending.length === 0) return;
     if (!force && pending.length < 8) return;
 
-    const { error: reviewBatchError } = await (api.study as any)['review-batch'].post({ items: pending });
-    if (reviewBatchError) throw new Error(getApiError(reviewBatchError));
+    await reviewBatchMutation.mutateAsync(pending);
     setPendingReviews((prev) => prev.slice(pending.length));
   };
 
@@ -165,8 +183,11 @@ const StudyModePage: Component = () => {
         setCheckingMore(true);
         // Brief delay for SM-2 learning cards to become due
         await new Promise((r) => setTimeout(r, 1500));
-        const result = await refetch();
-        if (result && result.cards.length > 0) {
+        await queryClient.invalidateQueries({
+          queryKey: ['studyData', params.deckId],
+        });
+        const refreshed = studyData();
+        if (refreshed && refreshed.cards.length > 0) {
           setCurrentIndex(0); // continue with new batch seamlessly
         }
         setCheckingMore(false);
@@ -176,6 +197,9 @@ const StudyModePage: Component = () => {
     }
   };
 
+  const invalidateStudy = () =>
+    queryClient.invalidateQueries({ queryKey: ['studyData', params.deckId] });
+
   const handleRestart = () => {
     batch(() => {
       setCurrentIndex(0);
@@ -183,7 +207,7 @@ const StudyModePage: Component = () => {
       setIsFlipped(false);
       setStudyMode('due');
     });
-    refetch();
+    invalidateStudy();
   };
 
   // Continue session without resetting stats (used by countdown timer)
@@ -193,7 +217,7 @@ const StudyModePage: Component = () => {
       setIsFlipped(false);
       setStudyMode('due');
     });
-    refetch();
+    invalidateStudy();
   };
 
   const handleReviewAll = () => {
@@ -214,7 +238,7 @@ const StudyModePage: Component = () => {
         setIsFlipped(false);
         setStudyMode('due');
       });
-      refetch();
+      invalidateStudy();
     } catch {
       // ignore
     }
@@ -239,7 +263,7 @@ const StudyModePage: Component = () => {
   const [countdown, setCountdown] = createSignal('');
 
   createEffect(() => {
-    const sched = schedule();
+    const sched = scheduleQuery.data;
     if (!sched || !sched.nextReviewDate || sched.dueSoon === 0) {
       setCountdown('');
       return;
@@ -286,9 +310,9 @@ const StudyModePage: Component = () => {
           Back
         </Button>
         <div class="text-center">
-          <Show when={deck()}>
+          <Show when={deckQuery.data}>
             <p class="text-sm font-medium truncate max-w-48 sm:max-w-xs">
-              {deck()!.name}
+              {deckQuery.data!.name}
             </p>
           </Show>
           <Show when={studyData()}>
@@ -332,7 +356,7 @@ const StudyModePage: Component = () => {
         </Show>
         <Show when={!studyError()}>
           <Show
-            when={!studyData.loading && !checkingMore()}
+            when={!studyQuery.isLoading && !checkingMore()}
             fallback={
               <div class="w-full max-w-lg space-y-6 px-4">
                 <div class="animate-pulse space-y-4">
@@ -383,9 +407,7 @@ const StudyModePage: Component = () => {
                   </Show>
 
                   {/* Session stats — only shown when a session was completed */}
-                  <Show
-                    when={hasReviewedCards()}
-                  >
+                  <Show when={hasReviewedCards()}>
                     <div class="grid grid-cols-4 gap-3 text-center">
                       <div class="rounded-lg border p-3 bg-card">
                         <p class="text-2xl font-bold text-destructive">
@@ -417,27 +439,33 @@ const StudyModePage: Component = () => {
                   </Show>
 
                   {/* Deck progress */}
-                  <Show when={schedule()}>
+                  <Show when={scheduleQuery.data}>
                     <div class="rounded-lg border bg-card p-3 flex items-center justify-between gap-3">
                       <div class="flex items-center gap-2 text-muted-foreground">
                         <BookOpen class="h-4 w-4" />
                         <span class="text-sm">Cards learned</span>
                       </div>
                       <span class="text-sm font-semibold">
-                        {schedule()!.learnedCards} / {schedule()!.totalCards}
+                        {scheduleQuery.data!.learnedCards} /{' '}
+                        {scheduleQuery.data!.totalCards}
                       </span>
                     </div>
                   </Show>
 
                   {/* Upcoming review schedule */}
-                  <Show when={schedule() && schedule()!.upcoming.length > 0}>
+                  <Show
+                    when={
+                      scheduleQuery.data &&
+                      scheduleQuery.data!.upcoming.length > 0
+                    }
+                  >
                     <div class="space-y-2 w-full text-left">
                       <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                         <Calendar class="h-4 w-4" />
                         <span>Upcoming reviews</span>
                       </div>
                       <div class="space-y-1.5">
-                        <For each={schedule()!.upcoming.slice(0, 5)}>
+                        <For each={scheduleQuery.data!.upcoming.slice(0, 5)}>
                           {(item) => (
                             <div class="flex items-center justify-between rounded-lg border px-3 py-2 bg-card">
                               <span class="text-sm text-muted-foreground">
@@ -457,14 +485,18 @@ const StudyModePage: Component = () => {
                   </Show>
 
                   {/* Cards due soon (within ~1 hour) — with countdown */}
-                  <Show when={schedule() && schedule()!.dueSoon > 0}>
+                  <Show
+                    when={scheduleQuery.data && scheduleQuery.data!.dueSoon > 0}
+                  >
                     <div class="rounded-lg border bg-amber-500/10 border-amber-500/30 p-3 space-y-2">
                       <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2 text-warning">
                           <Timer class="h-4 w-4" />
                           <span class="text-sm font-medium">
-                            {schedule()!.dueSoon}{' '}
-                            {schedule()!.dueSoon === 1 ? 'card' : 'cards'}{' '}
+                            {scheduleQuery.data!.dueSoon}{' '}
+                            {scheduleQuery.data!.dueSoon === 1
+                              ? 'card'
+                              : 'cards'}{' '}
                             coming back soon
                           </span>
                         </div>
@@ -483,14 +515,14 @@ const StudyModePage: Component = () => {
                   {/* Fully mastered — only when no upcoming AND no due soon */}
                   <Show
                     when={
-                      schedule() &&
-                      schedule()!.upcoming.length === 0 &&
-                      schedule()!.dueSoon === 0 &&
-                      schedule()!.learnedCards > 0
+                      scheduleQuery.data &&
+                      scheduleQuery.data!.upcoming.length === 0 &&
+                      scheduleQuery.data!.dueSoon === 0 &&
+                      scheduleQuery.data!.learnedCards > 0
                     }
                   >
                     <p class="text-sm text-muted-foreground">
-                      🎉 All {schedule()!.learnedCards} cards are fully
+                      🎉 All {scheduleQuery.data!.learnedCards} cards are fully
                       mastered!
                     </p>
                   </Show>

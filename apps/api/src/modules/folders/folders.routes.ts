@@ -4,6 +4,7 @@ import * as foldersService from './folders.service';
 
 export const foldersRoutes = new Elysia({ prefix: '/folders' })
   .use(requireAuth)
+  .get('/all', ({ currentUser }) => foldersService.listByUser(currentUser.id))
   .get('/by-class/:classId', ({ currentUser, params }) =>
     foldersService.listByClass(params.classId, currentUser.id),
   )

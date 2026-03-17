@@ -13,6 +13,20 @@ async function verifyClassOwnership(classId: string, userId: string) {
   return cls;
 }
 
+export async function listByUser(userId: string) {
+  return db
+    .select({
+      id: folders.id,
+      name: folders.name,
+      classId: folders.classId,
+      sortOrder: folders.sortOrder,
+    })
+    .from(folders)
+    .innerJoin(classes, eq(folders.classId, classes.id))
+    .where(eq(classes.userId, userId))
+    .orderBy(asc(folders.sortOrder));
+}
+
 export async function listByClass(classId: string, userId: string) {
   await verifyClassOwnership(classId, userId);
   return db
@@ -95,7 +109,10 @@ export async function reorder(
       if (newOrder === undefined) {
         newOrder = nextOrder++;
       }
-      return tx.update(folders).set({ sortOrder: newOrder }).where(eq(folders.id, f.id));
+      return tx
+        .update(folders)
+        .set({ sortOrder: newOrder })
+        .where(eq(folders.id, f.id));
     });
 
     await Promise.all(updates);

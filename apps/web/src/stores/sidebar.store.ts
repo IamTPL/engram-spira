@@ -7,9 +7,9 @@ const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
 const [mobileDrawerOpen, setMobileDrawerOpen] = createSignal(false);
 
 /** Expanded class IDs — Record<string, boolean> for O(1) toggle without Set copy */
-const [expandedClasses, setExpandedClasses] = createSignal<Record<string, boolean>>(
-  {},
-);
+const [expandedClasses, setExpandedClasses] = createSignal<
+  Record<string, boolean>
+>({});
 
 /** Lazy-loaded folders per class */
 interface FolderItem {
@@ -21,6 +21,35 @@ const [foldersByClass, setFoldersByClass] = createSignal<
   Record<string, FolderItem[]>
 >({});
 
+let allFoldersFetched = false;
+
+/** Batch-fetch all folders for the user in a single request, populating foldersByClass */
+const prefetchAllFolders = async () => {
+  if (allFoldersFetched) return;
+  try {
+    const { data } = await (api.folders as any).all.get();
+    if (Array.isArray(data)) {
+      const grouped: Record<string, FolderItem[]> = {};
+      for (const f of data as FolderItem[]) {
+        (grouped[f.classId] ??= []).push(f);
+      }
+      setFoldersByClass(grouped);
+      allFoldersFetched = true;
+    }
+  } catch {
+    /* non-fatal — falls back to per-class fetch */
+  }
+};
+
+/** Fetch folders for a single class (fallback when batch not yet loaded) */
+const fetchFoldersForClass = async (classId: string) => {
+  const { data } = await api.folders['by-class']({ classId }).get();
+  setFoldersByClass((prev) => ({
+    ...prev,
+    [classId]: (data ?? []) as FolderItem[],
+  }));
+};
+
 /** Toggle a class open/closed, lazy-loading folders on first expand */
 const toggleClass = async (classId: string) => {
   const isExpanded = expandedClasses()[classId];
@@ -29,11 +58,7 @@ const toggleClass = async (classId: string) => {
   } else {
     setExpandedClasses((prev) => ({ ...prev, [classId]: true }));
     if (!foldersByClass()[classId]) {
-      const { data } = await api.folders['by-class']({ classId }).get();
-      setFoldersByClass((prev) => ({
-        ...prev,
-        [classId]: (data ?? []) as FolderItem[],
-      }));
+      await fetchFoldersForClass(classId);
     }
   }
 };
@@ -43,11 +68,7 @@ const ensureClassExpanded = async (classId: string) => {
   if (expandedClasses()[classId]) return;
   setExpandedClasses((prev) => ({ ...prev, [classId]: true }));
   if (!foldersByClass()[classId]) {
-    const { data } = await api.folders['by-class']({ classId }).get();
-    setFoldersByClass((prev) => ({
-      ...prev,
-      [classId]: (data ?? []) as FolderItem[],
-    }));
+    await fetchFoldersForClass(classId);
   }
 };
 
@@ -84,4 +105,5 @@ export {
   ensureClassExpanded,
   updateFoldersForClass,
   removeClassFromCache,
+  prefetchAllFolders,
 };

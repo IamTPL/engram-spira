@@ -20,6 +20,7 @@ interface VirtualListProps<T> {
   estimatedRowHeight: number;
   overscan?: number;
   class?: string;
+  onReachEnd?: () => void;
   children: (item: T, index: () => number) => JSX.Element;
 }
 
@@ -57,6 +58,13 @@ function VirtualList<T>(props: VirtualListProps<T>) {
 
   const handleScroll = () => {
     setScrollTop(containerRef.scrollTop);
+    // Fire onReachEnd when scrolled near the bottom
+    if (props.onReachEnd) {
+      const end = endIndex();
+      if (end >= props.items.length - (props.overscan ?? 3)) {
+        props.onReachEnd();
+      }
+    }
   };
 
   onMount(() => {
@@ -73,7 +81,7 @@ function VirtualList<T>(props: VirtualListProps<T>) {
     <div
       ref={containerRef!}
       class={props.class}
-      style={{ overflow: 'auto', position: 'relative' }}
+      style={{ overflow: 'auto', position: 'relative', contain: 'strict' }}
       onScroll={handleScroll}
     >
       <div style={{ height: `${totalHeight()}px`, position: 'relative' }}>

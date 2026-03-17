@@ -1,4 +1,10 @@
-import { type Component, Show, createSignal, onMount, onCleanup } from 'solid-js';
+import {
+  type Component,
+  Show,
+  createSignal,
+  onMount,
+  onCleanup,
+} from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,13 +20,13 @@ import {
   CheckSquare,
 } from 'lucide-solid';
 import type { DeckData, TemplateData } from './use-deck-data';
-import type { Resource } from 'solid-js';
 
 interface DeckHeaderProps {
-  deck: Resource<DeckData | null>;
-  template: Resource<TemplateData | null>;
+  deck: () => DeckData | null | undefined;
+  template: () => TemplateData | null | undefined;
   cardCount: () => number;
   searchQuery: () => string;
+  immediateSearchQuery: () => string;
   setSearchQuery: (v: string) => void;
   showAddCard: () => boolean;
   setShowAddCard: (v: boolean) => void;
@@ -41,13 +47,13 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
     if (!scrollContainer) return;
 
     let lastScrollY = scrollContainer.scrollTop;
-    
+
     // We only want it to hide if we've scrolled past the header height.
     const HEADER_HEIGHT = 100;
 
     const handleScroll = () => {
       const currentScrollY = scrollContainer.scrollTop;
-      
+
       // Update basic scrolled state (for adding shadow when not at top)
       setIsScrolled(currentScrollY > 10);
 
@@ -57,7 +63,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
       } else if (currentScrollY < lastScrollY) {
         setIsVisible(true);
       }
-      
+
       // Allow it to bounce back to visible at the very top.
       if (currentScrollY <= 0) {
         setIsVisible(true);
@@ -67,7 +73,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
     };
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-    
+
     onCleanup(() => {
       scrollContainer.removeEventListener('scroll', handleScroll);
     });
@@ -76,9 +82,9 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
   return (
     <div
       class={cn(
-        "sticky top-0 z-20 bg-background transition-all duration-300 ease-in-out border-b px-6 pb-4 pt-4 -mt-4",
-        !isVisible() ? "-translate-y-full border-transparent" : "translate-y-0",
-        isScrolled() && isVisible() && "shadow-sm border-border"
+        'sticky top-0 z-20 bg-background transition-all duration-300 ease-in-out border-b px-6 pb-4 pt-4 -mt-4',
+        !isVisible() ? '-translate-y-full border-transparent' : 'translate-y-0',
+        isScrolled() && isVisible() && 'shadow-sm border-border',
       )}
     >
       <div class="max-w-5xl mx-auto">
@@ -156,7 +162,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
             <Input
               placeholder="Search cards..."
               class="pl-9 h-9 text-sm bg-background"
-              value={props.searchQuery()}
+              value={props.immediateSearchQuery()}
               onInput={(e) => props.setSearchQuery(e.currentTarget.value)}
             />
           </div>

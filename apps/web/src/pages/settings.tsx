@@ -3,11 +3,12 @@ import {
   Show,
   For,
   createSignal,
-  createResource,
   createEffect,
 } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { useNavigate } from '@solidjs/router';
+import { createQuery, createMutation } from '@tanstack/solid-query';
+import { queryClient } from '@/lib/query-client';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +34,7 @@ import {
   Pencil,
   X,
   Loader2,
+  BrainCircuit,
 } from 'lucide-solid';
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
@@ -93,8 +95,38 @@ const AvatarDisplay: Component<{
 const SettingsPage: Component = () => {
   const navigate = useNavigate();
 
-  // ── Fetch avatar collection ──────────────────────────────────────────
-  const [avatars] = createResource(fetchAvatars);
+  // ── Fetch avatar collection ──────────────────────────────────
+  const avatarsQuery = createQuery(() => ({
+    queryKey: ['avatars'],
+    queryFn: fetchAvatars,
+    staleTime: 5 * 60_000,
+  }));
+  const avatars = () => avatarsQuery.data ?? [];
+
+  // ── SRS Algorithm preference ──────────────────────────────────
+  const algorithmQuery = createQuery(() => ({
+    queryKey: ['srsAlgorithm'],
+    queryFn: async () => {
+      const { data } = await (api.study as any).algorithm.get();
+      return (data?.algorithm ?? 'sm2') as 'sm2' | 'fsrs';
+    },
+    staleTime: 60_000,
+  }));
+
+  const algorithmMutation = createMutation(() => ({
+    mutationFn: async (algorithm: 'sm2' | 'fsrs') => {
+      const { error } = await (api.study as any).algorithm.patch({ algorithm });
+      if (error) throw new Error(getApiError(error));
+      return algorithm;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['srsAlgorithm'] });
+      toast.success('Algorithm updated!');
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'Failed to update algorithm');
+    },
+  }));
 
   // ── Profile edit state ───────────────────────────────────────────────
   const [displayName, setDisplayName] = createSignal(
@@ -240,7 +272,7 @@ const SettingsPage: Component = () => {
               </p>
 
               <Show
-                when={!avatars.loading}
+                when={!avatarsQuery.isLoading}
                 fallback={
                   <div class="flex items-center gap-2 text-sm text-muted-foreground py-4">
                     <Loader2 class="h-4 w-4 animate-spin" />
@@ -249,7 +281,7 @@ const SettingsPage: Component = () => {
                 }
               >
                 <Show
-                  when={(avatars() ?? []).length > 0}
+                  when={avatars().length > 0}
                   fallback={
                     <p class="text-sm text-muted-foreground py-2">
                       No avatars found in collection.
@@ -260,10 +292,11 @@ const SettingsPage: Component = () => {
                     {/* Option: no avatar (show initials) */}
                     <button
                       title="Remove avatar"
-                      class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${selectedAvatar() === null
-                        ? 'border-palette-5 ring-2 ring-palette-5/40'
-                        : 'border-transparent'
-                        }`}
+                      class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
+                        selectedAvatar() === null
+                          ? 'border-palette-5 ring-2 ring-palette-5/40'
+                          : 'border-transparent'
+                      }`}
                       onClick={() => {
                         setSelectedAvatar(null);
                         markDirty();
@@ -285,10 +318,11 @@ const SettingsPage: Component = () => {
                       {(url) => (
                         <button
                           title={url.split('/').pop()}
-                          class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${selectedAvatar() === url
-                            ? 'border-palette-5 ring-2 ring-palette-5/40'
-                            : 'border-transparent hover:border-muted-foreground/30'
-                            }`}
+                          class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${
+                            selectedAvatar() === url
+                              ? 'border-palette-5 ring-2 ring-palette-5/40'
+                              : 'border-transparent hover:border-muted-foreground/30'
+                          }`}
                           onClick={() => {
                             setSelectedAvatar(url);
                             markDirty();
@@ -467,7 +501,7 @@ const SettingsPage: Component = () => {
                         pwSaving() || !currentPw() || !newPw() || !confirmPw()
                       }
                     >
-                      <Show when={pwSaving()} fallback='Save'>
+                      <Show when={pwSaving()} fallback="Save">
                         <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
                         Saving...
                       </Show>
@@ -495,10 +529,11 @@ const SettingsPage: Component = () => {
                   const Icon = opt.icon;
                   return (
                     <button
-                      class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${theme() === opt.value
-                        ? 'border-palette-5 bg-palette-5/10 text-slate-700'
-                        : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
-                        }`}
+                      class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${
+                        theme() === opt.value
+                          ? 'border-palette-5 bg-palette-5/10 text-slate-700'
+                          : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
+                      }`}
                       onClick={() => setTheme(opt.value)}
                     >
                       <Icon class="h-5 w-5" />
@@ -513,6 +548,60 @@ const SettingsPage: Component = () => {
                   on your system settings.
                 </Show>
               </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Study Algorithm Section ── */}
+        <section class="space-y-4">
+          <div class="flex items-center gap-2">
+            <BrainCircuit class="h-4 w-4 text-muted-foreground" />
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Spaced Repetition
+            </h2>
+          </div>
+          <div class="border rounded-xl bg-card overflow-hidden">
+            <div class="px-5 py-4">
+              <p class="text-sm font-medium text-foreground mb-1">Algorithm</p>
+              <p class="text-xs text-muted-foreground mb-3">
+                Choose which spaced repetition algorithm schedules your reviews.
+              </p>
+              <div class="grid grid-cols-2 gap-3">
+                <button
+                  class={`flex flex-col gap-1 p-4 rounded-xl border-2 transition-colors text-left ${
+                    (algorithmQuery.data ?? 'sm2') === 'sm2'
+                      ? 'border-palette-5 bg-palette-5/10'
+                      : 'border-transparent bg-muted/50 hover:bg-muted'
+                  }`}
+                  disabled={algorithmMutation.isPending}
+                  onClick={() => algorithmMutation.mutate('sm2')}
+                >
+                  <span class="text-sm font-semibold">SM-2</span>
+                  <span class="text-xs text-muted-foreground">
+                    Classic SuperMemo algorithm. Simple and proven.
+                  </span>
+                </button>
+                <button
+                  class={`flex flex-col gap-1 p-4 rounded-xl border-2 transition-colors text-left ${
+                    algorithmQuery.data === 'fsrs'
+                      ? 'border-palette-5 bg-palette-5/10'
+                      : 'border-transparent bg-muted/50 hover:bg-muted'
+                  }`}
+                  disabled={algorithmMutation.isPending}
+                  onClick={() => algorithmMutation.mutate('fsrs')}
+                >
+                  <span class="text-sm font-semibold">FSRS</span>
+                  <span class="text-xs text-muted-foreground">
+                    Modern algorithm with better retention modeling.
+                  </span>
+                </button>
+              </div>
+              <Show when={algorithmMutation.isPending}>
+                <div class="flex items-center gap-2 text-xs text-muted-foreground mt-3">
+                  <Loader2 class="h-3 w-3 animate-spin" />
+                  Switching algorithm...
+                </div>
+              </Show>
             </div>
           </div>
         </section>

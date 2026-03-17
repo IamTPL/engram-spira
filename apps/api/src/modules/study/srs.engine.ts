@@ -1,5 +1,31 @@
 import { SM2 } from '../../shared/constants';
 import type { ReviewAction } from '../../shared/constants';
+import {
+  calculateFsrsReview,
+  type FsrsState,
+  type FsrsResult,
+} from './fsrs.engine';
+
+export type SrsAlgorithm = 'sm2' | 'fsrs';
+
+export function dispatchReview(
+  algorithm: SrsAlgorithm,
+  action: ReviewAction,
+  sm2State: Partial<SrsState>,
+  fsrsState: Partial<FsrsState> | null,
+  fsrsParams?: any,
+): { type: 'sm2'; result: SrsResult } | { type: 'fsrs'; result: FsrsResult } {
+  if (algorithm === 'fsrs') {
+    return {
+      type: 'fsrs' as const,
+      result: calculateFsrsReview(action, fsrsState, fsrsParams),
+    };
+  }
+  return {
+    type: 'sm2' as const,
+    result: calculateNextReview(action, sm2State),
+  };
+}
 
 export interface SrsState {
   boxLevel: number; // repetitions count (0 = never reviewed / forgotten)

@@ -1,11 +1,6 @@
-import {
-  type Component,
-  For,
-  Show,
-  createResource,
-  createMemo,
-} from 'solid-js';
+import { type Component, For, Show, createMemo } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
+import { createQuery } from '@tanstack/solid-query';
 import PageShell from '@/components/layout/page-shell';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
@@ -160,9 +155,9 @@ const DashboardPage: Component = () => {
   const navigate = useNavigate();
 
   // ── Data fetching ───────────────────────────────────────
-  const [dashboard] = createResource(
-    () => currentUser()?.id,
-    async () => {
+  const dashboardQuery = createQuery(() => ({
+    queryKey: ['dashboard', currentUser()?.id],
+    queryFn: async () => {
       const { data } = await (api.study as any)['dashboard-snapshot'].get();
       return (data ?? null) as {
         streak: StreakData;
@@ -171,7 +166,10 @@ const DashboardPage: Component = () => {
         dueDecks: DueDeck[];
       } | null;
     },
-  );
+    enabled: !!currentUser()?.id,
+    staleTime: 30_000,
+  }));
+  const dashboard = () => dashboardQuery.data;
 
   // ── Computed ─────────────────────────────────────────────
   const heatmapGrid = createMemo(() =>
@@ -188,7 +186,7 @@ const DashboardPage: Component = () => {
   return (
     <PageShell>
       <Show
-        when={!dashboard.loading}
+        when={!dashboardQuery.isLoading}
         fallback={
           <div class="space-y-6">
             <div class="space-y-2">
@@ -475,7 +473,7 @@ const DashboardPage: Component = () => {
           {/* ── Empty state ─── */}
           <Show
             when={
-              !dashboard.loading &&
+              !dashboardQuery.isLoading &&
               (dashboard()?.dueDecks ?? []).length === 0 &&
               (dashboard()?.stats.totalCardsReviewed ?? 0) === 0
             }

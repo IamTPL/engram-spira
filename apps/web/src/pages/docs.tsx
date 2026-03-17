@@ -1,7 +1,6 @@
 import {
   type Component,
   createSignal,
-  createResource,
   onMount,
   onCleanup,
   Show,
@@ -10,6 +9,7 @@ import {
   Match,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
+import { createQuery } from '@tanstack/solid-query';
 import { marked } from 'marked';
 import PageShell from '@/components/layout/page-shell';
 import {
@@ -375,21 +375,25 @@ const SvgViewer: Component<{ svgContent: string }> = (props) => {
 };
 
 const C4DiagramView: Component<{ diagram: C4Diagram }> = (props) => {
-  const [svg] = createResource(() => props.diagram.url, fetchSvg);
+  const svgQuery = createQuery(() => ({
+    queryKey: ['c4-svg', props.diagram.url],
+    queryFn: () => fetchSvg(props.diagram.url),
+    retry: false,
+  }));
 
   return (
     <Switch>
-      <Match when={svg.loading}>
+      <Match when={svgQuery.isLoading}>
         <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
           <Loader2 class="h-5 w-5 animate-spin" />
           <span class="text-sm">Loading diagram…</span>
         </div>
       </Match>
-      <Match when={svg.error}>
+      <Match when={svgQuery.isError}>
         <PlaceholderCard diagramLabel={props.diagram.label} />
       </Match>
-      <Match when={svg()}>
-        <SvgViewer svgContent={svg()!} />
+      <Match when={svgQuery.data}>
+        <SvgViewer svgContent={svgQuery.data!} />
       </Match>
     </Switch>
   );
@@ -403,10 +407,13 @@ const DocsPage: Component = () => {
   const [c4Tab, setC4Tab] = createSignal(C4_DIAGRAMS[0].id);
 
   // SRS markdown — only fetched when SRS tab is active
-  const [html] = createResource(
-    () => topTab() === 'srs',
-    (active) => (active ? fetchMarkdown() : Promise.resolve('')),
-  );
+  const htmlQuery = createQuery(() => ({
+    queryKey: ['srs-markdown'],
+    queryFn: fetchMarkdown,
+    enabled: topTab() === 'srs',
+    retry: false,
+  }));
+  const html = () => htmlQuery.data ?? '';
 
   const activeDiagram = () => C4_DIAGRAMS.find((d) => d.id === c4Tab())!;
 
@@ -455,13 +462,13 @@ const DocsPage: Component = () => {
         {/* ── SRS Tab ── */}
         <Show when={topTab() === 'srs'}>
           <Switch>
-            <Match when={html.loading}>
+            <Match when={htmlQuery.isLoading}>
               <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
                 <Loader2 class="h-5 w-5 animate-spin" />
                 <span class="text-sm">Loading SRS document…</span>
               </div>
             </Match>
-            <Match when={html.error}>
+            <Match when={htmlQuery.isError}>
               <div class="flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive text-sm">
                 <AlertCircle class="h-4 w-4 shrink-0" />
                 Failed to load SRS document. Run{' '}

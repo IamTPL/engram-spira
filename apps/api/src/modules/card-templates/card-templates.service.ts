@@ -34,19 +34,17 @@ export async function listAvailable(userId: string) {
 }
 
 export async function getWithFields(id: string) {
-  const [template] = await db
-    .select()
-    .from(cardTemplates)
-    .where(eq(cardTemplates.id, id))
-    .limit(1);
+  const [templateRows, fields] = await Promise.all([
+    db.select().from(cardTemplates).where(eq(cardTemplates.id, id)).limit(1),
+    db
+      .select()
+      .from(templateFields)
+      .where(eq(templateFields.templateId, id))
+      .orderBy(templateFields.side, templateFields.sortOrder),
+  ]);
 
+  const template = templateRows[0];
   if (!template) throw new NotFoundError('Card template');
-
-  const fields = await db
-    .select()
-    .from(templateFields)
-    .where(eq(templateFields.templateId, id))
-    .orderBy(templateFields.side, templateFields.sortOrder);
 
   return { ...template, fields };
 }

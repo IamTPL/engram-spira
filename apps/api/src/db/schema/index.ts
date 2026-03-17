@@ -28,3 +28,4 @@ export {
 } from './ai-generation-jobs';
 export { cardLinks, cardLinksRelations } from './card-links';
 export { cardConcepts, cardConceptsRelations } from './card-concepts';
+export { fsrsUserParams, fsrsUserParamsRelations } from './fsrs-user-params';

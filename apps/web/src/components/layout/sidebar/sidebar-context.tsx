@@ -16,6 +16,7 @@ import {
   updateFoldersForClass,
   removeClassFromCache,
   ensureClassExpanded,
+  prefetchAllFolders,
   type FolderItem,
 } from '@/stores/sidebar.store';
 
@@ -109,8 +110,12 @@ export function SidebarProvider(props: { children: any }) {
     on(
       () => currentUser()?.id,
       (id) => {
-        if (id) fetchClasses();
-        else setClasses([]);
+        if (id) {
+          fetchClasses();
+          prefetchAllFolders();
+        } else {
+          setClasses([]);
+        }
       },
     ),
   );

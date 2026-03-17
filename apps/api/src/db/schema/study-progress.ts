@@ -2,6 +2,8 @@ import {
   pgTable,
   uuid,
   integer,
+  real,
+  varchar,
   doublePrecision,
   timestamp,
   index,
@@ -27,6 +29,11 @@ export const studyProgress = pgTable(
     intervalDays: integer('interval_days').notNull().default(1), // days until next review
     nextReviewAt: timestamp('next_review_at', { withTimezone: true }).notNull(),
     lastReviewedAt: timestamp('last_reviewed_at', { withTimezone: true }),
+    // FSRS fields (nullable — SM-2 users unaffected)
+    stability: real('stability'),
+    difficulty: real('difficulty'),
+    fsrsState: varchar('fsrs_state', { length: 15 }).default('new'),
+    lastElapsedDays: real('last_elapsed_days').default(0),
   },
   (table) => [
     unique('uq_user_card_progress').on(table.userId, table.cardId),

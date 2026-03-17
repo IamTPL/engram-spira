@@ -1,7 +1,6 @@
 import {
   type Component,
   createSignal,
-  createResource,
   createMemo,
   onMount,
   onCleanup,
@@ -9,7 +8,9 @@ import {
   Show,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
+import { createQuery, createMutation } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
+import { queryClient } from '@/lib/query-client';
 import type { ReviewAction } from '@/../../api/src/shared/constants';
 import Flashcard from '@/components/flashcard/flashcard';
 import StudyControls from '@/components/flashcard/study-controls';
@@ -35,27 +36,45 @@ const InterleavedStudyPage: Component = () => {
     easy: 0,
   });
 
-  const [studyData, { refetch }] = createResource(async () => {
-    const { data } = await (api.study as any).interleaved.auto.get({
-      query: { topN: 5, limit: 50 },
-    });
-    return data as {
-      cards: {
-        id: string;
-        fields: {
-          fieldName: string;
-          fieldType: string;
-          side: string;
-          value: unknown;
-          sortOrder: number;
+  const studyQuery = createQuery(() => ({
+    queryKey: ['interleavedStudy'],
+    queryFn: async () => {
+      const { data } = await (api.study as any).interleaved.auto.get({
+        query: { topN: 5, limit: 50 },
+      });
+      return data as {
+        cards: {
+          id: string;
+          fields: {
+            fieldName: string;
+            fieldType: string;
+            side: string;
+            value: unknown;
+            sortOrder: number;
+          }[];
+          progress: unknown;
         }[];
-        progress: unknown;
-      }[];
-      total: number;
-      due: number;
-      deckIds: string[];
-    } | null;
-  });
+        total: number;
+        due: number;
+        deckIds: string[];
+      } | null;
+    },
+  }));
+  const studyData = () => studyQuery.data;
+
+  const reviewBatchMutation = createMutation(() => ({
+    mutationFn: async (items: { cardId: string; action: ReviewAction }[]) => {
+      const { error } = await (api.study as any)['review-batch'].post({
+        items,
+      });
+      if (error) throw new Error(getApiError(error));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  }));
 
   const currentCard = createMemo(() => {
     const data = studyData();
@@ -70,8 +89,8 @@ const InterleavedStudyPage: Component = () => {
     return Math.round((currentIndex() / data.due) * 100);
   });
 
-  const hasReviewedCards = createMemo(() =>
-    stats().again + stats().hard + stats().good > 0
+  const hasReviewedCards = createMemo(
+    () => stats().again + stats().hard + stats().good > 0,
   );
 
   const flushPendingReviews = async (force = false) => {
@@ -79,8 +98,7 @@ const InterleavedStudyPage: Component = () => {
     if (pending.length === 0) return;
     if (!force && pending.length < 8) return;
 
-    const { error: reviewBatchError } = await (api.study as any)['review-batch'].post({ items: pending });
-    if (reviewBatchError) throw new Error(getApiError(reviewBatchError));
+    await reviewBatchMutation.mutateAsync(pending);
     setPendingReviews((prev) => prev.slice(pending.length));
   };
 
@@ -114,7 +132,7 @@ const InterleavedStudyPage: Component = () => {
       setStats({ again: 0, hard: 0, good: 0, easy: 0 });
       setIsFlipped(false);
     });
-    refetch();
+    queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -181,7 +199,7 @@ const InterleavedStudyPage: Component = () => {
       {/* Main content */}
       <div class="flex-1 flex flex-col items-center justify-center p-8">
         <Show
-          when={!studyData.loading}
+          when={!studyQuery.isLoading}
           fallback={<p class="text-muted-foreground">Loading cards...</p>}
         >
           <Show

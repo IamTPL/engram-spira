@@ -1,12 +1,8 @@
-import {
-  type Component,
-  createSignal,
-  createResource,
-  Show,
-  For,
-} from 'solid-js';
+import { type Component, createSignal, Show, For } from 'solid-js';
 import { useParams, useNavigate } from '@solidjs/router';
+import { createQuery } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
+import { queryClient } from '@/lib/query-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageShell from '@/components/layout/page-shell';
@@ -75,26 +71,38 @@ const FolderViewPage: Component = () => {
   const [creating, setCreating] = createSignal(false);
 
   // ── Data ────────────────────────────────────────────────────────────
-  const [folder] = createResource(
-    () => params.folderId,
-    async (folderId) => {
-      const { data } = await (api.folders as any)[folderId].get();
+  const folderQuery = createQuery(() => ({
+    queryKey: ['folder', params.folderId],
+    queryFn: async () => {
+      const { data } = await (api.folders as any)[params.folderId].get();
       return data as { id: string; name: string; classId: string } | null;
     },
-  );
+    enabled: !!params.folderId,
+  }));
+  const folder = () => folderQuery.data ?? null;
 
-  const [decks, { refetch: refetchDecks }] = createResource(
-    () => params.folderId,
-    async (folderId) => {
-      const { data } = await api.decks['by-folder']({ folderId }).get();
+  const decksQuery = createQuery(() => ({
+    queryKey: ['decks', params.folderId],
+    queryFn: async () => {
+      const { data } = await api.decks['by-folder']({
+        folderId: params.folderId,
+      }).get();
       return (data ?? []) as DeckItem[];
     },
-  );
+    enabled: !!params.folderId,
+  }));
+  const decks = () => decksQuery.data ?? [];
+  const refetchDecks = () =>
+    queryClient.invalidateQueries({ queryKey: ['decks', params.folderId] });
 
-  const [templates] = createResource(async () => {
-    const { data } = await api['card-templates'].get();
-    return (data ?? []) as TemplateItem[];
-  });
+  const templatesQuery = createQuery(() => ({
+    queryKey: ['card-templates'],
+    queryFn: async () => {
+      const { data } = await api['card-templates'].get();
+      return (data ?? []) as TemplateItem[];
+    },
+  }));
+  const templates = () => templatesQuery.data ?? [];
 
   // ── Filtered decks ──────────────────────────────────────────────────
   const filteredDecks = () => {
@@ -253,7 +261,7 @@ const FolderViewPage: Component = () => {
           </Show>
 
           {/* Loading */}
-          <Show when={decks.loading}>
+          <Show when={decksQuery.isLoading}>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <For each={[1, 2, 3]}>
                 {() => <div class="h-40 rounded-2xl bg-muted animate-pulse" />}
@@ -262,7 +270,7 @@ const FolderViewPage: Component = () => {
           </Show>
 
           {/* Deck grid */}
-          <Show when={!decks.loading}>
+          <Show when={!decksQuery.isLoading}>
             <Show
               when={filteredDecks().length > 0}
               fallback={

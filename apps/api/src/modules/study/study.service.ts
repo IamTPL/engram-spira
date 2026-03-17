@@ -8,9 +8,15 @@ import {
   templateFields,
   decks,
   reviewLogs,
+  users,
+  fsrsUserParams,
 } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
-import { calculateNextReview } from './srs.engine';
+import {
+  calculateNextReview,
+  dispatchReview,
+  type SrsAlgorithm,
+} from './srs.engine';
 import { STREAK, type ReviewAction } from '../../shared/constants';
 import * as notificationsService from '../notifications/notifications.service';
 
@@ -303,27 +309,52 @@ export async function reviewCardBatch(
 
   const cardIds = items.map((i) => i.cardId);
 
-  // Single query: ownership verification + progress snapshot
-  const cardRows = await db
-    .select({
-      cardId: cards.id,
-      boxLevel: studyProgress.boxLevel,
-      easeFactor: studyProgress.easeFactor,
-      intervalDays: studyProgress.intervalDays,
-      lastReviewedAt: studyProgress.lastReviewedAt,
-    })
-    .from(cards)
-    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
-    .leftJoin(
-      studyProgress,
-      and(eq(studyProgress.userId, userId), eq(studyProgress.cardId, cards.id)),
-    )
-    .where(inArray(cards.id, cardIds));
+  // Fetch user algorithm preference + FSRS params in parallel with card data
+  const [[userRow], [fsrsParamsRow], cardRows] = await Promise.all([
+    db
+      .select({ srsAlgorithm: users.srsAlgorithm })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
+    db
+      .select({ params: fsrsUserParams.params })
+      .from(fsrsUserParams)
+      .where(eq(fsrsUserParams.userId, userId))
+      .limit(1),
+    db
+      .select({
+        cardId: cards.id,
+        boxLevel: studyProgress.boxLevel,
+        easeFactor: studyProgress.easeFactor,
+        intervalDays: studyProgress.intervalDays,
+        lastReviewedAt: studyProgress.lastReviewedAt,
+        stability: studyProgress.stability,
+        difficulty: studyProgress.difficulty,
+        fsrsState: studyProgress.fsrsState,
+        lastElapsedDays: studyProgress.lastElapsedDays,
+      })
+      .from(cards)
+      .innerJoin(
+        decks,
+        and(eq(cards.deckId, decks.id), eq(decks.userId, userId)),
+      )
+      .leftJoin(
+        studyProgress,
+        and(
+          eq(studyProgress.userId, userId),
+          eq(studyProgress.cardId, cards.id),
+        ),
+      )
+      .where(inArray(cards.id, cardIds)),
+  ]);
+
+  const algorithm = (userRow?.srsAlgorithm ?? 'sm2') as SrsAlgorithm;
+  const userFsrsParams = fsrsParamsRow?.params as
+    | Record<string, unknown>
+    | undefined;
 
   const ownedIds = new Set(cardRows.map((c) => c.cardId));
-  const progressByCard = new Map(
-    cardRows.map((row) => [row.cardId, toProgressSnapshot(row)]),
-  );
+  const progressByCard = new Map(cardRows.map((row) => [row.cardId, row]));
   const now = new Date();
   const nowMs = now.getTime();
 
@@ -358,20 +389,53 @@ export async function reviewCardBatch(
           ? 'learning'
           : 'review';
 
-    const sm2 = calculateNextReview(item.action, {
-      boxLevel: prev?.boxLevel ?? 0,
-      easeFactor: prev?.easeFactor ?? 2.5,
-      intervalDays: prev?.intervalDays ?? 1,
-    });
-    upsertValues.push({
-      userId,
-      cardId: item.cardId,
-      boxLevel: sm2.boxLevel,
-      easeFactor: sm2.easeFactor,
-      intervalDays: sm2.intervalDays,
-      nextReviewAt: sm2.nextReviewAt,
-      lastReviewedAt: now,
-    });
+    const dispatch = dispatchReview(
+      algorithm,
+      item.action,
+      {
+        boxLevel: prev?.boxLevel ?? 0,
+        easeFactor: prev?.easeFactor ?? 2.5,
+        intervalDays: prev?.intervalDays ?? 1,
+      },
+      algorithm === 'fsrs' && prev
+        ? {
+            stability: prev.stability ?? 0,
+            difficulty: prev.difficulty ?? 0,
+            fsrsState: prev.fsrsState ?? 'new',
+            lastElapsedDays: prev.lastElapsedDays ?? 0,
+          }
+        : null,
+      userFsrsParams,
+    );
+
+    if (dispatch.type === 'fsrs') {
+      const r = dispatch.result;
+      upsertValues.push({
+        userId,
+        cardId: item.cardId,
+        boxLevel: prev?.boxLevel ?? 0,
+        easeFactor: prev?.easeFactor ?? 2.5,
+        intervalDays: r.intervalDays,
+        nextReviewAt: r.nextReviewAt,
+        lastReviewedAt: now,
+        stability: r.stability,
+        difficulty: r.difficulty,
+        fsrsState: r.fsrsState,
+        lastElapsedDays: r.lastElapsedDays,
+      });
+    } else {
+      const r = dispatch.result;
+      upsertValues.push({
+        userId,
+        cardId: item.cardId,
+        boxLevel: r.boxLevel,
+        easeFactor: r.easeFactor,
+        intervalDays: r.intervalDays,
+        nextReviewAt: r.nextReviewAt,
+        lastReviewedAt: now,
+      });
+    }
+
     logEntries.push({
       userId,
       cardId: item.cardId,
@@ -385,13 +449,19 @@ export async function reviewCardBatch(
   if (upsertValues.length === 0) return { reviewed: 0 };
 
   // Determine which columns to set on conflict
-  const conflictSet = {
+  const conflictSet: Record<string, ReturnType<typeof sql>> = {
     boxLevel: sql`excluded.box_level`,
     easeFactor: sql`excluded.ease_factor`,
     intervalDays: sql`excluded.interval_days`,
     nextReviewAt: sql`excluded.next_review_at`,
     lastReviewedAt: sql`excluded.last_reviewed_at`,
   };
+  if (algorithm === 'fsrs') {
+    conflictSet.stability = sql`excluded.stability`;
+    conflictSet.difficulty = sql`excluded.difficulty`;
+    conflictSet.fsrsState = sql`excluded.fsrs_state`;
+    conflictSet.lastElapsedDays = sql`excluded.last_elapsed_days`;
+  }
 
   await db.transaction(async (tx) => {
     await tx
