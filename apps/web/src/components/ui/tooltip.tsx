@@ -1,14 +1,8 @@
-import {
-  type Component,
-  type JSX,
-  createSignal,
-  Show,
-  splitProps,
-} from 'solid-js';
+import { type Component, type JSX, createSignal, Show } from 'solid-js';
 import { cn } from '@/lib/utils';
 
 type TooltipProps = {
-  content: string;
+  content: JSX.Element | string;
   side?: 'top' | 'bottom' | 'left' | 'right';
   children: JSX.Element;
   class?: string;
