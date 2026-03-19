@@ -2,6 +2,7 @@ import { eq, and, inArray, desc, sql, count, asc, gt } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
+import { enqueueEmbedding } from '../embedding/embedding.service';
 
 // Ownership check: decks.userId is denormalized — no JOIN chain needed
 async function verifyDeckOwnership(deckId: string, userId: string) {
@@ -135,6 +136,9 @@ export async function create(
     return createdCard;
   });
 
+  // Fire-and-forget: generate embedding in background (0ms added to response)
+  enqueueEmbedding(card.id);
+
   return card;
 }
 
@@ -169,6 +173,9 @@ export async function update(
         set: { value: sql`excluded.value` },
       });
   }
+
+  // Re-embed after update (content changed)
+  enqueueEmbedding(cardId);
 
   const [updated] = await db
     .select()
@@ -255,6 +262,11 @@ export async function createBatch(
       createdCards.push(card);
     }
   });
+
+  // Fire-and-forget: enqueue embeddings for all new cards
+  for (const card of createdCards) {
+    enqueueEmbedding(card.id);
+  }
 
   return { created: createdCards.length, cards: createdCards };
 }

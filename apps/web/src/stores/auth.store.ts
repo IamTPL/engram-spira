@@ -6,6 +6,7 @@ export interface User {
   email: string;
   displayName: string | null;
   avatarUrl: string | null;
+  emailVerified: boolean;
 }
 
 const [currentUser, setCurrentUser] = createSignal<User | null>(null);
@@ -42,7 +43,7 @@ async function getTreatyErrorMessage(error: unknown): Promise<string> {
       try {
         const text = await error.response.clone().text();
         if (text) return text;
-      } catch { }
+      } catch {}
     }
   }
 

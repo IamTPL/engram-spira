@@ -20,10 +20,14 @@ import { feedbackRoutes } from './modules/feedback/feedback.routes';
 import { usersRoutes } from './modules/users/users.routes';
 import { importExportRoutes } from './modules/import-export/import-export.routes';
 import { aiRoutes } from './modules/ai/ai.routes';
+import { embeddingRoutes } from './modules/embedding/embedding.routes';
+import { searchRoutes } from './modules/search/search.routes';
+import { kgRoutes } from './modules/knowledge-graph/kg.routes';
 import {
   cleanupExpiredJobs,
   recoverOrphanedJobs,
 } from './modules/ai/ai.service';
+import { cleanupOldReviewLogs } from './modules/study/review-logs-cleanup';
 
 const AI_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000; // every hour
 
@@ -191,6 +195,9 @@ const app = new Elysia({ aot: true })
   .use(usersRoutes)
   .use(importExportRoutes)
   .use(aiRoutes)
+  .use(embeddingRoutes)
+  .use(searchRoutes)
+  .use(kgRoutes)
   .listen(ENV.PORT);
 
 logger.info(
@@ -274,5 +281,22 @@ const cleanupInterval = setInterval(async () => {
 
 // Unref so the interval never prevents the process from exiting gracefully
 cleanupInterval.unref();
+
+// ── Review logs retention cleanup ─────────────────────────────────────────
+// Run once on startup (non-blocking)
+cleanupOldReviewLogs().catch((err) =>
+  logger.warn(toErrorInfo(err), 'Review logs cleanup failed on startup'),
+);
+
+// Periodic cleanup every 24h
+const reviewLogsCleanupInterval = setInterval(
+  () => {
+    cleanupOldReviewLogs().catch((err) =>
+      logger.warn(toErrorInfo(err), 'Periodic review logs cleanup failed'),
+    );
+  },
+  24 * 60 * 60 * 1000,
+);
+reviewLogsCleanupInterval.unref();
 
 export type App = typeof app;

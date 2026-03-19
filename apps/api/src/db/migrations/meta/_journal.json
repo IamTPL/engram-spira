@@ -148,6 +148,13 @@
       "when": 1773600000000,
       "tag": "0020_add_fsrs_learning_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1773700000000,
+      "tag": "0021_add_email_verification",
+      "breakpoints": true
     }
   ]
 }

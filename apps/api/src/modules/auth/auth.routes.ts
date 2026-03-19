@@ -140,7 +140,15 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       }),
     },
   )
+  .get('/verify-email', ({ query }) => authService.verifyEmail(query.token), {
+    query: t.Object({
+      token: t.String({ minLength: 1 }),
+    }),
+  })
   .use(requireAuth)
+  .post('/resend-verification', ({ currentUser }) =>
+    authService.resendVerification(currentUser.id),
+  )
   .post(
     '/change-password',
     ({ currentUser, body }) =>

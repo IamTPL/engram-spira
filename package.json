@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "three": "^0.183.2",
+    "three-stdlib": "^2.36.1",
     "web": "^0.0.2"
   },
   "devDependencies": {

@@ -21,6 +21,8 @@ const ENV = {
   // Model to use for card generation. Defaults to gemini-3-flash-preview.
   // Override via GEMINI_MODEL env var to switch models without code changes.
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
+  GEMINI_EMBEDDING_MODEL:
+    process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004',
 } as const;
 
 // Validate required env vars at startup

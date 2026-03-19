@@ -260,6 +260,15 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* Interactive elements always show pointer cursor */
+  button,
+  a,
+  select,
+  summary,
+  [role='button'] {
+    cursor: pointer;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);

@@ -28,4 +28,30 @@ export const cardTemplatesRoutes = new Elysia({ prefix: '/card-templates' })
         ),
       }),
     },
+  )
+  .put(
+    '/:id',
+    ({ currentUser, params, body }) =>
+      cardTemplatesService.update(currentUser.id, params.id, body),
+    {
+      body: t.Object({
+        name: t.Optional(t.String({ minLength: 1 })),
+        description: t.Optional(t.String()),
+        fields: t.Optional(
+          t.Array(
+            t.Object({
+              name: t.String({ minLength: 1 }),
+              fieldType: t.String(),
+              side: t.String(),
+              sortOrder: t.Number(),
+              isRequired: t.Optional(t.Boolean()),
+              config: t.Optional(t.Unknown()),
+            }),
+          ),
+        ),
+      }),
+    },
+  )
+  .delete('/:id', ({ currentUser, params }) =>
+    cardTemplatesService.remove(currentUser.id, params.id),
   );

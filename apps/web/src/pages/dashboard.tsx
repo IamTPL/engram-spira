@@ -8,6 +8,8 @@ import Skeleton from '@/components/ui/skeleton';
 import { currentUser } from '@/stores/auth.store';
 import { api } from '@/api/client';
 import { STREAK_MESSAGES, HEATMAP_LEVELS, MONTHS } from '@/constants';
+import ForecastWidget from '@/components/dashboard/forecast-widget';
+import SmartGroupsWidget from '@/components/dashboard/smart-groups-widget';
 import {
   Flame,
   TrendingUp,
@@ -17,7 +19,9 @@ import {
   CheckCircle2,
   Shuffle,
   Library,
+  MailWarning,
 } from 'lucide-solid';
+import { toast } from '@/stores/toast.store';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -204,6 +208,32 @@ const DashboardPage: Component = () => {
         }
       >
         <div class="space-y-6 animate-fade-in">
+          {/* ── Email Verification Banner ─── */}
+          <Show when={currentUser() && !currentUser()!.emailVerified}>
+            <div class="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2 min-w-0">
+                <MailWarning class="h-4 w-4 text-amber-500 shrink-0" />
+                <p class="text-sm text-foreground truncate">
+                  Please verify your email address. Check your inbox for the
+                  verification link.
+                </p>
+              </div>
+              <button
+                class="text-xs font-medium text-amber-600 hover:text-amber-500 whitespace-nowrap underline"
+                onClick={async () => {
+                  try {
+                    await (api.auth as any)['resend-verification'].post();
+                    toast.success('Verification email sent!');
+                  } catch {
+                    toast.error('Failed to resend. Try again later.');
+                  }
+                }}
+              >
+                Resend
+              </button>
+            </div>
+          </Show>
+
           {/* ── Greeting ─── */}
           <div>
             <h2 class="text-2xl font-bold">
@@ -411,6 +441,10 @@ const DashboardPage: Component = () => {
               <span class="text-[10px] text-muted-foreground">More</span>
             </div>
           </div>
+
+          {/* ── Forecast + Smart Groups ─── */}
+          <ForecastWidget />
+          <SmartGroupsWidget />
 
           {/* ── Due Decks ─── */}
           <Show when={(dashboard()?.dueDecks ?? []).length > 0}>

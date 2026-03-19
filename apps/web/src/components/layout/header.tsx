@@ -1,4 +1,11 @@
-import { type Component, Show, For, createSignal } from 'solid-js';
+import {
+  type Component,
+  Show,
+  For,
+  createSignal,
+  onMount,
+  onCleanup,
+} from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,13 +39,26 @@ import {
   ChevronDown,
   Target,
   BookMarked,
+  Search,
 } from 'lucide-solid';
 import { openFocusDrawer, isRunning } from '@/stores/focus.store';
+import { openSearch } from '@/stores/search.store';
 
 const Header: Component = () => {
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+
+  // Global Cmd+K / Ctrl+K shortcut for search
+  const handleGlobalKeyDown = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      openSearch();
+    }
+  };
+
+  onMount(() => document.addEventListener('keydown', handleGlobalKeyDown));
+  onCleanup(() => document.removeEventListener('keydown', handleGlobalKeyDown));
 
   const userInitial = () => {
     const email = currentUser()?.email ?? '';
@@ -89,9 +109,33 @@ const Header: Component = () => {
           </button>
         </div>
 
-        {/* ── Right: bell + user dropdown ── */}
+        {/* ── Right: search + bell + user dropdown ── */}
         <Show when={currentUser()}>
           <div class="flex items-center gap-1">
+            {/* ── Search Button ── */}
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Search (Cmd+K)"
+              onClick={openSearch}
+              class="hidden sm:inline-flex items-center gap-2 text-muted-foreground hover:text-foreground px-2.5"
+            >
+              <Search class="h-4 w-4" />
+              <span class="text-xs">Search</span>
+              <kbd class="ml-1 inline-flex h-5 items-center gap-0.5 rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                ⌘K
+              </kbd>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Search"
+              onClick={openSearch}
+              class="sm:hidden"
+            >
+              <Search class="h-4 w-4" />
+            </Button>
+
             {/* ── Notification Bell ── */}
             <DropdownMenu
               open={showNotifications()}

@@ -13,6 +13,7 @@ import RouteAnnouncer from '@/components/route-announcer';
 import LoginPage from '@/pages/login';
 import RegisterPage from '@/pages/register';
 import ResetPasswordPage from '@/pages/reset-password';
+import VerifyEmailPage from '@/pages/verify-email';
 import DashboardPage from '@/pages/dashboard';
 
 // Lazy-load secondary pages for code splitting
@@ -27,6 +28,9 @@ const NotFoundPage = lazy(() => import('@/pages/not-found'));
 
 // Lazy-load FocusDrawer — it pulls in Three.js (~500KB) via reward popup
 const FocusDrawer = lazy(() => import('@/components/focus/focus-drawer'));
+
+// Lazy-load GlobalSearch — only loaded when user presses Cmd+K
+const GlobalSearch = lazy(() => import('@/components/search/global-search'));
 
 const LoadingScreen = () => (
   <div class="min-h-screen flex items-center justify-center bg-background">
@@ -76,10 +80,23 @@ const App: Component = () => {
   return (
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <Router>
+        <Router
+          root={(props) => (
+            <>
+              {props.children}
+              <RouteAnnouncer />
+              <Toaster />
+              <Suspense>
+                <FocusDrawer />
+                <GlobalSearch />
+              </Suspense>
+            </>
+          )}
+        >
           <Route path="/login" component={guest(LoginPage)} />
           <Route path="/register" component={guest(RegisterPage)} />
           <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/verify-email" component={VerifyEmailPage} />
           <Route path="/" component={protect(DashboardPage)} />
           <Route path="/folder/:folderId" component={protect(FolderViewPage)} />
           <Route path="/deck/:deckId" component={protect(DeckViewPage)} />
@@ -93,11 +110,6 @@ const App: Component = () => {
           <Route path="/docs" component={protect(DocsPage)} />
           <Route path="*" component={NotFoundPage} />
         </Router>
-        <RouteAnnouncer />
-        <Toaster />
-        <Suspense>
-          <FocusDrawer />
-        </Suspense>
       </QueryClientProvider>
     </AppErrorBoundary>
   );

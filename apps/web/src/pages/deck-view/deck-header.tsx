@@ -18,6 +18,7 @@ import {
   Hash,
   Sparkles,
   CheckSquare,
+  BarChart3,
 } from 'lucide-solid';
 import type { DeckData, TemplateData } from './use-deck-data';
 
@@ -35,6 +36,8 @@ interface DeckHeaderProps {
   setShowAiModal: (v: boolean) => void;
   selectMode: () => boolean;
   toggleSelectMode: () => void;
+  showAnalytics: () => boolean;
+  toggleAnalytics: () => void;
 }
 
 const DeckHeader: Component<DeckHeaderProps> = (props) => {
@@ -148,6 +151,14 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
             <Sparkles class="h-4 w-4 mr-2" />
             AI Generate
           </Button>{' '}
+          <Button
+            variant={props.showAnalytics() ? 'default' : 'outline'}
+            onClick={props.toggleAnalytics}
+            class="bg-background"
+          >
+            <BarChart3 class="h-4 w-4 mr-2" />
+            Analytics
+          </Button>
           <Button
             variant={props.selectMode() ? 'default' : 'outline'}
             onClick={props.toggleSelectMode}

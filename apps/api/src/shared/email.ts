@@ -109,6 +109,52 @@ export async function sendFeedbackEmail(
   emailLogger.info({ fromEmail, type }, 'Feedback email sent');
 }
 
+/* ── Send email verification email ─────────────────────────── */
+export async function sendVerificationEmail(
+  toEmail: string,
+  verifyToken: string,
+): Promise<void> {
+  const baseUrl = ENV.FRONTEND_URL;
+  const verifyLink = `${baseUrl}/verify-email?token=${verifyToken}`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; background: #f8fafc; margin: 0; padding: 24px; }
+    .card { background: #ffffff; border-radius: 12px; padding: 28px 32px; max-width: 480px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2 { margin: 0 0 12px; font-size: 20px; }
+    p { font-size: 14px; line-height: 1.6; color: #475569; }
+    .btn { display: inline-block; background: #2563eb; color: #ffffff !important; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; margin: 16px 0; }
+    .footer { color: #94a3b8; font-size: 12px; margin-top: 20px; }
+    .code { background: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 13px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>✉️ Verify Your Email</h2>
+    <p>Welcome to Engram Spira! Please verify your email address by clicking the button below:</p>
+    <a href="${verifyLink}" class="btn">Verify Email</a>
+    <p>Or copy this link:</p>
+    <div class="code">${verifyLink}</div>
+    <p>This link expires in <strong>24 hours</strong>. If you didn't create this account, you can safely ignore this email.</p>
+    <p class="footer">— Engram Spira</p>
+  </div>
+</body>
+</html>`;
+
+  await getTransporter().sendMail({
+    from: `"Engram Spira" <${ENV.GMAIL_USER}>`,
+    to: toEmail,
+    subject: 'Engram Spira — Verify Your Email',
+    html,
+  });
+
+  emailLogger.info({ toEmail }, 'Verification email sent');
+}
+
 /* ── Send password reset email ───────────────────────────────── */
 export async function sendPasswordResetEmail(
   toEmail: string,

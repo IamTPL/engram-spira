@@ -1,13 +1,7 @@
 import { type Component, onMount, onCleanup, createEffect } from 'solid-js';
 import * as THREE from 'three';
-import {
-  Dice1,
-  Dice2,
-  Dice3,
-  Dice4,
-  Dice5,
-  Dice6,
-} from 'lucide-solid';
+import { RoundedBoxGeometry } from 'three-stdlib';
+import { Dice1, Dice2, Dice3, Dice4, Dice5, Dice6 } from 'lucide-solid';
 
 /* ══════════════════════════════════════════════════════════════
    6-SIDED CUBE DICE — Three.js
@@ -56,11 +50,11 @@ const FACE_COLORS = [
 // Target rotations (Euler) so the respective face points to the camera (+Z axis)
 const TARGET_EULERS = [
   new THREE.Euler(0, -Math.PI / 2, 0), // 0: +X (Right)
-  new THREE.Euler(0, Math.PI / 2, 0),  // 1: -X (Left)
-  new THREE.Euler(Math.PI / 2, 0, 0),  // 2: +Y (Top)
+  new THREE.Euler(0, Math.PI / 2, 0), // 1: -X (Left)
+  new THREE.Euler(Math.PI / 2, 0, 0), // 2: +Y (Top)
   new THREE.Euler(-Math.PI / 2, 0, 0), // 3: -Y (Bottom)
-  new THREE.Euler(0, 0, 0),            // 4: +Z (Front)
-  new THREE.Euler(0, Math.PI, 0),      // 5: -Z (Back)
+  new THREE.Euler(0, 0, 0), // 4: +Z (Front)
+  new THREE.Euler(0, Math.PI, 0), // 5: -Z (Back)
 ];
 
 // Easing function: Buttery smooth prolonged brake (Wheel of Fortune style)
@@ -104,7 +98,7 @@ const CubeDice: Component<Props> = (props) => {
     scene.add(fillLight);
 
     // ── Geometry (6 Faces) ─────────────────────────────────
-    const geometry = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+    const geometry = new RoundedBoxGeometry(1.6, 1.6, 1.6, 4, 0.15);
     const materials: THREE.MeshStandardMaterial[] = [];
 
     // Order: +X, -X, +Y, -Y, +Z, -Z
@@ -124,13 +118,13 @@ const CubeDice: Component<Props> = (props) => {
       const dot = 22;
       const center = 128;
       const offset = 65;
-      
+
       const draw = (x: number, y: number) => {
         ctx.beginPath();
         ctx.arc(x, y, dot, 0, Math.PI * 2);
         ctx.fill();
       };
-      
+
       const num = i + 1;
       if (num === 1 || num === 3 || num === 5) draw(center, center);
       if (num === 2 || num === 3 || num === 4 || num === 5 || num === 6) {
@@ -151,36 +145,35 @@ const CubeDice: Component<Props> = (props) => {
       materials.push(
         new THREE.MeshStandardMaterial({
           map: texture,
-          metalness: 0.1,
-          roughness: 0.3,
+          metalness: 0.25,
+          roughness: 0.35,
+          envMapIntensity: 1.0,
         }),
       );
     }
 
     const mesh = new THREE.Mesh(geometry, materials);
-    
+
     // Group separates the exact deterministic roll rotation (on the mesh)
     // from the subtle continuous hover bobbing (on the group).
     const diceGroup = new THREE.Group();
     diceGroup.add(mesh);
     scene.add(diceGroup);
 
-    // ── Dark edge wireframe
-    const edgesGeo = new THREE.EdgesGeometry(geometry);
-    const edgesMat = new THREE.LineBasicMaterial({
-      color: 0x1a1a2e,
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.8,
-    });
-    const edgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
-    mesh.add(edgesMesh);
+    // ── Rim light for 3D rounded edge glow (replaces wireframe)
+    const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    rimLight.position.set(-3, 3, -4);
+    scene.add(rimLight);
+
+    const bottomFill = new THREE.DirectionalLight(0xffffff, 0.3);
+    bottomFill.position.set(0, -4, 2);
+    scene.add(bottomFill);
 
     // ── Animation state ───────────────────────────────────
     let isRolling = false;
     let rollStartTime = 0;
     const ROLL_DURATION = 4000;
-    
+
     let startQuat = new THREE.Quaternion();
     let targetFaceQuat = new THREE.Quaternion();
     let spinAxis = new THREE.Vector3();
@@ -206,7 +199,7 @@ const CubeDice: Component<Props> = (props) => {
           mat.emissive = new THREE.Color(0x000000);
           mat.emissiveIntensity = 0;
           mat.transparent = true;
-          mat.opacity = 0.3; 
+          mat.opacity = 0.3;
         }
       });
     }
@@ -222,14 +215,18 @@ const CubeDice: Component<Props> = (props) => {
         mat.opacity = 1;
         mat.transparent = false;
       });
-      
+
       selectedFaceIdx = Math.floor(Math.random() * 6); // 0 to 5
       startQuat.copy(mesh.quaternion);
-      targetFaceQuat = new THREE.Quaternion().setFromEuler(TARGET_EULERS[selectedFaceIdx]);
-      
+      targetFaceQuat = new THREE.Quaternion().setFromEuler(
+        TARGET_EULERS[selectedFaceIdx],
+      );
+
       // Random rotation axis and 6 to 10 full random spins
-      spinAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-      spinTotalAngle = Math.PI * 2 * (6 + Math.random() * 4); 
+      spinAxis
+        .set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+        .normalize();
+      spinTotalAngle = Math.PI * 2 * (6 + Math.random() * 4);
     }
 
     // ── Animation loop ────────────────────────────────────
@@ -237,28 +234,31 @@ const CubeDice: Component<Props> = (props) => {
       frameId = requestAnimationFrame(animate);
 
       if (isRolling) {
-         // Keep group perfectly straight during the roll so the face aligns exactly
-         diceGroup.rotation.set(0, 0, 0);
+        // Keep group perfectly straight during the roll so the face aligns exactly
+        diceGroup.rotation.set(0, 0, 0);
 
-         const elapsed = performance.now() - rollStartTime;
-         const t = Math.min(elapsed / ROLL_DURATION, 1.0);
-         
-         // Smooth easing curve exactly over 4000ms
-         const easedT = easeOutCubic(t);
-         
-         // Slerp from start rotation to target rotation
-         const baseQ = startQuat.clone().slerp(targetFaceQuat, easedT);
-         
-         // Apply extra wild spin that smoothly logarithmically zeroes out at t=1
-         const currentSpinAngle = spinTotalAngle * (1 - easedT); 
-         const spinQ = new THREE.Quaternion().setFromAxisAngle(spinAxis, currentSpinAngle);
-         
-         // Combine spin and orientation
-         mesh.quaternion.copy(baseQ).multiply(spinQ);
-         
-         if (t >= 1.0) {
-            settleNow();
-         }
+        const elapsed = performance.now() - rollStartTime;
+        const t = Math.min(elapsed / ROLL_DURATION, 1.0);
+
+        // Smooth easing curve exactly over 4000ms
+        const easedT = easeOutCubic(t);
+
+        // Slerp from start rotation to target rotation
+        const baseQ = startQuat.clone().slerp(targetFaceQuat, easedT);
+
+        // Apply extra wild spin that smoothly logarithmically zeroes out at t=1
+        const currentSpinAngle = spinTotalAngle * (1 - easedT);
+        const spinQ = new THREE.Quaternion().setFromAxisAngle(
+          spinAxis,
+          currentSpinAngle,
+        );
+
+        // Combine spin and orientation
+        mesh.quaternion.copy(baseQ).multiply(spinQ);
+
+        if (t >= 1.0) {
+          settleNow();
+        }
       } else {
         // Idle hover bobbing is applied to the GROUP, so it doesn't destroy the exact computed quaternion state of the mesh!
         idleTime += 0.01;
@@ -299,8 +299,6 @@ const CubeDice: Component<Props> = (props) => {
       containerRef.removeEventListener('click', handleClick);
       renderer.dispose();
       geometry.dispose();
-      edgesGeo.dispose();
-      edgesMat.dispose();
       materials.forEach((m) => {
         m.map?.dispose();
         m.dispose();

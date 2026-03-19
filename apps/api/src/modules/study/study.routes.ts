@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm';
 import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from '../auth/auth.middleware';
 import * as studyService from './study.service';
+import * as forecastService from './forecast.service';
+import * as recommendationsService from './recommendations.service';
 import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
 import { db } from '../../db';
 import { users } from '../../db/schema';
@@ -154,6 +156,76 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
         limit: t.Optional(t.Numeric({ minimum: 1, maximum: 200 })),
       }),
     },
+  )
+  // --------------- Forecast & Retention ---------------
+  .get(
+    '/forecast',
+    ({ currentUser, query }) =>
+      forecastService.getForecast(
+        currentUser.id,
+        query.days ? Number(query.days) : 14,
+      ),
+    {
+      query: t.Object({
+        days: t.Optional(t.Numeric({ minimum: 1, maximum: 90 })),
+      }),
+    },
+  )
+  .get(
+    '/retention-heatmap',
+    ({ currentUser, query }) =>
+      forecastService.getRetentionHeatmap(currentUser.id, query.deckId),
+    {
+      query: t.Object({
+        deckId: t.String({ format: 'uuid' }),
+      }),
+    },
+  )
+  .get(
+    '/at-risk-cards',
+    ({ currentUser, query }) =>
+      forecastService.getAtRiskCards(
+        currentUser.id,
+        query.threshold ? Number(query.threshold) : 0.8,
+        query.limit ? Number(query.limit) : 20,
+      ),
+    {
+      query: t.Object({
+        threshold: t.Optional(t.Numeric({ minimum: 0.1, maximum: 1.0 })),
+        limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100 })),
+      }),
+    },
+  )
+  // --------------- Recommendations & Smart Groups ---------------
+  .get(
+    '/recommendations/:cardId',
+    ({ currentUser, params, query }) =>
+      recommendationsService.getRelatedCards(
+        currentUser.id,
+        params.cardId,
+        query.limit ? Number(query.limit) : 5,
+      ),
+    {
+      query: t.Object({
+        limit: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
+      }),
+    },
+  )
+  .get(
+    '/smart-groups',
+    ({ currentUser, query }) =>
+      recommendationsService.getSmartGroups(
+        currentUser.id,
+        query.topN ? Number(query.topN) : 5,
+      ),
+    {
+      query: t.Object({
+        topN: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
+      }),
+    },
+  )
+  .get('/prerequisite-chain/:cardId', ({ currentUser, params }) =>
+    recommendationsService.getPrerequisiteChain(currentUser.id, params.cardId),
   )
   // --------------- Algorithm Selection ---------------
   .get('/algorithm', async ({ currentUser }) => {

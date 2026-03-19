@@ -35,7 +35,9 @@ import {
   X,
   Loader2,
   BrainCircuit,
+  Layers,
 } from 'lucide-solid';
+import TemplateBuilder from '@/components/templates/template-builder';
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -604,6 +606,17 @@ const SettingsPage: Component = () => {
               </Show>
             </div>
           </div>
+        </section>
+
+        {/* ── Card Templates Section ── */}
+        <section class="space-y-4">
+          <div class="flex items-center gap-2">
+            <Layers class="h-4 w-4 text-muted-foreground" />
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Card Templates
+            </h2>
+          </div>
+          <TemplateBuilder />
         </section>
 
         {/* ── About Section ── */}

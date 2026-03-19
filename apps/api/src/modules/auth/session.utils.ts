@@ -38,6 +38,7 @@ export type SessionValidationResult =
         email: string;
         displayName: string | null;
         avatarUrl: string | null;
+        emailVerified: boolean;
       };
     }
   | { session: null; user: null };
@@ -59,6 +60,7 @@ export async function validateSession(
         email: users.email,
         displayName: users.displayName,
         avatarUrl: users.avatarUrl,
+        emailVerified: users.emailVerified,
       },
     })
     .from(sessions)

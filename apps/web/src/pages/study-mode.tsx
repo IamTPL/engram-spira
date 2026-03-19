@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Timer,
 } from 'lucide-solid';
+import RelatedCardsPanel from '@/components/study/related-cards-panel';
 
 const StudyModePage: Component = () => {
   const params = useParams<{ deckId: string }>();
@@ -49,6 +50,7 @@ const StudyModePage: Component = () => {
     easy: 0,
   });
   const [studyError, setStudyError] = createSignal<string | null>(null);
+  const [lastAction, setLastAction] = createSignal<ReviewAction | null>(null);
 
   // Fetch deck name
   const deckQuery = createQuery(() => ({
@@ -119,7 +121,10 @@ const StudyModePage: Component = () => {
       if (error) throw new Error(getApiError(error));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['studyData', params.deckId] });
+      // NOTE: Do NOT invalidate studyData here — it causes a mid-session refetch
+      // that replaces the cards array while currentIndex stays unchanged, triggering
+      // premature "Session Complete". The batch-end handler in handleReview already
+      // invalidates studyData explicitly when the current batch is exhausted.
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -137,8 +142,9 @@ const StudyModePage: Component = () => {
 
   const progress = createMemo(() => {
     const data = studyData();
-    if (!data || data.due === 0) return 100;
-    return Math.round((currentIndex() / data.due) * 100);
+    const total = data?.cards.length ?? 0;
+    if (!data || total === 0) return 100;
+    return Math.min(100, Math.round((currentIndex() / total) * 100));
   });
 
   const hasReviewedCards = createMemo(
@@ -173,6 +179,7 @@ const StudyModePage: Component = () => {
         }));
         setIsFlipped(false);
         setCurrentIndex(nextIndex);
+        setLastAction(action);
       });
 
       // If we just reviewed the last card in this batch, auto-refetch
@@ -317,7 +324,8 @@ const StudyModePage: Component = () => {
           </Show>
           <Show when={studyData()}>
             <p class="text-xs text-muted-foreground tabular-nums">
-              {currentIndex()} / {studyData()!.due} cards
+              {Math.min(currentIndex(), studyData()!.cards.length)} /{' '}
+              {studyData()!.cards.length} cards
               <span class="ml-2 font-medium text-primary">{progress()}%</span>
             </p>
           </Show>
@@ -571,6 +579,12 @@ const StudyModePage: Component = () => {
                   disabled={reviewing()}
                 />
               </Show>
+
+              {/* Related cards panel — shown after pressing Again */}
+              <RelatedCardsPanel
+                cardId={currentCard()?.id}
+                show={lastAction() === REVIEW_ACTIONS.AGAIN}
+              />
             </Show>
           </Show>
         </Show>

@@ -6,6 +6,7 @@ import { db } from '../../db';
 import { users, passwordResetTokens } from '../../db/schema';
 import {
   ConflictError,
+  NotFoundError,
   UnauthorizedError,
   ValidationError,
 } from '../../shared/errors';
@@ -15,8 +16,11 @@ import {
   generateSessionToken,
   invalidateSession,
 } from './session.utils';
+import { sendVerificationEmail } from '../../shared/email';
+import { logger } from '../../shared/logger';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+const VERIFY_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export async function register(email: string, password: string) {
   if (!email || !email.includes('@')) {
@@ -43,18 +47,34 @@ export async function register(email: string, password: string) {
 
   const passwordHash = await hash(password);
 
+  // Generate verification token before insert so it's stored atomically
+  const verifyToken = encodeHexLowerCase(
+    crypto.getRandomValues(new Uint8Array(32)),
+  );
+
   const [user] = await db
     .insert(users)
     .values({
       email: email.toLowerCase(),
       passwordHash,
+      emailVerificationToken: verifyToken,
+      emailTokenExpiresAt: new Date(Date.now() + VERIFY_TOKEN_EXPIRY_MS),
     })
     .returning({
       id: users.id,
       email: users.email,
       displayName: users.displayName,
       avatarUrl: users.avatarUrl,
+      emailVerified: users.emailVerified,
     });
+
+  // Fire-and-forget: send verification email without blocking register response
+  sendVerificationEmail(user.email, verifyToken).catch((err) =>
+    logger.warn(
+      { err: err.message, email: user.email },
+      'Failed to send verification email',
+    ),
+  );
 
   const token = generateSessionToken();
   const session = await createSession(user.id, token);
@@ -183,8 +203,87 @@ export async function forgotPassword(email: string) {
 }
 
 /**
- * Verify the reset token and set new password.
+ * Verify email address using the token sent during registration.
  */
+export async function verifyEmail(token: string) {
+  const [user] = await db
+    .select({
+      id: users.id,
+      emailVerified: users.emailVerified,
+      emailTokenExpiresAt: users.emailTokenExpiresAt,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.emailVerificationToken, token),
+        gt(users.emailTokenExpiresAt, new Date()),
+      ),
+    )
+    .limit(1);
+
+  if (!user) {
+    throw new ValidationError('Invalid or expired verification token');
+  }
+
+  if (user.emailVerified) {
+    return { success: true, alreadyVerified: true };
+  }
+
+  await db
+    .update(users)
+    .set({
+      emailVerified: true,
+      emailVerificationToken: null,
+      emailTokenExpiresAt: null,
+    })
+    .where(eq(users.id, user.id));
+
+  return { success: true, alreadyVerified: false };
+}
+
+/**
+ * Resend verification email. Generates a fresh token.
+ */
+export async function resendVerification(userId: string) {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      emailVerified: users.emailVerified,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('User');
+
+  if (user.emailVerified) {
+    return { success: true, alreadyVerified: true };
+  }
+
+  const verifyToken = encodeHexLowerCase(
+    crypto.getRandomValues(new Uint8Array(32)),
+  );
+
+  await db
+    .update(users)
+    .set({
+      emailVerificationToken: verifyToken,
+      emailTokenExpiresAt: new Date(Date.now() + VERIFY_TOKEN_EXPIRY_MS),
+    })
+    .where(eq(users.id, userId));
+
+  // Fire-and-forget
+  sendVerificationEmail(user.email, verifyToken).catch((err) =>
+    logger.warn(
+      { err: err.message, email: user.email },
+      'Failed to resend verification email',
+    ),
+  );
+
+  return { success: true, alreadyVerified: false };
+}
+
 export async function resetPassword(token: string, newPassword: string) {
   if (
     newPassword.length < PASSWORD.MIN_LENGTH ||

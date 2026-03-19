@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
-import { cardTemplates, templateFields } from '../../db/schema';
-import { NotFoundError } from '../../shared/errors';
+import { cardTemplates, templateFields, decks } from '../../db/schema';
+import { NotFoundError, ValidationError } from '../../shared/errors';
 
 // ── In-process cache for system templates ─────────────────────────────────────
 // System templates are seeded once and never mutated at runtime.
@@ -89,4 +89,104 @@ export async function create(
   }
 
   return getWithFields(template.id);
+}
+
+export async function update(
+  userId: string,
+  templateId: string,
+  data: {
+    name?: string;
+    description?: string;
+    fields?: {
+      name: string;
+      fieldType: string;
+      side: string;
+      sortOrder: number;
+      isRequired?: boolean;
+      config?: unknown;
+    }[];
+  },
+) {
+  // Verify ownership — only user templates can be updated
+  const [template] = await db
+    .select()
+    .from(cardTemplates)
+    .where(eq(cardTemplates.id, templateId))
+    .limit(1);
+
+  if (!template) throw new NotFoundError('Card template');
+  if (template.isSystem) {
+    throw new ValidationError('Cannot modify system templates');
+  }
+  if (template.userId !== userId) {
+    throw new NotFoundError('Card template');
+  }
+
+  // Update template metadata
+  if (data.name || data.description !== undefined) {
+    await db
+      .update(cardTemplates)
+      .set({
+        ...(data.name ? { name: data.name } : {}),
+        ...(data.description !== undefined
+          ? { description: data.description }
+          : {}),
+      })
+      .where(eq(cardTemplates.id, templateId));
+  }
+
+  // Replace fields if provided
+  if (data.fields) {
+    await db
+      .delete(templateFields)
+      .where(eq(templateFields.templateId, templateId));
+
+    if (data.fields.length > 0) {
+      await db.insert(templateFields).values(
+        data.fields.map((f) => ({
+          templateId,
+          name: f.name,
+          fieldType: f.fieldType,
+          side: f.side,
+          sortOrder: f.sortOrder,
+          isRequired: f.isRequired ?? false,
+          config: f.config ?? null,
+        })),
+      );
+    }
+  }
+
+  return getWithFields(templateId);
+}
+
+export async function remove(userId: string, templateId: string) {
+  const [template] = await db
+    .select()
+    .from(cardTemplates)
+    .where(eq(cardTemplates.id, templateId))
+    .limit(1);
+
+  if (!template) throw new NotFoundError('Card template');
+  if (template.isSystem) {
+    throw new ValidationError('Cannot delete system templates');
+  }
+  if (template.userId !== userId) {
+    throw new NotFoundError('Card template');
+  }
+
+  // Check if template is in use by any decks
+  const [inUse] = await db
+    .select({ id: decks.id })
+    .from(decks)
+    .where(eq(decks.cardTemplateId, templateId))
+    .limit(1);
+
+  if (inUse) {
+    throw new ValidationError(
+      'Cannot delete template that is in use by decks. Reassign decks first.',
+    );
+  }
+
+  await db.delete(cardTemplates).where(eq(cardTemplates.id, templateId));
+  return { deleted: true };
 }

@@ -443,13 +443,13 @@ export async function getJob(userId: string, jobId: string) {
  * Marks 'pending' and 'processing' jobs as 'expired', deletes 'failed'.
  */
 export async function cleanupExpiredJobs() {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const [row] = await db.execute<{ expired: number }>(sql`
     WITH updated AS (
       UPDATE ai_generation_jobs
       SET status = 'expired'
       WHERE status IN ('pending', 'processing')
-        AND created_at < ${cutoff}
+        AND created_at < ${cutoff}::timestamptz
       RETURNING 1
     )
     SELECT COUNT(*)::int AS expired FROM updated

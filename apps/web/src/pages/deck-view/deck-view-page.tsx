@@ -17,7 +17,7 @@ import { queryClient } from '@/lib/query-client';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/stores/toast.store';
-import { Sparkles, Loader2, X, Plus, Layers } from 'lucide-solid';
+import { Sparkles, Loader2, X, Plus, Layers, BarChart3 } from 'lucide-solid';
 import {
   AI_BANNER_POLL_INTERVAL_MS,
   AI_BANNER_POLL_TIMEOUT_MS,
@@ -35,6 +35,18 @@ import BulkActionsBar from './bulk-actions-bar';
 
 // Lazy-load AI modal (heavy component with its own store)
 const AiGenerateModal = lazy(() => import('./ai-generate-modal'));
+
+// Lazy-load deck analytics components (only rendered when toggled)
+const RetentionHeatmap = lazy(
+  () => import('@/components/deck-view/retention-heatmap'),
+);
+const GraphView = lazy(() => import('@/components/deck-view/graph-view'));
+const DuplicateScanner = lazy(
+  () => import('@/components/deck-view/duplicate-scanner'),
+);
+const AiSuggestions = lazy(
+  () => import('@/components/deck-view/ai-suggestions'),
+);
 
 const DeckViewPage: Component = () => {
   const navigate = useNavigate();
@@ -138,6 +150,9 @@ const DeckViewPage: Component = () => {
       if (!job) bannerSeenProcessing = false;
     }
   });
+
+  // ── Analytics panel state ─────────────────────────────────────
+  const [showAnalytics, setShowAnalytics] = createSignal(false);
 
   // ── Bulk selection state ────────────────────────────────────────
   const [selectMode, setSelectMode] = createSignal(false);
@@ -412,6 +427,8 @@ const DeckViewPage: Component = () => {
         setShowAiModal={setShowAiModal}
         selectMode={selectMode}
         toggleSelectMode={toggleSelectMode}
+        showAnalytics={showAnalytics}
+        toggleAnalytics={() => setShowAnalytics((v) => !v)}
       />
 
       {/* ── Content ── */}
@@ -460,6 +477,32 @@ const DeckViewPage: Component = () => {
               >
                 <X class="h-4 w-4" />
               </button>
+            </div>
+          </Show>
+
+          {/* ── Analytics Panel (lazy-loaded) ── */}
+          <Show when={showAnalytics()}>
+            <div class="space-y-4 animate-fade-in">
+              <Suspense
+                fallback={
+                  <div class="h-32 rounded-xl bg-muted animate-pulse" />
+                }
+              >
+                <RetentionHeatmap deckId={params.deckId} />
+              </Suspense>
+              <Suspense
+                fallback={
+                  <div class="h-80 rounded-xl bg-muted animate-pulse" />
+                }
+              >
+                <GraphView deckId={params.deckId} />
+              </Suspense>
+              <Suspense fallback={null}>
+                <DuplicateScanner deckId={params.deckId} />
+              </Suspense>
+              <Suspense fallback={null}>
+                <AiSuggestions deckId={params.deckId} />
+              </Suspense>
             </div>
           </Show>
 
