@@ -7,6 +7,7 @@ import {
 } from 'solid-js';
 import { A, useSearchParams } from '@solidjs/router';
 import { api, getApiError } from '@/api/client';
+import { fetchCurrentUser } from '@/stores/auth.store';
 import {
   Card,
   CardContent,
@@ -48,6 +49,8 @@ const VerifyEmailPage: Component = () => {
       } else {
         setStatus('success');
       }
+      // Refresh currentUser signal so dashboard banner reflects verified state
+      await fetchCurrentUser();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Verification failed');
       setStatus('error');
