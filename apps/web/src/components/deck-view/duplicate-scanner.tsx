@@ -8,6 +8,8 @@ import { ScanSearch, Loader2, AlertTriangle, X } from 'lucide-solid';
 interface DuplicatePair {
   cardA: string;
   cardB: string;
+  labelA: string;
+  labelB: string;
   similarity: number;
 }
 
@@ -28,7 +30,7 @@ const DuplicateScanner: Component<DuplicateScannerProps> = (props) => {
     try {
       const { data, error } = await (api.ai as any)['deck-duplicates'].post({
         deckId: props.deckId,
-        threshold: 0.85,
+        threshold: 0.95,
       });
       if (error) throw new Error(getApiError(error));
       const result = data as { pairs: DuplicatePair[] };
@@ -91,12 +93,12 @@ const DuplicateScanner: Component<DuplicateScannerProps> = (props) => {
               {(pair) => (
                 <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-card border text-xs">
                   <div class="flex items-center gap-2 min-w-0 flex-1">
-                    <span class="font-mono text-muted-foreground truncate">
-                      {pair.cardA.slice(0, 8)}
+                    <span class="text-muted-foreground truncate">
+                      {pair.labelA}
                     </span>
-                    <span class="text-muted-foreground">↔</span>
-                    <span class="font-mono text-muted-foreground truncate">
-                      {pair.cardB.slice(0, 8)}
+                    <span class="text-muted-foreground shrink-0">↔</span>
+                    <span class="text-muted-foreground truncate">
+                      {pair.labelB}
                     </span>
                   </div>
                   <Badge

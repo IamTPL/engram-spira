@@ -22,6 +22,7 @@ import { getGenAI, checkAiRateLimit } from '../../config/ai';
 import { buildVocabPrompt } from './vocab.prompt';
 import { buildQAPrompt } from './qa.prompt';
 import { ENV } from '../../config/env';
+import { enqueueEmbedding } from '../embedding/embedding.service';
 
 // ── AI timing constants ────────────────────────────────────────────────────
 // Maximum wall-clock time for the entire streaming generation.
@@ -374,6 +375,13 @@ export async function saveGeneratedCards(
     .update(aiGenerationJobs)
     .set({ status: 'saved' })
     .where(eq(aiGenerationJobs.id, jobId));
+
+  // Enqueue embedding generation for all newly created cards (fire-and-forget).
+  // This was previously missing — AI-generated cards bypassed cards.service.ts
+  // which contains the enqueueEmbedding hook, leaving all embeddings NULL.
+  for (const card of createdCards) {
+    enqueueEmbedding(card.id);
+  }
 
   return { saved: createdCards.length, cards: createdCards };
 }

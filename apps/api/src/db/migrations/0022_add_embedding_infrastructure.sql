@@ -2,7 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Add embedding column to card_field_values
--- Stores 768-dimensional vector from Gemini text-embedding-004
+-- Stores 768-dimensional vector from Gemini gemini-embedding-001 (Matryoshka truncation)
 ALTER TABLE "card_field_values" ADD COLUMN IF NOT EXISTS "embedding" vector(768);
 
 -- HNSW index for fast approximate nearest neighbor search

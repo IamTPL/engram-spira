@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/stores/toast.store';
 import { Sparkles, Loader2, Check, X, Link2 } from 'lucide-solid';
+import { queryClient } from '@/lib/query-client';
 
 interface Suggestion {
   sourceCardId: string;
@@ -63,6 +64,8 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
         ),
       );
       toast.success('Link created');
+      // Refresh Knowledge Graph so new edges appear immediately
+      queryClient.invalidateQueries({ queryKey: ['deck-graph'] });
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to create link');
     } finally {

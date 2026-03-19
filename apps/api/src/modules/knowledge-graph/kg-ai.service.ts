@@ -54,12 +54,12 @@ export async function detectRelationships(
     card_id: string;
     embedding: string;
   }>(sql`
-    SELECT cfv.card_id, cfv.embedding::text
+    SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
     FROM card_field_values cfv
     JOIN cards c ON cfv.card_id = c.id
     WHERE c.deck_id = ${deckId}
       AND cfv.embedding IS NOT NULL
-    ORDER BY c.sort_order
+    ORDER BY cfv.card_id, cfv.id
   `);
 
   if (rows.length < 2) return { suggestions: [] };
@@ -99,14 +99,16 @@ export async function detectRelationships(
 
   // Filter out already-linked pairs
   const allCardIds = rows.map((r) => r.card_id);
-  const existingLinks = await db.execute<{
-    source_card_id: string;
-    target_card_id: string;
-  }>(sql`
-    SELECT source_card_id, target_card_id FROM card_links
-    WHERE source_card_id = ANY(${allCardIds})
-       OR target_card_id = ANY(${allCardIds})
-  `);
+
+  let existingLinks: { source_card_id: string; target_card_id: string }[] = [];
+  if (allCardIds.length > 0) {
+    const { pgClient } = await import('../../db');
+    existingLinks = await pgClient<{ source_card_id: string; target_card_id: string }[]>`
+      SELECT source_card_id, target_card_id FROM card_links
+      WHERE source_card_id = ANY(${allCardIds}::uuid[])
+         OR target_card_id = ANY(${allCardIds}::uuid[])
+    `;
+  }
 
   const linkedSet = new Set(
     existingLinks.map((l) =>
@@ -129,7 +131,7 @@ export async function detectRelationships(
       sourceLabel: labels.get(pair.src) ?? '',
       targetLabel: labels.get(pair.tgt) ?? '',
       similarity: Math.round(pair.sim * 1000) / 1000,
-      suggestedType: pair.sim > 0.85 ? 'prerequisite' : 'related',
+      suggestedType: 'related',
     });
   }
 

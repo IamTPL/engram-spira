@@ -432,8 +432,8 @@ const DeckViewPage: Component = () => {
       />
 
       {/* ── Content ── */}
-      <div class="flex-1 min-h-0 overflow-hidden p-6">
-        <div class="max-w-5xl mx-auto h-full flex flex-col gap-4">
+      <div class={`flex-1 min-h-0 p-6 ${showAnalytics() ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+        <div class={`max-w-5xl mx-auto ${showAnalytics() ? '' : 'h-full'} flex flex-col gap-4`}>
           {/* ── Pending AI job resume banner ── */}
           <Show when={pendingJob() && !pendingJobDismissed() && !showAiModal()}>
             <div class="flex items-center gap-3 px-4 py-3 rounded-xl border border-palette-5/30 bg-palette-5/5 text-sm animate-fade-in">
@@ -540,7 +540,7 @@ const DeckViewPage: Component = () => {
 
           {/* Card list */}
           <Show when={!cardLoading()}>
-            <div class="flex flex-col flex-1 min-h-0">
+            <div class="flex flex-col flex-1" style={{ "min-height": showAnalytics() ? "400px" : undefined }}>
               <Show
                 when={filteredCards().length > 0}
                 fallback={

@@ -10,4 +10,5 @@ const client = postgres(ENV.DATABASE_URL, {
   prepare: true,
 });
 
+export const pgClient = client;
 export const db = drizzle(client, { schema });

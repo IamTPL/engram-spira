@@ -22,7 +22,7 @@ const ENV = {
   // Override via GEMINI_MODEL env var to switch models without code changes.
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
   GEMINI_EMBEDDING_MODEL:
-    process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004',
+    process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001',
 } as const;
 
 // Validate required env vars at startup

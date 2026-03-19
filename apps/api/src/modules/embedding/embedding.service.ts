@@ -1,11 +1,14 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { sql, eq, inArray } from 'drizzle-orm';
-import { db } from '../../db';
+import { db, pgClient } from '../../db';
 import { cardFieldValues, templateFields } from '../../db/schema';
 import { ENV } from '../../config/env';
 import { logger } from '../../shared/logger';
 
 const embLogger = logger.child({ module: 'embedding' });
+
+/** Output dimension for embeddings — 768d is the sweet spot for accuracy vs performance */
+const EMBEDDING_DIMENSIONS = 768;
 
 // ── Lazy-init Gemini client ──────────────────────────────────────────────────
 let _genAI: GoogleGenerativeAI | null = null;
@@ -24,13 +27,16 @@ function getGenAI(): GoogleGenerativeAI {
 
 /**
  * Generate embedding for a single text string.
- * Returns a 768-dimensional float array.
+ * Returns a 768-dimensional float array (Matryoshka truncation from 3072d).
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   const model = getGenAI().getGenerativeModel({
     model: ENV.GEMINI_EMBEDDING_MODEL,
   });
-  const result = await model.embedContent(text);
+  const result = await model.embedContent({
+    content: { parts: [{ text }], role: 'user' },
+    outputDimensionality: EMBEDDING_DIMENSIONS,
+  } as any);
   return result.embedding.values;
 }
 
@@ -51,7 +57,8 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const result = await model.batchEmbedContents({
     requests: texts.map((text) => ({
       content: { parts: [{ text }], role: 'user' },
-    })),
+      outputDimensionality: EMBEDDING_DIMENSIONS,
+    } as any)),
   });
   return result.embeddings.map((e) => e.values);
 }
@@ -115,11 +122,7 @@ export async function embedCard(cardId: string): Promise<boolean> {
 
   if (!firstField) return false;
 
-  await db.execute(sql`
-    UPDATE card_field_values
-    SET embedding = ${sql.raw(`'[${embedding.join(',')}]'::vector`)}
-    WHERE id = ${firstField.id}
-  `);
+  await storeEmbedding(firstField.id, embedding);
 
   return true;
 }
@@ -137,6 +140,26 @@ export function enqueueEmbedding(cardId: string): void {
   );
 }
 
+// ── Vector storage helper ─────────────────────────────────────────────────────
+
+/**
+ * Store embedding vector in card_field_values row.
+ * Uses raw SQL query to handle pgvector casting correctly.
+ * Drizzle's sql.raw() chokes on 3072-dim vectors (~25KB),
+ * so we build a minimal raw query string here.
+ */
+async function storeEmbedding(cfvId: string, embedding: number[]): Promise<void> {
+  const vectorLiteral = `[${embedding.join(',')}]`;
+  // Use postgres-js tagged template directly — bypasses Drizzle's query builder
+  // which chokes on 3072-dim vector strings (~25KB).
+  // postgres-js properly handles parameterized queries of any size.
+  await pgClient`
+    UPDATE card_field_values
+    SET embedding = ${vectorLiteral}::vector
+    WHERE id = ${cfvId}
+  `;
+}
+
 // ── Batch backfill ───────────────────────────────────────────────────────────
 
 const BACKFILL_BATCH_SIZE = 50;
@@ -151,10 +174,17 @@ export async function backfillEmbeddings(): Promise<number> {
   let totalEmbedded = 0;
 
   while (true) {
-    // Find cards without embeddings (raw SQL — embedding column not in Drizzle schema)
+    // Find cards that have NO embedding on any of their field value rows.
+    // A card has multiple cfv rows (one per field); only one gets the vector.
+    // We must skip cards that already have an embedding on ANY row.
     const unembeddedCards = await db.execute<{ card_id: string }>(sql`
-      SELECT DISTINCT card_id FROM card_field_values
-      WHERE embedding IS NULL
+      SELECT DISTINCT cfv.card_id
+      FROM card_field_values cfv
+      WHERE NOT EXISTS (
+        SELECT 1 FROM card_field_values cfv2
+        WHERE cfv2.card_id = cfv.card_id
+          AND cfv2.embedding IS NOT NULL
+      )
       LIMIT ${BACKFILL_BATCH_SIZE}
     `);
 
@@ -217,11 +247,7 @@ export async function backfillEmbeddings(): Promise<number> {
           .limit(1);
 
         if (firstField) {
-          await db.execute(sql`
-            UPDATE card_field_values
-            SET embedding = ${sql.raw(`'[${embeddings[i].join(',')}]'::vector`)}
-            WHERE id = ${firstField.id}
-          `);
+          await storeEmbedding(firstField.id, embeddings[i]);
         }
       }
 
@@ -254,10 +280,9 @@ export interface EmbeddingSearchResult {
 }
 
 /**
- * Search for cards by embedding similarity using pgvector HNSW index.
+ * Search for cards by embedding similarity using pgvector cosine distance.
  * Returns top-N most similar cards owned by the given user.
- *
- * Performance: ~5-20ms on 100K vectors with HNSW index.
+ * Uses postgres-js client directly (Drizzle can't handle 3072-dim vector strings).
  */
 export async function searchByEmbedding(
   queryVector: number[],
@@ -274,31 +299,26 @@ export async function searchByEmbedding(
   // Safe: vector literal is generated from number[] (no user strings)
   const vectorStr = `[${queryVector.join(',')}]`;
 
-  // Build parameterized query — never interpolate user strings into sql.raw()
-  const deckFilter = deckId ? sql`AND c.deck_id = ${deckId}` : sql``;
-  const excludeFilter = excludeCardId
-    ? sql`AND c.id != ${excludeCardId}`
-    : sql``;
-
-  const results = await db.execute<{
+  // Build query with conditional clauses
+  const results = await pgClient<{
     card_id: string;
     deck_id: string;
     similarity: number;
-  }>(sql`
+  }[]>`
     SELECT
       c.id AS card_id,
       c.deck_id AS deck_id,
-      1 - (cfv.embedding <=> ${sql.raw(`'${vectorStr}'::vector`)}) AS similarity
+      1 - (cfv.embedding <=> ${vectorStr}::vector) AS similarity
     FROM card_field_values cfv
     JOIN cards c ON cfv.card_id = c.id
     JOIN decks d ON c.deck_id = d.id
     WHERE d.user_id = ${userId}
       AND cfv.embedding IS NOT NULL
-      ${deckFilter}
-      ${excludeFilter}
-    ORDER BY cfv.embedding <=> ${sql.raw(`'${vectorStr}'::vector`)}
+      ${deckId ? pgClient`AND c.deck_id = ${deckId}` : pgClient``}
+      ${excludeCardId ? pgClient`AND c.id != ${excludeCardId}` : pgClient``}
+    ORDER BY cfv.embedding <=> ${vectorStr}::vector
     LIMIT ${limit}
-  `);
+  `;
 
   return results
     .filter((r) => r.similarity >= threshold)

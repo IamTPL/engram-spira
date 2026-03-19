@@ -96,7 +96,7 @@ export async function scanDeckDuplicates(
   deckId: string,
   threshold = 0.85,
 ): Promise<{
-  pairs: { cardA: string; cardB: string; similarity: number }[];
+  pairs: { cardA: string; cardB: string; labelA: string; labelB: string; similarity: number }[];
 }> {
   // Verify ownership
   const [deck] = await db
@@ -114,12 +114,12 @@ export async function scanDeckDuplicates(
       card_id: string;
       embedding: string;
     }>(sql`
-      SELECT cfv.card_id, cfv.embedding::text
+      SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
       FROM card_field_values cfv
       JOIN cards c ON cfv.card_id = c.id
       WHERE c.deck_id = ${deckId}
         AND cfv.embedding IS NOT NULL
-      ORDER BY c.sort_order
+      ORDER BY cfv.card_id, cfv.id
     `);
   } catch (err) {
     rethrowIfMissingEmbedding(err);
@@ -159,7 +159,17 @@ export async function scanDeckDuplicates(
   // Sort by similarity descending
   pairs.sort((a, b) => b.similarity - a.similarity);
 
-  return { pairs };
+  // Fetch card labels (front-side text) for display
+  const allCardIds = [...new Set(pairs.flatMap((p) => [p.cardA, p.cardB]))];
+  const labels = await getCardLabels(allCardIds);
+
+  const enrichedPairs = pairs.map((p) => ({
+    ...p,
+    labelA: labels.get(p.cardA) ?? p.cardA.slice(0, 8),
+    labelB: labels.get(p.cardB) ?? p.cardB.slice(0, 8),
+  }));
+
+  return { pairs: enrichedPairs };
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -244,6 +254,46 @@ async function getCardText(cardId: string): Promise<string | null> {
     .join(' ');
 
   return text.trim() || null;
+}
+
+/** Get short labels for cards (first front-side field value, max 60 chars) */
+async function getCardLabels(
+  cardIds: string[],
+): Promise<Map<string, string>> {
+  if (cardIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      cardId: cardFieldValues.cardId,
+      value: cardFieldValues.value,
+      sortOrder: templateFields.sortOrder,
+    })
+    .from(cardFieldValues)
+    .innerJoin(
+      templateFields,
+      eq(cardFieldValues.templateFieldId, templateFields.id),
+    )
+    .where(
+      and(
+        inArray(cardFieldValues.cardId, cardIds),
+        eq(templateFields.side, 'front'),
+      ),
+    )
+    .orderBy(templateFields.sortOrder);
+
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    if (map.has(r.cardId)) continue; // keep first (lowest sortOrder)
+    const text =
+      typeof r.value === 'string'
+        ? r.value
+        : r.value && typeof r.value === 'object' && 'text' in r.value
+          ? String((r.value as { text: unknown }).text)
+          : JSON.stringify(r.value);
+    map.set(r.cardId, text.slice(0, 60));
+  }
+
+  return map;
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
