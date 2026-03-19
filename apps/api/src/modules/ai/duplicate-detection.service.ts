@@ -6,8 +6,22 @@ import {
   searchByEmbedding,
 } from '../embedding/embedding.service';
 import { logger } from '../../shared/logger';
+import { AppError } from '../../shared/errors';
 
 const dupLogger = logger.child({ module: 'duplicate-detection' });
+
+/** Re-throw DB "undefined_column" errors as a user-friendly 422 */
+function rethrowIfMissingEmbedding(err: unknown): never {
+  const cause = err instanceof Error ? (err as Error & { cause?: { code?: string } }).cause : undefined;
+  const code = cause?.code ?? (err as { code?: string })?.code;
+  if (code === '42703') {
+    throw new AppError(
+      422,
+      'Embedding data is not available yet. Please generate embeddings for this deck first.',
+    );
+  }
+  throw err;
+}
 
 export interface DuplicateMatch {
   cardId: string;
@@ -29,12 +43,17 @@ export async function checkDuplicatesByCardId(
   threshold = 0.85,
 ): Promise<{ duplicates: DuplicateMatch[] }> {
   // Get the card's existing embedding vector
-  const [row] = await db.execute<{ embedding: string }>(sql`
-    SELECT embedding::text
-    FROM card_field_values
-    WHERE card_id = ${cardId} AND embedding IS NOT NULL
-    LIMIT 1
-  `);
+  let row: { embedding: string } | undefined;
+  try {
+    [row] = await db.execute<{ embedding: string }>(sql`
+      SELECT embedding::text
+      FROM card_field_values
+      WHERE card_id = ${cardId} AND embedding IS NOT NULL
+      LIMIT 1
+    `);
+  } catch (err) {
+    rethrowIfMissingEmbedding(err);
+  }
 
   if (!row?.embedding) {
     // Card has no embedding yet — generate from text
@@ -89,17 +108,22 @@ export async function scanDeckDuplicates(
   if (!deck) return { pairs: [] };
 
   // Fetch all card embeddings in this deck using raw SQL
-  const rows = await db.execute<{
-    card_id: string;
-    embedding: string;
-  }>(sql`
-    SELECT cfv.card_id, cfv.embedding::text
-    FROM card_field_values cfv
-    JOIN cards c ON cfv.card_id = c.id
-    WHERE c.deck_id = ${deckId}
-      AND cfv.embedding IS NOT NULL
-    ORDER BY c.sort_order
-  `);
+  let rows: { card_id: string; embedding: string }[];
+  try {
+    rows = await db.execute<{
+      card_id: string;
+      embedding: string;
+    }>(sql`
+      SELECT cfv.card_id, cfv.embedding::text
+      FROM card_field_values cfv
+      JOIN cards c ON cfv.card_id = c.id
+      WHERE c.deck_id = ${deckId}
+        AND cfv.embedding IS NOT NULL
+      ORDER BY c.sort_order
+    `);
+  } catch (err) {
+    rethrowIfMissingEmbedding(err);
+  }
 
   if (rows.length < 2) return { pairs: [] };
 
