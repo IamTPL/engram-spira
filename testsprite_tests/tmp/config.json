@@ -1,0 +1,18 @@
+{
+  "status": "init",
+  "scope": "codebase",
+  "type": "frontend",
+  "localEndpoint": "http://localhost:3002/",
+  "serverPort": 43993,
+  "executionArgs": {
+    "projectName": "engram-spira",
+    "projectPath": "/home/tplong/workspace/engram-spira",
+    "testIds": [],
+    "additionalInstruction": "Focus testing on the FocusDrawer component. Tests should cover: drawer open/close (X button, backdrop click, Escape key), DurationStepper +/- buttons and disabled states, Start Focus / Stop Session button toggling, timer display in MM:SS format, circular SVG progress ring, settings panel toggle (gear icon), reward label inputs (6 dice faces), and the stats section (minutes, sessions, streak). The FocusDrawer is always mounted in the DOM at app root level but hidden via translate-x-full; to open it you must trigger its store or find the button in the sidebar that opens it.",
+    "serverMode": "development",
+    "envs": {
+      "API_KEY": "sk-user-aW_nb7hD9mPy7ibig82swVQsGSWMQ8q6ETbpH8htOKgj_ntIfkuk8S68E6ci-cPaE8UCX4xOGJF6PB4xNAuOI3l8V9PGFW2vKciDXCaQPY1mYjymGoF7ohUwJbVNmW2eobs"
+    }
+  },
+  "proxy": "http://ad88b858-eaac-4ce8-ba97-7c79d5645aed:emt4YnhgFHIVYmJuSUczcIPdkcgLPxhH@tun.testsprite.com:8080"
+}

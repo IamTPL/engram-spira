@@ -1,0 +1,1279 @@
+[
+  {
+    "id": "TC001",
+    "title": "Open Focus Mode Drawer and verify core UI is visible",
+    "description": "Verifies the user can open the Focus Mode Drawer from the dashboard and see key focus controls and stats.",
+    "category": "Focus Mode Drawer",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/\""
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Focus Drawer\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Start Focus\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "Adjust focus duration with plus and minus controls while Ready",
+    "description": "Verifies the duration stepper can increase and decrease duration before starting a session and the value remains visible in minutes.",
+    "category": "Focus Mode Drawer",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "action",
+        "description": "Click the plus (+) button to increase focus duration"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Duration\" is visible"
+      },
+      {
+        "type": "action",
+        "description": "Click the minus (-) button to decrease focus duration"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Start a focus session and verify status and countdown appear",
+    "description": "Verifies starting a session changes status to focusing and shows a MM:SS countdown and progress ring.",
+    "category": "Focus Mode Drawer",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "action",
+        "description": "Click Start Focus button to start the timer"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Focusing\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"timer countdown\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Duration stepper is hidden while session is running and Stop ends session early",
+    "description": "Verifies duration controls are not available during an active session and stopping returns the drawer to a ready state.",
+    "category": "Focus Mode Drawer",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "action",
+        "description": "Click Start Focus button to start the timer"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"plus (+) duration button\" is not visible"
+      },
+      {
+        "type": "action",
+        "description": "Click Stop Session button to halt the timer early"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Open settings panel and edit a dice reward label then close via backdrop",
+    "description": "Verifies the settings panel opens, a reward label can be edited under 40 characters, and closing via backdrop returns to the main drawer.",
+    "category": "Focus Mode Drawer",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "action",
+        "description": "Click the gear (Settings) icon to open the settings panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Dice1 reward input\" is visible"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Deep Work\" into the Dice1 reward input field"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Verify edited dice label persists after closing and reopening settings panel",
+    "description": "Verifies a changed dice label remains updated within the drawer after closing settings and reopening it.",
+    "category": "Focus Mode Drawer",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "action",
+        "description": "Click the gear (Settings) icon to open the settings panel"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Deep Work\" into the Dice1 reward input field"
+      },
+      {
+        "type": "action",
+        "description": "Click the backdrop overlay to close the settings panel"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Close Focus Mode Drawer using Escape key",
+    "description": "Verifies the drawer can be dismissed with the Escape key from the open state.",
+    "category": "Focus Mode Drawer",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Focus Drawer\" is visible"
+      },
+      {
+        "type": "action",
+        "description": "Press Escape key"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Focus Drawer\" is not visible"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Close Focus Mode Drawer using the X close button",
+    "description": "Verifies the drawer can be dismissed using the visible X control.",
+    "category": "Focus Mode Drawer",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Focus Drawer\" is visible"
+      },
+      {
+        "type": "action",
+        "description": "Click the X button to close the drawer"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Focus Drawer\" is not visible"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Verify Today’s stats are visible in the drawer",
+    "description": "Verifies the drawer displays the Today’s stats section with minutes, sessions, and day streak values.",
+    "category": "Focus Mode Drawer",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Log in button"
+      },
+      {
+        "type": "action",
+        "description": "Click on the focus drawer button in the sidebar/navigation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Today\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Minutes\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Sessions\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Successful login redirects to dashboard",
+    "description": "Verifies a user can sign in with valid email and password and is redirected to the dashboard.",
+    "category": "User Login",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify page title contains \"Login\""
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Login\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/\""
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Dashboard\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Invalid credentials show error message",
+    "description": "Verifies an error message is shown when the user enters an unregistered email and submits the form.",
+    "category": "User Login",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"unregistered.user@example.invalid\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"WrongPassword123!\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Login\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Invalid credentials\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/login\""
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Client-side validation when email is empty",
+    "description": "Verifies the email field is required and shows a validation message if left blank on submit.",
+    "category": "User Login",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Login\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Email is required\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/login\""
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Client-side validation when password is empty",
+    "description": "Verifies the password field is required and shows a validation message if left blank on submit.",
+    "category": "User Login",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Login\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Password is required\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/login\""
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Email format validation blocks submission",
+    "description": "Verifies an invalid email format is rejected with a visible validation message.",
+    "category": "User Login",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"not-an-email\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"SomePassword123!\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Login\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Enter a valid email\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/login\""
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Login failure preserves entered email for correction",
+    "description": "Verifies that after a failed login attempt the email remains visible in the email field so the user can correct the password.",
+    "category": "User Login",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"unregistered.user@example.invalid\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"WrongPassword123!\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Login\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Invalid credentials\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"unregistered.user@example.invalid\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "Password field masks input characters",
+    "description": "Verifies the password input does not display the raw password text while typing.",
+    "category": "User Login",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"SecretPass123!\" into the password field"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"password field\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"SecretPass123!\" is not visible"
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "Invalid email format shows inline validation error",
+    "description": "Verifies the registration form blocks submission and shows an email format validation message.",
+    "category": "User Registration",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /register"
+      },
+      {
+        "type": "action",
+        "description": "Type \"not-an-email\" into the email input field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"ValidPassw0rd!\" into the password input field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Register button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Invalid email\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/register\""
+      }
+    ]
+  },
+  {
+    "id": "TC018",
+    "title": "Too-short password shows inline validation error",
+    "description": "Verifies the registration form enforces password requirements and shows a visible password validation message.",
+    "category": "User Registration",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /register"
+      },
+      {
+        "type": "action",
+        "description": "Type \"new.user+e2e2@example.com\" into the email input field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"123\" into the password input field"
+      },
+      {
+        "type": "action",
+        "description": "Click the Register button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Password\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"too short\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/register\""
+      }
+    ]
+  },
+  {
+    "id": "TC019",
+    "title": "Start a study session from the dashboard and view the first card front",
+    "description": "Verifies a user can navigate into Study Mode for a deck and see the first flashcard front face.",
+    "category": "Flashcard Study Mode",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/\""
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"flashcard front\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC020",
+    "title": "Flip a flashcard to reveal the back side",
+    "description": "Verifies a user can flip a flashcard and see the back side content in Study Mode.",
+    "category": "Flashcard Study Mode",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the flashcard to flip it"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"flashcard back\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC021",
+    "title": "Rate a card as Good and advance to the next card",
+    "description": "Verifies rating a revealed card as Good advances the session to the next card.",
+    "category": "Flashcard Study Mode",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the flashcard to flip it"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Good\" rating button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"flashcard front\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC022",
+    "title": "Rate a card as Again and observe the card is re-shown later in the session",
+    "description": "Verifies rating a card as Again causes it to be rescheduled and appear again during the same session.",
+    "category": "Flashcard Study Mode",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the flashcard to flip it"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Again\" rating button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Again\" is visible in the session history or last-action indicator (if present)"
+      }
+    ]
+  },
+  {
+    "id": "TC023",
+    "title": "Complete a study session until finished screen appears",
+    "description": "Verifies a study session can be progressed through ratings until the session finished state is shown.",
+    "category": "Flashcard Study Mode",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "action",
+        "description": "Repeatedly flip the card and click a rating option (such as \"Good\") until the session ends"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Session finished\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC024",
+    "title": "Ratings are not available before flipping the card",
+    "description": "Verifies the user must flip a card to the back before rating buttons are available.",
+    "category": "Flashcard Study Mode",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"rating buttons\" is not visible"
+      },
+      {
+        "type": "action",
+        "description": "Click the flashcard to flip it"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"rating buttons\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC025",
+    "title": "Return from Study Mode to the deck view after finishing",
+    "description": "Verifies that after a session finishes, the user can navigate back to a non-study page via an on-screen control.",
+    "category": "Flashcard Study Mode",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click on a deck from the dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "action",
+        "description": "Repeatedly flip the card and click a rating option (such as \"Good\") until the session ends"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Back to deck\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/deck/\""
+      }
+    ]
+  },
+  {
+    "id": "TC026",
+    "title": "Dashboard loads and shows folders list and recent decks",
+    "description": "Verifies an authenticated user can load the dashboard and see folders and recent decks sections.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/\""
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Folders\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Recent Decks\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC027",
+    "title": "Open a folder from dashboard and view decks inside the folder",
+    "description": "Verifies a user can navigate from the dashboard into a folder and see the folder's deck list.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the first folder item in the folders list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/folder/\""
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Decks\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC028",
+    "title": "Open a deck from dashboard and verify deck details are shown",
+    "description": "Verifies a user can open a deck from the dashboard and see deck details with an option to study.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the first deck item in the \"Recent Decks\" section"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/deck/\""
+      },
+      {
+        "type": "assertion",
+        "description": "Verify element \"Study\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC029",
+    "title": "Start studying from a deck opened via the dashboard",
+    "description": "Verifies a user can open a deck from the dashboard and start a study session from the deck page.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the first deck item in the \"Recent Decks\" section"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Study\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify URL contains \"/study/\""
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Study\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC030",
+    "title": "Create a new folder from the dashboard and see it appear in the folders list",
+    "description": "Verifies a user can create a new folder from the dashboard and the new folder is visible in the list.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Create New Folder\" button"
+      },
+      {
+        "type": "action",
+        "description": "Type \"E2E Folder\" into the folder name input"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Save\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"E2E Folder\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC031",
+    "title": "Create a new deck from the dashboard and see it appear in Recent Decks",
+    "description": "Verifies a user can create a new deck from the dashboard and the new deck is visible in the recent decks section.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Create New Deck\" button"
+      },
+      {
+        "type": "action",
+        "description": "Type \"E2E Deck\" into the deck name input"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Save\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"E2E Deck\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC032",
+    "title": "Show validation error when creating a folder with a duplicate name",
+    "description": "Verifies the dashboard shows a visible error message when trying to create a folder with an existing name.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Create New Folder\" button"
+      },
+      {
+        "type": "action",
+        "description": "Type the exact name of an existing folder shown in the folders list into the folder name input"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Save\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"duplicate\" is visible"
+      }
+    ]
+  },
+  {
+    "id": "TC033",
+    "title": "Cancel folder creation from the dashboard without adding a new folder",
+    "description": "Verifies a user can exit the create-folder flow and return to the dashboard without saving.",
+    "category": "Dashboard (Folders & Decks)",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_USER}}\" into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Type \"{{LOGIN_PASSWORD}}\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Log in\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Create New Folder\" button"
+      },
+      {
+        "type": "action",
+        "description": "Click the \"Cancel\" button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Create New Folder\" is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify text \"Folders\" is visible"
+      }
+    ]
+  }
+]

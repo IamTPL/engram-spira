@@ -1,0 +1,157 @@
+version: "2"
+type: frontend
+tech_stack:
+  - TypeScript
+  - SolidJS
+  - Vite
+  - TailwindCSS v4
+  - TanStack Query
+  - SolidJS Router
+  - Lucide Solid (icons)
+routes:
+  - path: /login
+    file: src/pages/login.tsx
+    auth_required: false
+    description: User login page with email and password
+  - path: /register
+    file: src/pages/register.tsx
+    auth_required: false
+    description: User registration page
+  - path: /reset-password
+    file: src/pages/reset-password.tsx
+    auth_required: false
+    description: Password reset page
+  - path: /
+    file: src/pages/dashboard.tsx
+    auth_required: true
+    description: Main dashboard with folders and decks
+  - path: /folder/:folderId
+    file: src/pages/folder-view.tsx
+    auth_required: true
+    description: View decks within a folder
+  - path: /deck/:deckId
+    file: src/pages/deck-view.tsx
+    auth_required: true
+    description: View flashcards within a deck
+  - path: /study/:deckId
+    file: src/pages/study-mode.tsx
+    auth_required: true
+    description: Flashcard study mode for a specific deck
+  - path: /study/interleaved
+    file: src/pages/interleaved-study.tsx
+    auth_required: true
+    description: Interleaved study mode across multiple decks
+  - path: /settings
+    file: src/pages/settings.tsx
+    auth_required: true
+    description: User settings page
+  - path: /feedback
+    file: src/pages/feedback.tsx
+    auth_required: true
+    description: User feedback submission
+  - path: /docs
+    file: src/pages/docs.tsx
+    auth_required: true
+    description: Documentation/help page
+features:
+  - name: User Login
+    description: Login with email and password credentials
+    files:
+      - src/pages/login.tsx
+      - src/stores/auth.store.ts
+    entry_route: /login
+    user_interactions:
+      - Fill email input field
+      - Fill password input field
+      - Click Login button to submit
+      - See error message on invalid credentials
+      - Redirect to dashboard on success
+    api_calls:
+      - method: POST
+        endpoint: /api/auth/login
+    auth_required: false
+  - name: User Registration
+    description: Create a new account with email and password
+    files:
+      - src/pages/register.tsx
+      - src/stores/auth.store.ts
+    entry_route: /register
+    user_interactions:
+      - Fill email input field
+      - Fill password input field
+      - Click Register button
+      - See validation errors if any
+    api_calls:
+      - method: POST
+        endpoint: /api/auth/register
+    auth_required: false
+  - name: Focus Mode Drawer
+    description: A slide-in drawer from the right for Pomodoro-style focus sessions with a countdown timer, duration setting, start/stop controls, reward settings (custom dice labels), and today's stats
+    files:
+      - src/components/focus/focus-drawer.tsx
+      - src/components/focus/reward-popup.tsx
+      - src/components/focus/focus-sounds.ts
+      - src/stores/focus.store.ts
+    entry_route: /
+    user_interactions:
+      - Open focus drawer from the sidebar/navigation button
+      - Close drawer by clicking X button
+      - Close drawer by clicking the backdrop overlay
+      - Close drawer by pressing Escape key
+      - Increase focus duration by clicking plus (+) button
+      - Decrease focus duration by clicking minus (-) button
+      - See duration displayed in minutes (or 1s for the shortest)
+      - Click Start Focus button to start the timer
+      - See timer countdown in MM:SS format
+      - See circular SVG progress ring animate as time elapses
+      - See status change from Ready to Focusing...
+      - Duration stepper disappears while timer is running
+      - Click Stop Session button to halt the timer early
+      - View reward popup (dice roll animation) after session completes
+      - Open settings panel by clicking the gear (Settings2) icon
+      - Edit custom reward labels for each of the 6 dice faces
+      - See dice icons (Dice1–Dice6) alongside each reward input
+      - View today's stats: minutes, sessions, day streak
+    api_calls: []
+    auth_required: true
+  - name: Flashcard Study Mode
+    description: Study flashcards using spaced repetition with flip animations
+    files:
+      - src/pages/study-mode.tsx
+    entry_route: /study/:deckId
+    user_interactions:
+      - View front of flashcard
+      - Flip card to see the back
+      - Rate recall quality (Again / Hard / Good / Easy)
+      - See next card
+      - Finish session
+    api_calls:
+      - method: GET
+        endpoint: /api/decks/:deckId/cards
+      - method: POST
+        endpoint: /api/study/review
+    auth_required: true
+  - name: Dashboard
+    description: Main entry point showing folders and decks overview
+    files:
+      - src/pages/dashboard.tsx
+    entry_route: /
+    user_interactions:
+      - View folders list
+      - View recent decks
+      - Navigate to a folder
+      - Navigate to a deck
+      - Create a new folder or deck
+    api_calls:
+      - method: GET
+        endpoint: /api/folders
+      - method: GET
+        endpoint: /api/decks
+    auth_required: true
+known_limitations:
+  - issue: FocusDrawer is globally mounted at app root level via lazy Suspense — it is always present in the DOM but hidden (translate-x-full) when closed
+    location: src/app.tsx
+    impact: Tests must trigger the drawer open state through the store or UI trigger to test visible state
+  - issue: Reward popup uses Three.js 3D dice animation which requires WebGL
+    location: src/components/focus/reward-popup.tsx
+    impact: Reward popup 3D animation may not render in headless browser environments
