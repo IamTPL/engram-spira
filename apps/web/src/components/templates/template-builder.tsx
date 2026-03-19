@@ -47,7 +47,7 @@ const TemplateBuilder: Component = () => {
   const [expanded, setExpanded] = createSignal(true);
 
   const templatesQuery = createQuery(() => ({
-    queryKey: ['user-templates', currentUser()?.id],
+    queryKey: ['card-templates'],
     queryFn: async () => {
       const { data } = await (api['card-templates'] as any).get();
       return (Array.isArray(data) ? data : []) as UserTemplate[];
@@ -98,7 +98,7 @@ const TemplateBuilder: Component = () => {
       });
       if (error) throw new Error(getApiError(error));
       toast.success('Template created!');
-      queryClient.invalidateQueries({ queryKey: ['user-templates'] });
+      queryClient.invalidateQueries({ queryKey: ['card-templates'] });
       resetForm();
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to create template');
@@ -112,7 +112,7 @@ const TemplateBuilder: Component = () => {
       const { error } = await (api['card-templates'] as any)[templateId].delete();
       if (error) throw new Error(getApiError(error));
       toast.success('Template deleted');
-      queryClient.invalidateQueries({ queryKey: ['user-templates'] });
+      queryClient.invalidateQueries({ queryKey: ['card-templates'] });
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to delete template');
     }

@@ -1,5 +1,6 @@
 import { createSignal } from 'solid-js';
 import { api, getApiError } from '../api/client';
+import { queryClient } from '../lib/query-client';
 
 export interface User {
   id: string;
@@ -83,6 +84,7 @@ export async function register(email: string, password: string) {
 export async function logout() {
   await api.auth.logout.post();
   setCurrentUser(null);
+  queryClient.clear();
 }
 
 /**

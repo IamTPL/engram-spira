@@ -246,6 +246,9 @@ const StudyModePage: Component = () => {
         setStudyMode('due');
       });
       invalidateStudy();
+      queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     } catch {
       // ignore
     }
