@@ -2,6 +2,8 @@ import Elysia, { t } from 'elysia';
 import { requireAuth } from '../auth/auth.middleware';
 import * as kgService from './kg.service';
 import * as kgAiService from './kg-ai.service';
+import { db } from '../../db';
+import { dismissedSuggestions } from '../../db/schema';
 
 export const kgRoutes = new Elysia({ prefix: '/knowledge-graph' })
   .use(requireAuth)
@@ -72,6 +74,28 @@ export const kgRoutes = new Elysia({ prefix: '/knowledge-graph' })
         threshold: t.Optional(
           t.Number({ minimum: 0.5, maximum: 1.0, default: 0.9 }),
         ),
+      }),
+    },
+  )
+
+  // ── Dismiss Suggestion ────────────────────────────────────
+  .post(
+    '/ai/dismiss',
+    async ({ currentUser, body }) => {
+      await db
+        .insert(dismissedSuggestions)
+        .values({
+          userId: currentUser.id,
+          sourceCardId: body.sourceCardId,
+          targetCardId: body.targetCardId,
+        })
+        .onConflictDoNothing();
+      return { dismissed: true };
+    },
+    {
+      body: t.Object({
+        sourceCardId: t.String({ format: 'uuid' }),
+        targetCardId: t.String({ format: 'uuid' }),
       }),
     },
   );

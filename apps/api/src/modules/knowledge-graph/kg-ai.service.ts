@@ -1,6 +1,6 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { db } from '../../db';
-import { cards, decks, cardFieldValues } from '../../db/schema';
+import { cards, decks, cardFieldValues, dismissedSuggestions } from '../../db/schema';
 import { logger } from '../../shared/logger';
 import { NotFoundError } from '../../shared/errors';
 import {
@@ -125,13 +125,46 @@ export async function detectRelationships(
 
   if (unlinkedCandidates.length === 0) return { suggestions: [] };
 
+  // Filter out dismissed suggestions
+  const dismissedRows = await db
+    .select({
+      sourceCardId: dismissedSuggestions.sourceCardId,
+      targetCardId: dismissedSuggestions.targetCardId,
+    })
+    .from(dismissedSuggestions)
+    .where(
+      and(
+        eq(dismissedSuggestions.userId, userId),
+        inArray(
+          dismissedSuggestions.sourceCardId,
+          unlinkedCandidates.map((c) => c.src),
+        ),
+      ),
+    );
+
+  const dismissedSet = new Set(
+    dismissedRows.map((d) => {
+      const [a, b] =
+        d.sourceCardId < d.targetCardId
+          ? [d.sourceCardId, d.targetCardId]
+          : [d.targetCardId, d.sourceCardId];
+      return `${a}:${b}`;
+    }),
+  );
+
+  const activeCandidates = unlinkedCandidates.filter(
+    (c) => !dismissedSet.has(`${c.src}:${c.tgt}`),
+  );
+
+  if (activeCandidates.length === 0) return { suggestions: [] };
+
   // Get card labels for display
   const labels = await getCardLabels(allCardIds);
 
   // ── LLM Verification Step ──────────────────────────────────────────────────
   // Fetch card texts for each unique card in candidates
   const candidateCardIds = [
-    ...new Set(unlinkedCandidates.flatMap((c) => [c.src, c.tgt])),
+    ...new Set(activeCandidates.flatMap((c) => [c.src, c.tgt])),
   ];
   const cardTexts = new Map<string, string>();
   await Promise.all(
@@ -142,7 +175,7 @@ export async function detectRelationships(
   );
 
   // Call LLM to verify each candidate
-  const verificationInput = unlinkedCandidates
+  const verificationInput = activeCandidates
     .filter((c) => cardTexts.has(c.src) && cardTexts.has(c.tgt))
     .map((c) => ({
       sourceCardId: c.src,
@@ -152,7 +185,7 @@ export async function detectRelationships(
     }));
 
   kgAiLogger.info(
-    { deckId, embeddingCandidates: rawCandidates.length, llmVerifying: verificationInput.length },
+    { deckId, embeddingCandidates: rawCandidates.length, dismissed: dismissedSet.size, llmVerifying: verificationInput.length },
     'LLM verification starting',
   );
 
@@ -165,7 +198,7 @@ export async function detectRelationships(
 
   // Build suggestions from only LLM-confirmed pairs
   const suggestions: RelationshipSuggestion[] = [];
-  for (const candidate of unlinkedCandidates) {
+  for (const candidate of activeCandidates) {
     const key = `${candidate.src}:${candidate.tgt}`;
     const verification = verifiedMap.get(key);
 

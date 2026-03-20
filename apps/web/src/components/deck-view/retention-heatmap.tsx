@@ -1,9 +1,10 @@
-import { type Component, Show, For, createMemo } from 'solid-js';
+import { type Component, Show, For, createMemo, createSignal } from 'solid-js';
 import { createQuery } from '@tanstack/solid-query';
 import { api } from '@/api/client';
 import { currentUser } from '@/stores/auth.store';
 import Skeleton from '@/components/ui/skeleton';
 import { Activity } from 'lucide-solid';
+import { toast } from '@/stores/toast.store';
 
 interface HeatmapCard {
   cardId: string;
@@ -18,6 +19,12 @@ interface RetentionHeatmapProps {
 }
 
 const RetentionHeatmap: Component<RetentionHeatmapProps> = (props) => {
+  const [hoveredCard, setHoveredCard] = createSignal<{
+    card: HeatmapCard;
+    x: number;
+    y: number;
+  } | null>(null);
+
   const heatmapQuery = createQuery(() => ({
     queryKey: ['retention-heatmap', props.deckId, currentUser()?.id],
     queryFn: async () => {
@@ -59,10 +66,28 @@ const RetentionHeatmap: Component<RetentionHeatmapProps> = (props) => {
 
   const retentionPct = (r: number) => `${Math.round(r * 100)}%`;
 
+  const handleCellClick = (card: HeatmapCard) => {
+    if (card.retention < 0.5) {
+      toast.info('⚡ This card needs review! Consider studying it soon.');
+    }
+  };
+
+  const handleCellHover = (card: HeatmapCard, event: MouseEvent) => {
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const parent = target.closest('.rounded-xl') as HTMLElement;
+    const parentRect = parent?.getBoundingClientRect() ?? rect;
+    setHoveredCard({
+      card,
+      x: rect.left - parentRect.left + rect.width / 2,
+      y: rect.top - parentRect.top,
+    });
+  };
+
   return (
     <Show when={!heatmapQuery.isLoading} fallback={<Skeleton shape="card" height="140px" />}>
       <Show when={cards().length > 0}>
-        <div class="rounded-xl border bg-card p-4">
+        <div class="rounded-xl border bg-card p-4 relative">
           {/* Header */}
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
@@ -85,12 +110,38 @@ const RetentionHeatmap: Component<RetentionHeatmapProps> = (props) => {
             <For each={cards()}>
               {(card) => (
                 <div
-                  class={`h-4 w-4 rounded-sm transition-colors ${cellColor(card.retention)}`}
-                  title={`${retentionPct(card.retention)} retention${card.lastReviewed ? ` · Last: ${new Date(card.lastReviewed).toLocaleDateString()}` : ''}`}
+                  class={`h-4 w-4 rounded-sm transition-all ${cellColor(card.retention)} hover:scale-150 hover:z-10 ${card.retention < 0.5 ? 'cursor-pointer' : 'cursor-default'}`}
+                  onClick={() => handleCellClick(card)}
+                  onMouseEnter={(e) => handleCellHover(card, e)}
+                  onMouseLeave={() => setHoveredCard(null)}
                 />
               )}
             </For>
           </div>
+
+          {/* Hover tooltip */}
+          <Show when={hoveredCard()}>
+            <div
+              class="absolute z-20 bg-card border rounded-lg px-3 py-2 shadow-lg text-xs pointer-events-none whitespace-nowrap"
+              style={{
+                left: `${hoveredCard()!.x}px`,
+                top: `${hoveredCard()!.y - 50}px`,
+                transform: 'translateX(-50%)',
+              }}
+            >
+              <p class="font-semibold tabular-nums">
+                Retention: {retentionPct(hoveredCard()!.card.retention)}
+              </p>
+              <Show when={hoveredCard()!.card.lastReviewed}>
+                <p class="text-muted-foreground mt-0.5">
+                  Last: {new Date(hoveredCard()!.card.lastReviewed!).toLocaleDateString()}
+                </p>
+              </Show>
+              <Show when={hoveredCard()!.card.retention < 0.5}>
+                <p class="text-destructive mt-0.5 text-[10px]">Click to review</p>
+              </Show>
+            </div>
+          </Show>
 
           {/* Summary row */}
           <div class="flex items-center gap-4 mt-3 text-[10px] text-muted-foreground">

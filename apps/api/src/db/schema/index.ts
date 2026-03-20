@@ -29,3 +29,7 @@ export {
 export { cardLinks, cardLinksRelations } from './card-links';
 export { cardConcepts, cardConceptsRelations } from './card-concepts';
 export { fsrsUserParams, fsrsUserParamsRelations } from './fsrs-user-params';
+export {
+  dismissedSuggestions,
+  dismissedSuggestionsRelations,
+} from './dismissed-suggestions';

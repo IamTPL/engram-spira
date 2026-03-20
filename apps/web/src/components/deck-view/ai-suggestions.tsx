@@ -74,7 +74,16 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
     }
   };
 
-  const handleDismiss = (suggestion: Suggestion) => {
+  const handleDismiss = async (suggestion: Suggestion) => {
+    // Persist dismissal so it doesn't reappear
+    try {
+      await (api['knowledge-graph'] as any).ai.dismiss.post({
+        sourceCardId: suggestion.sourceCardId,
+        targetCardId: suggestion.targetCardId,
+      });
+    } catch {
+      // Best effort — still remove from UI
+    }
     setSuggestions((prev) =>
       prev.filter(
         (s) =>
