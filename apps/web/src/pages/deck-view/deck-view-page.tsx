@@ -168,10 +168,31 @@ const DeckViewPage: Component = () => {
   const [searchQuery, setSearchQuery, immediateSearchQuery] =
     createDebouncedSignal('', 250);
 
+  // Server-side search when query is non-empty (searches ALL cards, not just loaded pages)
+  const searchResultsQuery = createQuery(() => ({
+    queryKey: ['cards-search', params.deckId, searchQuery()],
+    queryFn: async () => {
+      const q = searchQuery().trim();
+      if (!q) return null;
+      const { data } = await api.cards['by-deck']({
+        deckId: params.deckId,
+      }).search.get({ query: { q } });
+      return data as { items: CardItem[]; total: number } | null;
+    },
+    enabled: !!searchQuery().trim() && !!params.deckId,
+    staleTime: 30_000,
+  }));
+
   const filteredCards = createMemo(() => {
     const q = searchQuery().toLowerCase().trim();
     const all = cards() ?? [];
     if (!q) return all;
+
+    // Use server-side search results if available
+    const serverResults = searchResultsQuery.data;
+    if (serverResults?.items) return serverResults.items;
+
+    // Fallback: client-side filter on loaded cards while server query is loading
     return all.filter((card) =>
       card.fields.some((f) => {
         if (Array.isArray(f.value))

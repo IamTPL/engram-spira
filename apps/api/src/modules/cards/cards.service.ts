@@ -98,6 +98,79 @@ export async function listByDeck(
   };
 }
 
+/**
+ * Server-side search across ALL cards in a deck.
+ * Queries card_field_values with ILIKE — no pagination limit.
+ * Returns matching cards with their fields, sorted by sortOrder.
+ */
+export async function searchByDeck(
+  deckId: string,
+  userId: string,
+  query: string,
+  limit = 50,
+) {
+  await verifyDeckOwnership(deckId, userId);
+
+  const q = query.trim();
+  if (!q) return { items: [], total: 0 };
+
+  // Find card IDs that have a field value matching the query
+  const matchingCardIds = await db.execute<{ card_id: string }>(sql`
+    SELECT DISTINCT cfv.card_id
+    FROM card_field_values cfv
+    JOIN cards c ON cfv.card_id = c.id
+    WHERE c.deck_id = ${deckId}
+      AND cfv.value::text ILIKE ${'%' + q + '%'}
+    ORDER BY cfv.card_id
+    LIMIT ${limit}
+  `);
+
+  if (matchingCardIds.length === 0) return { items: [], total: 0 };
+
+  const cardIds = matchingCardIds.map((r) => r.card_id);
+
+  // Fetch full card data + fields for matched cards
+  const [cardList, fieldValues] = await Promise.all([
+    db
+      .select()
+      .from(cards)
+      .where(inArray(cards.id, cardIds))
+      .orderBy(asc(cards.sortOrder)),
+    db
+      .select({
+        cardId: cardFieldValues.cardId,
+        templateFieldId: cardFieldValues.templateFieldId,
+        fieldName: templateFields.name,
+        fieldType: templateFields.fieldType,
+        side: templateFields.side,
+        sortOrder: templateFields.sortOrder,
+        value: cardFieldValues.value,
+      })
+      .from(cardFieldValues)
+      .innerJoin(
+        templateFields,
+        eq(cardFieldValues.templateFieldId, templateFields.id),
+      )
+      .where(inArray(cardFieldValues.cardId, cardIds)),
+  ]);
+
+  const fieldsByCard = new Map<string, typeof fieldValues>();
+  for (const fv of fieldValues) {
+    const existing = fieldsByCard.get(fv.cardId) ?? [];
+    existing.push(fv);
+    fieldsByCard.set(fv.cardId, existing);
+  }
+
+  const items = cardList.map((card) => ({
+    ...card,
+    fields: (fieldsByCard.get(card.id) ?? []).sort(
+      (a, b) => a.sortOrder - b.sortOrder,
+    ),
+  }));
+
+  return { items, total: items.length };
+}
+
 export async function create(
   deckId: string,
   userId: string,

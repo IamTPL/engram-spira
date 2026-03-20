@@ -10,6 +10,14 @@ export const cardsRoutes = new Elysia({ prefix: '/cards' })
       limit: query.limit ? Math.min(Number(query.limit), 200) : 50,
     }),
   )
+  .get('/by-deck/:deckId/search', ({ currentUser, params, query }) =>
+    cardsService.searchByDeck(
+      params.deckId,
+      currentUser.id,
+      query.q ?? '',
+      query.limit ? Math.min(Number(query.limit), 100) : 50,
+    ),
+  )
   .post(
     '/by-deck/:deckId',
     ({ currentUser, params, body }) =>

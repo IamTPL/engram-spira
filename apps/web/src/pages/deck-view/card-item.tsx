@@ -23,8 +23,26 @@ function hasFieldValue(f: CardField | undefined): boolean {
 
 function getExamplesFromFields(fields: CardField[]): string[] {
   const f = getFieldByName(fields, 'examples');
-  if (!f || !Array.isArray(f.value)) return [];
-  return f.value as string[];
+  if (!f || f.value == null) return [];
+
+  // AI-generated cards store examples as a plain string;
+  // manually created cards may store them as an array.
+  if (Array.isArray(f.value)) return f.value as string[];
+
+  const str = String(f.value).trim();
+  if (!str) return [];
+
+  // Try JSON parse in case it's a serialized array (e.g. '["a","b"]')
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return parsed as string[];
+    } catch { /* not JSON, treat as plain string */ }
+  }
+
+  // Split on newline if multi-line, otherwise return as single-element array
+  if (str.includes('\n')) return str.split('\n').map((s) => s.trim()).filter(Boolean);
+  return [str];
 }
 
 interface CardItemRowProps {
