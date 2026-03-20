@@ -134,34 +134,50 @@ export async function scanDeckDuplicates(
 
   if (rows.length < 2) return { pairs: [] };
 
-  // Safety limit: O(N²) is too expensive above 500 cards
-  const limitedRows = rows.slice(0, 500);
+  // Use pgvector neighbor search: for each card, find top-3 nearest neighbors
+  // This is O(N log N) via HNSW index instead of O(N²/2) pairwise comparison
+  const candidateMap = new Map<string, { cardA: string; cardB: string; similarity: number }>();
 
-  // Parse all vectors upfront (once) instead of inside nested loop
-  const parsed = limitedRows.map((r) => ({
-    cardId: r.card_id,
-    vec: JSON.parse(r.embedding) as number[],
-  }));
+  for (const row of rows) {
+    const vec = JSON.parse(row.embedding) as number[];
+    const vectorLiteral = `[${vec.join(',')}]`;
 
-  // Pairwise comparison using cosine similarity — O(N²/2)
-  const pairs: { cardA: string; cardB: string; similarity: number }[] = [];
+    const neighbors = await db.execute<{
+      card_id: string;
+      similarity: number;
+    }>(sql`
+      SELECT cfv.card_id,
+             1 - (cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)}) AS similarity
+      FROM card_field_values cfv
+      JOIN cards c ON cfv.card_id = c.id
+      WHERE c.deck_id = ${deckId}
+        AND cfv.embedding IS NOT NULL
+        AND cfv.card_id != ${row.card_id}
+      ORDER BY cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)}
+      LIMIT 3
+    `);
 
-  for (let i = 0; i < parsed.length; i++) {
-    const vecA = parsed[i].vec;
+    for (const n of neighbors) {
+      if (n.similarity < threshold) continue;
 
-    for (let j = i + 1; j < parsed.length; j++) {
-      const vecB = parsed[j].vec;
-      const sim = cosineSimilarity(vecA, vecB);
+      // Normalize pair key (alphabetical order) for dedup
+      const [a, b] = row.card_id < n.card_id
+        ? [row.card_id, n.card_id]
+        : [n.card_id, row.card_id];
+      const key = `${a}:${b}`;
 
-      if (sim >= threshold) {
-        pairs.push({
-          cardA: parsed[i].cardId,
-          cardB: parsed[j].cardId,
-          similarity: Math.round(sim * 1000) / 1000,
+      const existing = candidateMap.get(key);
+      if (!existing || n.similarity > existing.similarity) {
+        candidateMap.set(key, {
+          cardA: a,
+          cardB: b,
+          similarity: Math.round(n.similarity * 1000) / 1000,
         });
       }
     }
   }
+
+  const pairs = [...candidateMap.values()];
 
   // Sort by similarity descending
   pairs.sort((a, b) => b.similarity - a.similarity);

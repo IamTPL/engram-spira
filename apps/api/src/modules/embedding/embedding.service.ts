@@ -107,6 +107,50 @@ export function enqueueEmbedding(cardId: string): void {
   );
 }
 
+/**
+ * Batch embed multiple cards in a single API call.
+ * Much more efficient than calling embedCard() N times sequentially.
+ * Uses generateEmbeddings() for a single API roundtrip.
+ */
+export async function embedCardBatch(cardIds: string[]): Promise<number> {
+  if (cardIds.length === 0) return 0;
+
+  // Fetch text for all cards
+  const cardTexts: { cardId: string; text: string }[] = [];
+  for (const id of cardIds) {
+    const text = await getCardText(id);
+    if (text) cardTexts.push({ cardId: id, text });
+  }
+
+  if (cardTexts.length === 0) return 0;
+
+  // Batch generate embeddings (single API call)
+  const embeddings = await generateEmbeddings(cardTexts.map((c) => c.text));
+
+  // Store embeddings
+  let stored = 0;
+  for (let i = 0; i < cardTexts.length; i++) {
+    const cardId = cardTexts[i].cardId;
+    const [firstField] = await db
+      .select({ id: cardFieldValues.id })
+      .from(cardFieldValues)
+      .where(eq(cardFieldValues.cardId, cardId))
+      .limit(1);
+
+    if (firstField) {
+      await storeEmbedding(firstField.id, embeddings[i]);
+      stored++;
+    }
+  }
+
+  embLogger.info(
+    { total: cardIds.length, embedded: stored },
+    'Batch embedding complete',
+  );
+
+  return stored;
+}
+
 // ── Vector storage helper ─────────────────────────────────────────────────────
 
 /**
