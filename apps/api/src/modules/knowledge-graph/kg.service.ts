@@ -10,6 +10,7 @@ import {
   studyProgress,
 } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
+import { computeRetention, getCardLabels } from '../../shared/embedding-utils';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,26 +179,8 @@ export async function getDeckGraph(
 
   const cardIds = cardRows.map((c) => c.id);
 
-  // Parallel: field labels + retention + links
-  const [fieldRows, progressRows, linkRows] = await Promise.all([
-    db
-      .select({
-        cardId: cardFieldValues.cardId,
-        value: cardFieldValues.value,
-        sortOrder: templateFields.sortOrder,
-      })
-      .from(cardFieldValues)
-      .innerJoin(
-        templateFields,
-        eq(cardFieldValues.templateFieldId, templateFields.id),
-      )
-      .where(
-        and(
-          inArray(cardFieldValues.cardId, cardIds),
-          eq(templateFields.side, 'front'),
-        ),
-      )
-      .orderBy(templateFields.sortOrder),
+  // Parallel: retention + links (labels fetched separately via getCardLabels)
+  const [progressRows, linkRows] = await Promise.all([
     db
       .select({
         cardId: studyProgress.cardId,
@@ -224,18 +207,8 @@ export async function getDeckGraph(
       ),
   ]);
 
-  // Build label map (first front field value)
-  const labelMap = new Map<string, string>();
-  for (const f of fieldRows) {
-    if (labelMap.has(f.cardId)) continue; // first field only
-    const text =
-      typeof f.value === 'string'
-        ? f.value
-        : f.value && typeof f.value === 'object' && 'text' in f.value
-          ? String((f.value as { text: unknown }).text)
-          : JSON.stringify(f.value);
-    labelMap.set(f.cardId, text.slice(0, 80));
-  }
+  // Build label map using shared utility
+  const labelMap = await getCardLabels(cardIds);
 
   // Build retention map
   const retentionMap = new Map<string, number>();
@@ -246,11 +219,7 @@ export async function getDeckGraph(
       0,
       (now.getTime() - p.lastReviewedAt.getTime()) / 86_400_000,
     );
-    const S =
-      p.stability && p.stability > 0
-        ? p.stability
-        : Math.max(1, p.intervalDays * (p.easeFactor / 2.5));
-    retentionMap.set(p.cardId, Math.exp(-elapsed / S));
+    retentionMap.set(p.cardId, computeRetention(p.stability, p.intervalDays, p.easeFactor, elapsed));
   }
 
   // Build nodes

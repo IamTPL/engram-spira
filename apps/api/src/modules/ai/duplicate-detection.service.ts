@@ -5,22 +5,34 @@ import {
   generateEmbedding,
   searchByEmbedding,
 } from '../embedding/embedding.service';
+import { getCardText, getCardLabels, cosineSimilarity } from '../../shared/embedding-utils';
 import { logger } from '../../shared/logger';
 import { AppError } from '../../shared/errors';
 
 const dupLogger = logger.child({ module: 'duplicate-detection' });
 
-/** Re-throw DB "undefined_column" errors as a user-friendly 422 */
-function rethrowIfMissingEmbedding(err: unknown): never {
-  const cause = err instanceof Error ? (err as Error & { cause?: { code?: string } }).cause : undefined;
-  const code = cause?.code ?? (err as { code?: string })?.code;
-  if (code === '42703') {
+/** Check if the embedding column exists in card_field_values table */
+export async function isEmbeddingAvailable(): Promise<boolean> {
+  try {
+    const [row] = await db.execute<{ exists: boolean }>(sql`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'card_field_values' AND column_name = 'embedding'
+      ) AS exists
+    `);
+    return row?.exists ?? false;
+  } catch {
+    return false;
+  }
+}
+
+function assertEmbeddingAvailable(available: boolean): void {
+  if (!available) {
     throw new AppError(
       422,
-      'Embedding data is not available yet. Please generate embeddings for this deck first.',
+      'Embedding infrastructure not available. Run POST /embedding/backfill first.',
     );
   }
-  throw err;
 }
 
 export interface DuplicateMatch {
@@ -42,18 +54,16 @@ export async function checkDuplicatesByCardId(
   cardId: string,
   threshold = 0.85,
 ): Promise<{ duplicates: DuplicateMatch[] }> {
+  assertEmbeddingAvailable(await isEmbeddingAvailable());
+
   // Get the card's existing embedding vector
   let row: { embedding: string } | undefined;
-  try {
-    [row] = await db.execute<{ embedding: string }>(sql`
-      SELECT embedding::text
-      FROM card_field_values
-      WHERE card_id = ${cardId} AND embedding IS NOT NULL
-      LIMIT 1
-    `);
-  } catch (err) {
-    rethrowIfMissingEmbedding(err);
-  }
+  [row] = await db.execute<{ embedding: string }>(sql`
+    SELECT embedding::text
+    FROM card_field_values
+    WHERE card_id = ${cardId} AND embedding IS NOT NULL
+    LIMIT 1
+  `);
 
   if (!row?.embedding) {
     // Card has no embedding yet — generate from text
@@ -107,23 +117,20 @@ export async function scanDeckDuplicates(
 
   if (!deck) return { pairs: [] };
 
+  assertEmbeddingAvailable(await isEmbeddingAvailable());
+
   // Fetch all card embeddings in this deck using raw SQL
-  let rows: { card_id: string; embedding: string }[];
-  try {
-    rows = await db.execute<{
-      card_id: string;
-      embedding: string;
-    }>(sql`
-      SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
-      FROM card_field_values cfv
-      JOIN cards c ON cfv.card_id = c.id
-      WHERE c.deck_id = ${deckId}
-        AND cfv.embedding IS NOT NULL
-      ORDER BY cfv.card_id, cfv.id
-    `);
-  } catch (err) {
-    rethrowIfMissingEmbedding(err);
-  }
+  const rows = await db.execute<{
+    card_id: string;
+    embedding: string;
+  }>(sql`
+    SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
+    FROM card_field_values cfv
+    JOIN cards c ON cfv.card_id = c.id
+    WHERE c.deck_id = ${deckId}
+      AND cfv.embedding IS NOT NULL
+    ORDER BY cfv.card_id, cfv.id
+  `);
 
   if (rows.length < 2) return { pairs: [] };
 
@@ -235,78 +242,4 @@ async function findDuplicates(
   return { duplicates };
 }
 
-async function getCardText(cardId: string): Promise<string | null> {
-  const fields = await db
-    .select({ value: cardFieldValues.value })
-    .from(cardFieldValues)
-    .where(eq(cardFieldValues.cardId, cardId));
-
-  if (fields.length === 0) return null;
-
-  const text = fields
-    .map((f) => {
-      if (typeof f.value === 'string') return f.value;
-      if (f.value && typeof f.value === 'object' && 'text' in f.value)
-        return String((f.value as { text: unknown }).text);
-      return JSON.stringify(f.value);
-    })
-    .filter(Boolean)
-    .join(' ');
-
-  return text.trim() || null;
-}
-
-/** Get short labels for cards (first front-side field value, max 60 chars) */
-async function getCardLabels(
-  cardIds: string[],
-): Promise<Map<string, string>> {
-  if (cardIds.length === 0) return new Map();
-
-  const rows = await db
-    .select({
-      cardId: cardFieldValues.cardId,
-      value: cardFieldValues.value,
-      sortOrder: templateFields.sortOrder,
-    })
-    .from(cardFieldValues)
-    .innerJoin(
-      templateFields,
-      eq(cardFieldValues.templateFieldId, templateFields.id),
-    )
-    .where(
-      and(
-        inArray(cardFieldValues.cardId, cardIds),
-        eq(templateFields.side, 'front'),
-      ),
-    )
-    .orderBy(templateFields.sortOrder);
-
-  const map = new Map<string, string>();
-  for (const r of rows) {
-    if (map.has(r.cardId)) continue; // keep first (lowest sortOrder)
-    const text =
-      typeof r.value === 'string'
-        ? r.value
-        : r.value && typeof r.value === 'object' && 'text' in r.value
-          ? String((r.value as { text: unknown }).text)
-          : JSON.stringify(r.value);
-    map.set(r.cardId, text.slice(0, 60));
-  }
-
-  return map;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dotProduct / denom;
-}
+// getCardText, getCardLabels, cosineSimilarity imported from ../../shared/embedding-utils

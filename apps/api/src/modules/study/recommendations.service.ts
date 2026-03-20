@@ -10,6 +10,7 @@ import {
   studyProgress,
 } from '../../db/schema';
 import { searchByEmbedding } from '../embedding/embedding.service';
+import { computeRetention, getCardLabels } from '../../shared/embedding-utils';
 import { NotFoundError } from '../../shared/errors';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -320,7 +321,7 @@ export async function getPrerequisiteChain(
   if (chainIds.length === 0) return { chain: [], weakLinks: [] };
 
   // Get labels + retention for chain cards
-  const labels = await getCardLabelsMap(chainIds);
+  const labels = await getCardLabels(chainIds);
   const retentions = await getCardRetentions(userId, chainIds);
 
   const chain: PrerequisiteNode[] = chainIds.map((id) => {
@@ -375,41 +376,8 @@ async function enrichCardResults(cardIds: string[]) {
   return { fieldsByCard, deckMap, deckNameMap };
 }
 
-async function getCardLabelsMap(
-  cardIds: string[],
-): Promise<Map<string, string>> {
-  const rows = await db
-    .select({
-      cardId: cardFieldValues.cardId,
-      value: cardFieldValues.value,
-      sortOrder: templateFields.sortOrder,
-    })
-    .from(cardFieldValues)
-    .innerJoin(
-      templateFields,
-      eq(cardFieldValues.templateFieldId, templateFields.id),
-    )
-    .where(
-      and(
-        inArray(cardFieldValues.cardId, cardIds),
-        eq(templateFields.side, 'front'),
-      ),
-    )
-    .orderBy(templateFields.sortOrder);
-
-  const map = new Map<string, string>();
-  for (const r of rows) {
-    if (map.has(r.cardId)) continue;
-    const text =
-      typeof r.value === 'string'
-        ? r.value
-        : r.value && typeof r.value === 'object' && 'text' in r.value
-          ? String((r.value as { text: unknown }).text)
-          : JSON.stringify(r.value);
-    map.set(r.cardId, text.slice(0, 80));
-  }
-  return map;
-}
+// getCardLabels imported from ../../shared/embedding-utils
+// (replaces local getCardLabelsMap)
 
 async function getCardRetentions(
   userId: string,
@@ -440,11 +408,7 @@ async function getCardRetentions(
       0,
       (now - p.lastReviewedAt.getTime()) / 86_400_000,
     );
-    const S =
-      p.stability && p.stability > 0
-        ? p.stability
-        : Math.max(1, p.intervalDays * (p.easeFactor / 2.5));
-    map.set(p.cardId, Math.exp(-elapsed / S));
+    map.set(p.cardId, computeRetention(p.stability, p.intervalDays, p.easeFactor, elapsed));
   }
 
   return map;

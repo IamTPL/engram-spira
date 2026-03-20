@@ -10,6 +10,7 @@ import {
 import { ENV } from '../../config/env';
 import { logger } from '../../shared/logger';
 import { NotFoundError } from '../../shared/errors';
+import { cosineSimilarity, getCardLabels } from '../../shared/embedding-utils';
 
 const kgAiLogger = logger.child({ module: 'kg-ai' });
 
@@ -195,54 +196,4 @@ export async function extractConcepts(
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function getCardLabels(cardIds: string[]): Promise<Map<string, string>> {
-  if (cardIds.length === 0) return new Map();
-
-  const rows = await db
-    .select({
-      cardId: cardFieldValues.cardId,
-      value: cardFieldValues.value,
-      sortOrder: templateFields.sortOrder,
-    })
-    .from(cardFieldValues)
-    .innerJoin(
-      templateFields,
-      eq(cardFieldValues.templateFieldId, templateFields.id),
-    )
-    .where(
-      and(
-        inArray(cardFieldValues.cardId, cardIds),
-        eq(templateFields.side, 'front'),
-      ),
-    )
-    .orderBy(templateFields.sortOrder);
-
-  const map = new Map<string, string>();
-  for (const r of rows) {
-    if (map.has(r.cardId)) continue;
-    const text =
-      typeof r.value === 'string'
-        ? r.value
-        : r.value && typeof r.value === 'object' && 'text' in r.value
-          ? String((r.value as { text: unknown }).text)
-          : JSON.stringify(r.value);
-    map.set(r.cardId, text.slice(0, 80));
-  }
-
-  return map;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
+// getCardLabels and cosineSimilarity imported from ../../shared/embedding-utils

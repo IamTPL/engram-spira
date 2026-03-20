@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { sql, eq, inArray } from 'drizzle-orm';
 import { db, pgClient } from '../../db';
 import { cardFieldValues, templateFields } from '../../db/schema';
+import { getCardText } from '../../shared/embedding-utils';
 import { ENV } from '../../config/env';
 import { logger } from '../../shared/logger';
 
@@ -65,41 +66,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
 // ── Card embedding helpers ───────────────────────────────────────────────────
 
-/**
- * Build a single searchable text representation for a card by concatenating
- * its field values. Uses "front" fields first for search relevance.
- */
-async function getCardText(cardId: string): Promise<string | null> {
-  const fields = await db
-    .select({
-      value: cardFieldValues.value,
-      side: templateFields.side,
-      sortOrder: templateFields.sortOrder,
-    })
-    .from(cardFieldValues)
-    .innerJoin(
-      templateFields,
-      eq(cardFieldValues.templateFieldId, templateFields.id),
-    )
-    .where(eq(cardFieldValues.cardId, cardId))
-    .orderBy(templateFields.side, templateFields.sortOrder);
-
-  if (fields.length === 0) return null;
-
-  // Concatenate: front fields first, then back. Extract text from JSONB value.
-  const text = fields
-    .map((f) => {
-      const val = f.value;
-      if (typeof val === 'string') return val;
-      if (val && typeof val === 'object' && 'text' in val)
-        return String((val as { text: unknown }).text);
-      return JSON.stringify(val);
-    })
-    .filter(Boolean)
-    .join(' ');
-
-  return text.trim() || null;
-}
+// getCardText is imported from ../../shared/embedding-utils
 
 /**
  * Generate and store embedding for a single card.

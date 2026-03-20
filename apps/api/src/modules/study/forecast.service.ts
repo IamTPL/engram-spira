@@ -7,25 +7,9 @@ import {
   cardFieldValues,
   templateFields,
 } from '../../db/schema';
+import { computeRetention } from '../../shared/embedding-utils';
 
-// ── Retention formula ────────────────────────────────────────────────────────
-// FSRS: R(t) = e^(-t/S)   where S = stability, t = days elapsed
-// SM-2 approx: S ≈ intervalDays × (easeFactor / 2.5), then same formula
-
-function computeRetention(
-  stability: number | null,
-  intervalDays: number,
-  easeFactor: number,
-  daysSinceReview: number,
-): number {
-  // Use FSRS stability if available, otherwise approximate from SM-2 params
-  const S =
-    stability && stability > 0
-      ? stability
-      : Math.max(1, intervalDays * (easeFactor / 2.5));
-
-  return Math.exp(-daysSinceReview / S);
-}
+// computeRetention imported from ../../shared/embedding-utils
 
 function daysBetween(a: Date, b: Date): number {
   return Math.max(0, (b.getTime() - a.getTime()) / 86_400_000);
