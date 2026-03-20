@@ -1,4 +1,5 @@
 /* @refresh reload */
+import 'solid-devtools';
 import { render } from 'solid-js/web';
 import './app.css';
 // Initialize theme (applies dark/light class to <html> on load)
