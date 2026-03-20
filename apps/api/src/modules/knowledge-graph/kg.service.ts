@@ -297,41 +297,7 @@ export async function searchCardsForLinking(
     label: r.label.slice(0, 100),
   }));
 }
-
-// ── Concepts ─────────────────────────────────────────────────────────────────
-
-export async function addConcepts(
-  userId: string,
-  cardId: string,
-  concepts: string[],
-) {
-  await verifyCardOwnership(cardId, userId);
-
-  if (concepts.length === 0) return { added: 0 };
-
-  const values = concepts.map((c) => ({
-    cardId,
-    concept: c.trim().toLowerCase(),
-  }));
-
-  await db
-    .insert(cardConcepts)
-    .values(values)
-    .onConflictDoNothing();
-
-  return { added: concepts.length };
-}
-
-export async function getCardConcepts(userId: string, cardId: string) {
-  await verifyCardOwnership(cardId, userId);
-
-  const rows = await db
-    .select({ concept: cardConcepts.concept })
-    .from(cardConcepts)
-    .where(eq(cardConcepts.cardId, cardId));
-
-  return { concepts: rows.map((r) => r.concept) };
-}
+// Concept CRUD removed — no frontend consumer
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

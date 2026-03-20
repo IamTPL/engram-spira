@@ -142,58 +142,6 @@ export async function detectRelationships(
   return { suggestions: suggestions.slice(0, 20) };
 }
 
-// ── Auto Concept Extraction ──────────────────────────────────────────────────
-
-/**
- * Extract key concepts from a card using Gemini LLM.
- * Saves to card_concepts table.
- *
- * Designed to be called as a fire-and-forget hook during embedding pipeline.
- */
-export async function extractConcepts(
-  cardId: string,
-  cardText: string,
-): Promise<string[]> {
-  if (!cardText.trim() || !ENV.GEMINI_API_KEY) return [];
-
-  try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: ENV.GEMINI_MODEL });
-
-    const result = await model.generateContent(
-      `Extract 2-5 key concepts or topics from this flashcard content. Return ONLY a JSON array of strings, nothing else.\n\nContent: ${cardText.slice(0, 500)}`,
-    );
-
-    const text = result.response.text().trim();
-    // Parse JSON array from response
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return [];
-
-    const concepts = JSON.parse(match[0]) as string[];
-    if (!Array.isArray(concepts)) return [];
-
-    const validConcepts = concepts
-      .filter((c) => typeof c === 'string' && c.trim())
-      .map((c) => c.trim().toLowerCase())
-      .slice(0, 5);
-
-    // Save to DB
-    if (validConcepts.length > 0) {
-      await db
-        .insert(cardConcepts)
-        .values(validConcepts.map((concept) => ({ cardId, concept })))
-        .onConflictDoNothing();
-    }
-
-    return validConcepts;
-  } catch (err) {
-    kgAiLogger.warn(
-      { cardId, err: err instanceof Error ? err.message : String(err) },
-      'Failed to extract concepts',
-    );
-    return [];
-  }
-}
 
 // getCardLabels and cosineSimilarity imported from ../../shared/embedding-utils
+

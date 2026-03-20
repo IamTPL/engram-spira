@@ -211,22 +211,7 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
       }),
     },
   )
-  .get(
-    '/smart-groups',
-    ({ currentUser, query }) =>
-      recommendationsService.getSmartGroups(
-        currentUser.id,
-        query.topN ? Number(query.topN) : 5,
-      ),
-    {
-      query: t.Object({
-        topN: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
-      }),
-    },
-  )
-  .get('/prerequisite-chain/:cardId', ({ currentUser, params }) =>
-    recommendationsService.getPrerequisiteChain(currentUser.id, params.cardId),
-  )
+  // (smart-groups and prerequisite-chain removed — no frontend consumer)
   // --------------- Algorithm Selection ---------------
   .get('/algorithm', async ({ currentUser }) => {
     const [row] = await db

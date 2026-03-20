@@ -57,24 +57,6 @@ export const kgRoutes = new Elysia({ prefix: '/knowledge-graph' })
     },
   )
 
-  // ── Concepts ─────────────────────────────────────────────────
-  .post(
-    '/cards/:id/concepts',
-    ({ currentUser, params, body }) =>
-      kgService.addConcepts(currentUser.id, params.id, body.concepts),
-    {
-      body: t.Object({
-        concepts: t.Array(t.String({ minLength: 1 }), {
-          minItems: 1,
-          maxItems: 20,
-        }),
-      }),
-    },
-  )
-  .get('/cards/:id/concepts', ({ currentUser, params }) =>
-    kgService.getCardConcepts(currentUser.id, params.id),
-  )
-
   // ── AI Relationship Detection ────────────────────────────────
   .post(
     '/ai/detect',
@@ -88,7 +70,7 @@ export const kgRoutes = new Elysia({ prefix: '/knowledge-graph' })
       body: t.Object({
         deckId: t.String({ format: 'uuid' }),
         threshold: t.Optional(
-          t.Number({ minimum: 0.5, maximum: 1.0, default: 0.7 }),
+          t.Number({ minimum: 0.5, maximum: 1.0, default: 0.9 }),
         ),
       }),
     },
