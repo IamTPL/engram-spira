@@ -152,14 +152,10 @@ export const aiRoutes = new Elysia({ prefix: '/ai' })
       dupService.scanDeckDuplicates(
         currentUser.id,
         body.deckId,
-        body.threshold,
       ),
     {
       body: t.Object({
         deckId: t.String({ format: 'uuid' }),
-        threshold: t.Optional(
-          t.Number({ minimum: 0.5, maximum: 1.0, default: 0.85 }),
-        ),
       }),
     },
   );

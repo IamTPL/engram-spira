@@ -32,12 +32,7 @@ export interface SmartGroup {
   sampleCardIds: string[];
 }
 
-export interface PrerequisiteNode {
-  cardId: string;
-  label: string;
-  retention: number | null;
-  isWeak: boolean;
-}
+
 
 // ── Related Cards ────────────────────────────────────────────────────────────
 
@@ -266,78 +261,7 @@ export async function getSmartGroups(
   return { groups };
 }
 
-// ── Prerequisite Chain ───────────────────────────────────────────────────────
 
-/**
- * Walk prerequisite links backwards to build the learning chain.
- * BFS with max depth 10 to prevent infinite loops.
- *
- * Use case: "You forgot card C — review prerequisite A first"
- */
-export async function getPrerequisiteChain(
-  userId: string,
-  cardId: string,
-): Promise<{ chain: PrerequisiteNode[]; weakLinks: PrerequisiteNode[] }> {
-  const [cardRow] = await db
-    .select({ id: cards.id })
-    .from(cards)
-    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
-    .where(eq(cards.id, cardId))
-    .limit(1);
-
-  if (!cardRow) throw new NotFoundError('Card');
-
-  // BFS: find all prerequisites leading to this card
-  const visited = new Set<string>([cardId]);
-  const queue: string[] = [cardId];
-  const chainIds: string[] = [];
-  const MAX_DEPTH = 10;
-  let depth = 0;
-
-  while (queue.length > 0 && depth < MAX_DEPTH) {
-    const current = queue.shift()!;
-
-    // Find cards that are prerequisites OF the current card
-    const prereqs = await db
-      .select({ sourceCardId: cardLinks.sourceCardId })
-      .from(cardLinks)
-      .where(
-        and(
-          eq(cardLinks.targetCardId, current),
-          eq(cardLinks.linkType, 'prerequisite'),
-        ),
-      );
-
-    for (const p of prereqs) {
-      if (visited.has(p.sourceCardId)) continue;
-      visited.add(p.sourceCardId);
-      chainIds.push(p.sourceCardId);
-      queue.push(p.sourceCardId);
-    }
-
-    depth++;
-  }
-
-  if (chainIds.length === 0) return { chain: [], weakLinks: [] };
-
-  // Get labels + retention for chain cards
-  const labels = await getCardLabels(chainIds);
-  const retentions = await getCardRetentions(userId, chainIds);
-
-  const chain: PrerequisiteNode[] = chainIds.map((id) => {
-    const R = retentions.get(id) ?? null;
-    return {
-      cardId: id,
-      label: labels.get(id) ?? '',
-      retention: R !== null ? Math.round(R * 1000) / 1000 : null,
-      isWeak: R !== null && R < 0.8,
-    };
-  });
-
-  const weakLinks = chain.filter((n) => n.isWeak);
-
-  return { chain, weakLinks };
-}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

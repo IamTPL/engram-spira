@@ -172,7 +172,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
             <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="Search cards..."
-              class="pl-9 h-9 text-sm bg-background"
+              class="pl-9 h-8.5 text-sm bg-background"
               value={props.immediateSearchQuery()}
               onInput={(e) => props.setSearchQuery(e.currentTarget.value)}
             />

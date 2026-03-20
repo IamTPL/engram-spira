@@ -11,9 +11,8 @@ import { relations, sql } from 'drizzle-orm';
 import { cards } from './cards';
 
 /**
- * Card Links — prerequisite / related relationships between cards.
- * link_type: 'prerequisite' (source must be mastered before target)
- *            'related' (bidirectional, informational)
+ * Card Links — relationships between cards.
+ * link_type: 'related' (bidirectional, informational)
  */
 export const cardLinks = pgTable(
   'card_links',

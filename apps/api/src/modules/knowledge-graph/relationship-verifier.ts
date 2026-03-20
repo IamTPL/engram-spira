@@ -28,7 +28,7 @@ Respond with EXACTLY one JSON object, no markdown:
 Rules:
 - "related" = true ONLY if understanding one card directly helps understand the other
 - Words from the same broad field/domain but unrelated concepts = false
-- Synonyms, antonyms, cause-effect, part-whole, prerequisite = true
+- Synonyms, antonyms, cause-effect, part-whole = true
 - Be strict: when in doubt, respond false`;
 
 /**

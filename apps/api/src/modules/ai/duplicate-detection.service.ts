@@ -99,14 +99,14 @@ export async function checkDuplicatesByText(
 
 /**
  * Scan an entire deck for internal duplicate pairs.
- * Returns pairs of cards with similarity > threshold.
+ * Uses exact text matching on the "word" field (case-insensitive, trimmed).
+ * Returns duplicate pairs with full field data for compare view.
  */
 export async function scanDeckDuplicates(
   userId: string,
   deckId: string,
-  threshold = 0.85,
 ): Promise<{
-  pairs: { cardA: string; cardB: string; labelA: string; labelB: string; similarity: number }[];
+  pairs: DuplicatePairDetail[];
 }> {
   // Verify ownership
   const [deck] = await db
@@ -117,85 +117,86 @@ export async function scanDeckDuplicates(
 
   if (!deck) return { pairs: [] };
 
-  assertEmbeddingAvailable(await isEmbeddingAvailable());
+  // Fetch all card field values in this deck, grouped by card
+  const allFieldValues = await db
+    .select({
+      cardId: cardFieldValues.cardId,
+      fieldName: templateFields.name,
+      fieldType: templateFields.fieldType,
+      side: templateFields.side,
+      sortOrder: templateFields.sortOrder,
+      value: cardFieldValues.value,
+    })
+    .from(cardFieldValues)
+    .innerJoin(templateFields, eq(cardFieldValues.templateFieldId, templateFields.id))
+    .innerJoin(cards, eq(cardFieldValues.cardId, cards.id))
+    .where(eq(cards.deckId, deckId))
+    .orderBy(cardFieldValues.cardId, templateFields.sortOrder);
 
-  // Fetch all card embeddings in this deck using raw SQL
-  const rows = await db.execute<{
-    card_id: string;
-    embedding: string;
-  }>(sql`
-    SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
-    FROM card_field_values cfv
-    JOIN cards c ON cfv.card_id = c.id
-    WHERE c.deck_id = ${deckId}
-      AND cfv.embedding IS NOT NULL
-    ORDER BY cfv.card_id, cfv.id
-  `);
+  // Group fields by card
+  const cardFieldsMap = new Map<string, typeof allFieldValues>();
+  for (const fv of allFieldValues) {
+    const arr = cardFieldsMap.get(fv.cardId) ?? [];
+    arr.push(fv);
+    cardFieldsMap.set(fv.cardId, arr);
+  }
 
-  if (rows.length < 2) return { pairs: [] };
+  // Build word→cardId[] index for exact text matching
+  const wordIndex = new Map<string, string[]>();
+  for (const [cardId, fields] of cardFieldsMap) {
+    const wordField = fields.find(
+      (f) => f.fieldName.toLowerCase() === 'word' || f.fieldName.toLowerCase() === 'term',
+    );
+    if (!wordField || !wordField.value) continue;
+    const normalizedWord = String(wordField.value).trim().toLowerCase();
+    if (!normalizedWord) continue;
 
-  // Use pgvector neighbor search: for each card, find top-3 nearest neighbors
-  // This is O(N log N) via HNSW index instead of O(N²/2) pairwise comparison
-  const candidateMap = new Map<string, { cardA: string; cardB: string; similarity: number }>();
+    const existing = wordIndex.get(normalizedWord) ?? [];
+    existing.push(cardId);
+    wordIndex.set(normalizedWord, existing);
+  }
 
-  for (const row of rows) {
-    const vec = JSON.parse(row.embedding) as number[];
-    const vectorLiteral = `[${vec.join(',')}]`;
+  // Find groups with 2+ cards sharing the same word → duplicates
+  const pairs: DuplicatePairDetail[] = [];
 
-    const neighbors = await db.execute<{
-      card_id: string;
-      similarity: number;
-    }>(sql`
-      SELECT card_id, similarity FROM (
-        SELECT DISTINCT ON (cfv.card_id) cfv.card_id,
-               1 - (cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)}) AS similarity
-        FROM card_field_values cfv
-        JOIN cards c ON cfv.card_id = c.id
-        WHERE c.deck_id = ${deckId}
-          AND cfv.embedding IS NOT NULL
-          AND cfv.card_id != ${row.card_id}
-        ORDER BY cfv.card_id, cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)} ASC
-      ) sub
-      ORDER BY similarity DESC
-      LIMIT 5
-    `);
+  for (const [word, cardIds] of wordIndex) {
+    if (cardIds.length < 2) continue;
 
-    for (const n of neighbors) {
-      if (n.similarity < threshold) continue;
+    // For each unique pair in this group
+    for (let i = 0; i < cardIds.length; i++) {
+      for (let j = i + 1; j < cardIds.length; j++) {
+        const fieldsA = cardFieldsMap.get(cardIds[i]) ?? [];
+        const fieldsB = cardFieldsMap.get(cardIds[j]) ?? [];
 
-      // Normalize pair key (alphabetical order) for dedup
-      const [a, b] = row.card_id < n.card_id
-        ? [row.card_id, n.card_id]
-        : [n.card_id, row.card_id];
-      const key = `${a}:${b}`;
-
-      const existing = candidateMap.get(key);
-      if (!existing || n.similarity > existing.similarity) {
-        candidateMap.set(key, {
-          cardA: a,
-          cardB: b,
-          similarity: Math.round(n.similarity * 1000) / 1000,
+        pairs.push({
+          cardA: cardIds[i],
+          cardB: cardIds[j],
+          word,
+          fieldsA: fieldsA.map((f) => ({
+            fieldName: f.fieldName,
+            side: f.side,
+            value: f.value,
+          })),
+          fieldsB: fieldsB.map((f) => ({
+            fieldName: f.fieldName,
+            side: f.side,
+            value: f.value,
+          })),
         });
       }
     }
   }
 
-  const pairs = [...candidateMap.values()];
+  dupLogger.info({ deckId, pairsFound: pairs.length }, 'Duplicate scan completed');
+  return { pairs };
+}
 
-  // Sort by similarity descending
-  pairs.sort((a, b) => b.similarity - a.similarity);
-
-  // Fetch card labels (front-side text) for display
-  const allCardIds = [...new Set(pairs.flatMap((p) => [p.cardA, p.cardB]))];
-  const labels = await getCardLabels(allCardIds);
-
-  const enrichedPairs = pairs.map((p) => ({
-    ...p,
-    labelA: labels.get(p.cardA) ?? p.cardA.slice(0, 8),
-    labelB: labels.get(p.cardB) ?? p.cardB.slice(0, 8),
-  }));
-
-  return { pairs: enrichedPairs };
+export interface DuplicatePairDetail {
+  cardA: string;
+  cardB: string;
+  word: string;
+  fieldsA: { fieldName: string; side: string; value: unknown }[];
+  fieldsB: { fieldName: string; side: string; value: unknown }[];
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

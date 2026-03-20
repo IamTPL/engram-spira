@@ -23,7 +23,7 @@ export const kgRoutes = new Elysia({ prefix: '/knowledge-graph' })
         sourceCardId: t.String({ format: 'uuid' }),
         targetCardId: t.String({ format: 'uuid' }),
         linkType: t.Optional(
-          t.Union([t.Literal('prerequisite'), t.Literal('related')]),
+          t.Literal('related'),
         ),
       }),
     },

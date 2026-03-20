@@ -164,8 +164,7 @@ const Header: Component = () => {
                 </Button>
               </DropdownMenuTrigger>
 
-              <Show when={showNotifications()}>
-                <DropdownMenuContent align="end" class="w-80 p-0">
+              <DropdownMenuContent align="end" class="w-80 p-0">
                   <div class="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
                     <div class="flex items-center gap-2">
                       <Zap class="h-4 w-4 text-yellow-500" />
@@ -230,7 +229,6 @@ const Header: Component = () => {
                     </Show>
                   </div>
                 </DropdownMenuContent>
-              </Show>
             </DropdownMenu>
 
             {/* ── User Menu ── */}

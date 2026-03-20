@@ -158,13 +158,26 @@ export async function detectRelationships(
 
   if (activeCandidates.length === 0) return { suggestions: [] };
 
+  // Filter out same-word pairs (these are duplicates, not relationships)
+  const candidateCardIdsForWords = [
+    ...new Set(activeCandidates.flatMap((c) => [c.src, c.tgt])),
+  ];
+  const wordLabels = await getCardLabels(candidateCardIdsForWords);
+  const filteredCandidates = activeCandidates.filter((c) => {
+    const wordA = (wordLabels.get(c.src) ?? '').trim().toLowerCase();
+    const wordB = (wordLabels.get(c.tgt) ?? '').trim().toLowerCase();
+    return wordA !== wordB;
+  });
+
+  if (filteredCandidates.length === 0) return { suggestions: [] };
+
   // Get card labels for display
   const labels = await getCardLabels(allCardIds);
 
   // ── LLM Verification Step ──────────────────────────────────────────────────
   // Fetch card texts for each unique card in candidates
   const candidateCardIds = [
-    ...new Set(activeCandidates.flatMap((c) => [c.src, c.tgt])),
+    ...new Set(filteredCandidates.flatMap((c) => [c.src, c.tgt])),
   ];
   const cardTexts = new Map<string, string>();
   await Promise.all(
@@ -175,7 +188,7 @@ export async function detectRelationships(
   );
 
   // Call LLM to verify each candidate
-  const verificationInput = activeCandidates
+  const verificationInput = filteredCandidates
     .filter((c) => cardTexts.has(c.src) && cardTexts.has(c.tgt))
     .map((c) => ({
       sourceCardId: c.src,
@@ -185,7 +198,7 @@ export async function detectRelationships(
     }));
 
   kgAiLogger.info(
-    { deckId, embeddingCandidates: rawCandidates.length, dismissed: dismissedSet.size, llmVerifying: verificationInput.length },
+    { deckId, embeddingCandidates: rawCandidates.length, dismissed: dismissedSet.size, sameWordFiltered: activeCandidates.length - filteredCandidates.length, llmVerifying: verificationInput.length },
     'LLM verification starting',
   );
 
@@ -198,7 +211,7 @@ export async function detectRelationships(
 
   // Build suggestions from only LLM-confirmed pairs
   const suggestions: RelationshipSuggestion[] = [];
-  for (const candidate of activeCandidates) {
+  for (const candidate of filteredCandidates) {
     const key = `${candidate.src}:${candidate.tgt}`;
     const verification = verifiedMap.get(key);
 

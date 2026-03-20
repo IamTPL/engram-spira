@@ -54,7 +54,7 @@ export async function createLink(
   userId: string,
   sourceCardId: string,
   targetCardId: string,
-  linkType: 'prerequisite' | 'related' = 'related',
+  linkType: 'related' = 'related',
 ): Promise<CardLink> {
   // Verify ownership of both cards in parallel
   await Promise.all([

@@ -163,19 +163,6 @@ const GraphView: Component<GraphViewProps> = (props) => {
           },
         },
         {
-          selector: 'edge[type = "prerequisite"]',
-          style: {
-            'line-color': '#8b5cf6',
-            width: 2,
-            'curve-style': 'taxi',
-            'taxi-direction': 'downward',
-            'taxi-turn': '60px',
-            'target-arrow-shape': 'triangle',
-            'target-arrow-color': '#8b5cf6',
-            'arrow-scale': 0.8,
-          },
-        },
-        {
           selector: 'edge[type = "related"]',
           style: {
             'line-color': 'rgba(100,116,139,0.4)',
@@ -277,10 +264,6 @@ const GraphView: Component<GraphViewProps> = (props) => {
               </span>
             </div>
             <div class="flex items-center gap-3 text-[10px] text-muted-foreground">
-              <div class="flex items-center gap-1">
-                <div class="h-2 w-4 rounded-sm bg-[#8b5cf6]" />
-                <span>Prerequisite</span>
-              </div>
               <div class="flex items-center gap-1">
                 <div class="h-0.5 w-4 border-t border-dashed border-muted-foreground" />
                 <span>Related</span>

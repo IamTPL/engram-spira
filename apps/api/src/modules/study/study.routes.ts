@@ -211,7 +211,6 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
       }),
     },
   )
-  // (smart-groups and prerequisite-chain removed — no frontend consumer)
   // --------------- Algorithm Selection ---------------
   .get('/algorithm', async ({ currentUser }) => {
     const [row] = await db
