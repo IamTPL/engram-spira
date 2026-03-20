@@ -4,14 +4,19 @@ import {
   createEffect,
   onCleanup,
   createSignal,
+  createMemo,
 } from 'solid-js';
 import { createQuery } from '@tanstack/solid-query';
 import { api } from '@/api/client';
 import { currentUser } from '@/stores/auth.store';
 import Skeleton from '@/components/ui/skeleton';
-import { Network } from 'lucide-solid';
+import { Network, Maximize2, ZoomIn, ZoomOut } from 'lucide-solid';
 import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
 import type { Core, NodeSingular } from 'cytoscape';
+
+// Register fcose layout (once)
+cytoscape.use(fcose);
 
 interface GraphEdge {
   id: string;
@@ -66,6 +71,15 @@ const GraphView: Component<GraphViewProps> = (props) => {
     return d && d.nodes.length > 0 && d.edges.length === 0;
   };
 
+  // Dynamic container height based on node count
+  const containerHeight = createMemo(() => {
+    const d = graphQuery.data;
+    if (!d) return 400;
+    const nodeCount = d.nodes.length;
+    // Min 400px, max 700px, scale with node count
+    return Math.min(700, Math.max(400, 300 + nodeCount * 15));
+  });
+
   // Initialize Cytoscape when data arrives
   createEffect(() => {
     const data = graphQuery.data;
@@ -87,7 +101,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
       ...connectedNodes.map((n) => ({
         data: {
           id: n.id,
-          label: n.label.length > 20 ? n.label.slice(0, 18) + '…' : n.label,
+          label: n.label.length > 25 ? n.label.slice(0, 23) + '…' : n.label,
           fullLabel: n.label,
           retention: n.retention,
           color: retentionColor(n.retention),
@@ -115,34 +129,38 @@ const GraphView: Component<GraphViewProps> = (props) => {
           style: {
             'background-color': 'data(color)',
             label: 'data(label)',
-            'font-size': '11px',
-            'font-family': 'system-ui, sans-serif',
-            color: '#94a3b8',
+            'font-size': '12px',
+            'font-family': 'system-ui, -apple-system, sans-serif',
+            color: '#cbd5e1',
             'text-valign': 'bottom',
-            'text-margin-y': 6,
-            width: 14,
-            height: 14,
-            'border-width': 1,
-            'border-color': 'rgba(255,255,255,0.3)',
-            'text-max-width': '80px',
+            'text-margin-y': 8,
+            width: 18,
+            height: 18,
+            'border-width': 1.5,
+            'border-color': 'rgba(255,255,255,0.25)',
+            'text-max-width': '120px',
             'text-wrap': 'ellipsis',
+            'text-outline-color': 'rgba(0,0,0,0.6)',
+            'text-outline-width': 2,
+            'overlay-padding': 6,
           },
         },
         {
           selector: 'node:active, node:selected',
           style: {
-            'border-width': 2,
+            'border-width': 2.5,
             'border-color': '#fff',
-            width: 20,
-            height: 20,
+            width: 24,
+            height: 24,
             'font-weight': 'bold',
-            color: '#e2e8f0',
+            color: '#f1f5f9',
+            'z-index': 10,
           },
         },
         {
           selector: '.dimmed',
           style: {
-            opacity: 0.2,
+            opacity: 0.15,
           },
         },
         {
@@ -153,33 +171,39 @@ const GraphView: Component<GraphViewProps> = (props) => {
             'curve-style': 'bezier',
             'target-arrow-shape': 'triangle',
             'target-arrow-color': '#8b5cf6',
-            'arrow-scale': 0.8,
+            'arrow-scale': 0.9,
           },
         },
         {
           selector: 'edge[type = "related"]',
           style: {
-            'line-color': 'rgba(100,116,139,0.4)',
-            width: 1,
+            'line-color': 'rgba(100,116,139,0.35)',
+            width: 1.5,
             'line-style': 'dashed',
             'curve-style': 'bezier',
           },
         },
       ],
       layout: {
-        name: 'cose',
-        animate: false,
-        nodeRepulsion: () => 4500,
-        idealEdgeLength: () => 120,
-        gravity: 0.25,
-        padding: 30,
-        randomize: false,
+        name: 'fcose',
+        animate: true,
+        animationDuration: 600,
+        nodeRepulsion: () => 12000,
+        idealEdgeLength: () => 250,
+        gravity: 0.05,
+        gravityRange: 3.8,
+        nodeSeparation: 120,
+        padding: 50,
+        randomize: true,
+        quality: 'default',
+        tile: true,
+        fit: true,
       } as any,
       userZoomingEnabled: true,
       userPanningEnabled: true,
       boxSelectionEnabled: false,
-      minZoom: 0.3,
-      maxZoom: 3,
+      minZoom: 0.2,
+      maxZoom: 4,
     });
 
     // Hover tooltip
@@ -219,6 +243,13 @@ const GraphView: Component<GraphViewProps> = (props) => {
     if (cy) { cy.destroy(); cy = null; }
   });
 
+  // ── Zoom controls ─────────────────────────────────────────────
+  const handleFit = () => cy?.fit(undefined, 50);
+  const handleZoomIn = () => { if (cy) cy.zoom(cy.zoom() * 1.3); };
+  const handleZoomOut = () => { if (cy) cy.zoom(cy.zoom() / 1.3); };
+
+  const zoomBtnClass = 'h-7 w-7 flex items-center justify-center rounded-md bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors backdrop-blur-sm';
+
   return (
     <Show
       when={!graphQuery.isLoading}
@@ -236,11 +267,14 @@ const GraphView: Component<GraphViewProps> = (props) => {
       </Show>
       {/* Full graph with Cytoscape.js */}
       <Show when={hasGraph()}>
-        <div class="rounded-xl border bg-card overflow-hidden">
+        <div class="rounded-xl border bg-card overflow-hidden relative">
           <div class="flex items-center justify-between px-4 py-3 border-b">
             <div class="flex items-center gap-2">
               <Network class="h-4 w-4 text-muted-foreground" />
               <h3 class="text-sm font-semibold">Knowledge Graph</h3>
+              <span class="text-[10px] text-muted-foreground ml-1">
+                ({graphQuery.data?.nodes.length ?? 0} nodes, {graphQuery.data?.edges.length ?? 0} edges)
+              </span>
             </div>
             <div class="flex items-center gap-3 text-[10px] text-muted-foreground">
               <div class="flex items-center gap-1">
@@ -256,9 +290,9 @@ const GraphView: Component<GraphViewProps> = (props) => {
           {/* Tooltip */}
           <Show when={hoveredNode()}>
             <div
-              class="absolute z-10 bg-card border rounded-lg px-3 py-2 shadow-lg text-xs pointer-events-none"
+              class="absolute z-20 bg-card border rounded-lg px-3 py-2 shadow-lg text-xs pointer-events-none"
               style={{
-                left: `${hoveredNode()!.x + 10}px`,
+                left: `${Math.min(hoveredNode()!.x + 10, (containerRef?.clientWidth ?? 400) - 160)}px`,
                 top: `${hoveredNode()!.y - 40}px`,
               }}
             >
@@ -271,10 +305,22 @@ const GraphView: Component<GraphViewProps> = (props) => {
               </p>
             </div>
           </Show>
+          {/* Zoom controls */}
+          <div class="absolute bottom-3 right-3 flex flex-col gap-1 z-10">
+            <button onClick={handleFit} title="Fit all" class={zoomBtnClass}>
+              <Maximize2 class="h-3.5 w-3.5" />
+            </button>
+            <button onClick={handleZoomIn} title="Zoom in" class={zoomBtnClass}>
+              <ZoomIn class="h-3.5 w-3.5" />
+            </button>
+            <button onClick={handleZoomOut} title="Zoom out" class={zoomBtnClass}>
+              <ZoomOut class="h-3.5 w-3.5" />
+            </button>
+          </div>
           <div
             ref={containerRef}
             class="w-full cursor-grab active:cursor-grabbing"
-            style={{ height: '360px' }}
+            style={{ height: `${containerHeight()}px` }}
           />
         </div>
       </Show>
