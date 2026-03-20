@@ -12,7 +12,8 @@ interface Suggestion {
   sourceLabel: string;
   targetLabel: string;
   similarity: number;
-  suggestedType: 'prerequisite' | 'related';
+  suggestedType: 'related';
+  reason?: string;
 }
 
 interface AiSuggestionsProps {
@@ -31,7 +32,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
     try {
       const { data, error } = await (api['knowledge-graph'] as any).ai.detect.post({
         deckId: props.deckId,
-        threshold: 0.7,
+        threshold: 0.9,
       });
       if (error) throw new Error(getApiError(error));
       const result = data as { suggestions: Suggestion[] };
@@ -54,7 +55,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
       const { error } = await (api['knowledge-graph'] as any).links.post({
         sourceCardId: suggestion.sourceCardId,
         targetCardId: suggestion.targetCardId,
-        linkType: suggestion.suggestedType,
+        linkType: 'related',
       });
       if (error) throw new Error(getApiError(error));
       setSuggestions((prev) =>
@@ -133,7 +134,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
               {(suggestion) => {
                 const key = () => `${suggestion.sourceCardId}:${suggestion.targetCardId}`;
                 return (
-                  <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border text-xs">
+                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border text-xs">
                     <Link2 class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-1.5">
@@ -141,13 +142,13 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
                         <span class="text-muted-foreground shrink-0">→</span>
                         <span class="truncate font-medium">{suggestion.targetLabel || suggestion.targetCardId.slice(0, 8)}</span>
                       </div>
+                      <Show when={suggestion.reason}>
+                        <p class="text-[10px] text-muted-foreground italic mt-0.5 truncate" title={suggestion.reason}>
+                          {suggestion.reason}
+                        </p>
+                      </Show>
                     </div>
-                    <Badge
-                      variant={suggestion.suggestedType === 'prerequisite' ? 'default' : 'muted'}
-                      class="text-[10px] shrink-0"
-                    >
-                      {suggestion.suggestedType}
-                    </Badge>
+                    <Badge variant="muted" class="text-[10px] shrink-0">related</Badge>
                     <span class="text-[10px] text-muted-foreground tabular-nums shrink-0">
                       {Math.round(suggestion.similarity * 100)}%
                     </span>

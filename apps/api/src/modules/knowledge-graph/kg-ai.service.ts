@@ -1,16 +1,14 @@
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../../db';
-import {
-  cards,
-  decks,
-  cardFieldValues,
-  templateFields,
-  cardConcepts,
-} from '../../db/schema';
-import { ENV } from '../../config/env';
+import { cards, decks, cardFieldValues } from '../../db/schema';
 import { logger } from '../../shared/logger';
 import { NotFoundError } from '../../shared/errors';
-import { cosineSimilarity, getCardLabels } from '../../shared/embedding-utils';
+import {
+  cosineSimilarity,
+  getCardLabels,
+  getCardText,
+} from '../../shared/embedding-utils';
+import { verifyRelationships } from './relationship-verifier';
 
 const kgAiLogger = logger.child({ module: 'kg-ai' });
 
@@ -22,24 +20,27 @@ export interface RelationshipSuggestion {
   sourceLabel: string;
   targetLabel: string;
   similarity: number;
-  suggestedType: 'prerequisite' | 'related';
+  suggestedType: 'related';
+  reason?: string;
 }
 
 // ── AI Relationship Detection ────────────────────────────────────────────────
 
 /**
- * Detect potential relationships between cards in a deck using embedding similarity.
+ * Detect potential relationships between cards in a deck.
  *
- * Step 1: For each card, find top-3 nearest neighbors via pgvector (instant).
- * Step 2: Filter pairs above threshold, deduplicate, exclude existing links.
+ * Pipeline:
+ * 1. Cosine similarity filter (threshold 0.90) — instant, uses pre-computed embeddings
+ * 2. LLM verification of top candidates — ~200-400ms/call, filters false positives
+ * 3. Return only LLM-confirmed pairs with reason
  *
- * Performance: ~20-50ms for a 100-card deck (pure pgvector, no LLM calls).
- * LLM verification is intentionally omitted for speed — user reviews suggestions.
+ * Cost: ~$0.002 per deck of 200 cards (10 LLM calls × ~290 tokens each)
  */
 export async function detectRelationships(
   userId: string,
   deckId: string,
-  threshold = 0.7,
+  threshold = 0.9,
+  maxSuggestions = 20,
 ): Promise<{ suggestions: RelationshipSuggestion[] }> {
   // Verify ownership
   const [deck] = await db
@@ -72,10 +73,7 @@ export async function detectRelationships(
   }));
 
   // Half-matrix: only i < j (symmetric similarity, no need for full N²)
-  const candidatePairs = new Map<
-    string,
-    { src: string; tgt: string; sim: number }
-  >();
+  const rawCandidates: { src: string; tgt: string; sim: number }[] = [];
 
   for (let i = 0; i < parsed.length; i++) {
     for (let j = i + 1; j < parsed.length; j++) {
@@ -86,17 +84,16 @@ export async function detectRelationships(
           parsed[i].cardId < parsed[j].cardId
             ? [parsed[i].cardId, parsed[j].cardId]
             : [parsed[j].cardId, parsed[i].cardId];
-
-        const key = `${a}:${b}`;
-        const existing = candidatePairs.get(key);
-        if (!existing || sim > existing.sim) {
-          candidatePairs.set(key, { src: a, tgt: b, sim });
-        }
+        rawCandidates.push({ src: a, tgt: b, sim });
       }
     }
   }
 
-  if (candidatePairs.size === 0) return { suggestions: [] };
+  if (rawCandidates.length === 0) return { suggestions: [] };
+
+  // Sort by similarity descending and limit candidates for LLM verification
+  rawCandidates.sort((a, b) => b.sim - a.sim);
+  const topCandidates = rawCandidates.slice(0, maxSuggestions);
 
   // Filter out already-linked pairs
   const allCardIds = rows.map((r) => r.card_id);
@@ -104,7 +101,9 @@ export async function detectRelationships(
   let existingLinks: { source_card_id: string; target_card_id: string }[] = [];
   if (allCardIds.length > 0) {
     const { pgClient } = await import('../../db');
-    existingLinks = await pgClient<{ source_card_id: string; target_card_id: string }[]>`
+    existingLinks = await pgClient<
+      { source_card_id: string; target_card_id: string }[]
+    >`
       SELECT source_card_id, target_card_id FROM card_links
       WHERE source_card_id = ANY(${allCardIds}::uuid[])
          OR target_card_id = ANY(${allCardIds}::uuid[])
@@ -119,29 +118,75 @@ export async function detectRelationships(
     ),
   );
 
+  // Remove already-linked candidates before LLM verification (save API calls)
+  const unlinkedCandidates = topCandidates.filter(
+    (c) => !linkedSet.has(`${c.src}:${c.tgt}`),
+  );
+
+  if (unlinkedCandidates.length === 0) return { suggestions: [] };
+
   // Get card labels for display
   const labels = await getCardLabels(allCardIds);
 
-  const suggestions: RelationshipSuggestion[] = [];
-  for (const [key, pair] of candidatePairs) {
-    if (linkedSet.has(key)) continue; // Already linked
+  // ── LLM Verification Step ──────────────────────────────────────────────────
+  // Fetch card texts for each unique card in candidates
+  const candidateCardIds = [
+    ...new Set(unlinkedCandidates.flatMap((c) => [c.src, c.tgt])),
+  ];
+  const cardTexts = new Map<string, string>();
+  await Promise.all(
+    candidateCardIds.map(async (id) => {
+      const text = await getCardText(id);
+      if (text) cardTexts.set(id, text);
+    }),
+  );
 
-    suggestions.push({
-      sourceCardId: pair.src,
-      targetCardId: pair.tgt,
-      sourceLabel: labels.get(pair.src) ?? '',
-      targetLabel: labels.get(pair.tgt) ?? '',
-      similarity: Math.round(pair.sim * 1000) / 1000,
-      suggestedType: 'related',
-    });
+  // Call LLM to verify each candidate
+  const verificationInput = unlinkedCandidates
+    .filter((c) => cardTexts.has(c.src) && cardTexts.has(c.tgt))
+    .map((c) => ({
+      sourceCardId: c.src,
+      targetCardId: c.tgt,
+      sourceText: cardTexts.get(c.src)!,
+      targetText: cardTexts.get(c.tgt)!,
+    }));
+
+  kgAiLogger.info(
+    { deckId, embeddingCandidates: rawCandidates.length, llmVerifying: verificationInput.length },
+    'LLM verification starting',
+  );
+
+  const verified = await verifyRelationships(verificationInput);
+
+  // Build a map of verified results for lookup
+  const verifiedMap = new Map(
+    verified.map((v) => [`${v.sourceCardId}:${v.targetCardId}`, v]),
+  );
+
+  // Build suggestions from only LLM-confirmed pairs
+  const suggestions: RelationshipSuggestion[] = [];
+  for (const candidate of unlinkedCandidates) {
+    const key = `${candidate.src}:${candidate.tgt}`;
+    const verification = verifiedMap.get(key);
+
+    // Only include LLM-confirmed relationships
+    if (verification?.related) {
+      suggestions.push({
+        sourceCardId: candidate.src,
+        targetCardId: candidate.tgt,
+        sourceLabel: labels.get(candidate.src) ?? '',
+        targetLabel: labels.get(candidate.tgt) ?? '',
+        similarity: Math.round(candidate.sim * 1000) / 1000,
+        suggestedType: 'related',
+        reason: verification.reason,
+      });
+    }
   }
 
-  // Sort by similarity descending, limit to top 20
-  suggestions.sort((a, b) => b.similarity - a.similarity);
+  kgAiLogger.info(
+    { deckId, verified: verified.length, confirmed: suggestions.length },
+    'LLM verification complete',
+  );
 
-  return { suggestions: suggestions.slice(0, 20) };
+  return { suggestions };
 }
-
-
-// getCardLabels and cosineSimilarity imported from ../../shared/embedding-utils
-
