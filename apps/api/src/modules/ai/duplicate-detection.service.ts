@@ -146,15 +146,18 @@ export async function scanDeckDuplicates(
       card_id: string;
       similarity: number;
     }>(sql`
-      SELECT cfv.card_id,
-             1 - (cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)}) AS similarity
-      FROM card_field_values cfv
-      JOIN cards c ON cfv.card_id = c.id
-      WHERE c.deck_id = ${deckId}
-        AND cfv.embedding IS NOT NULL
-        AND cfv.card_id != ${row.card_id}
-      ORDER BY cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)}
-      LIMIT 3
+      SELECT card_id, similarity FROM (
+        SELECT DISTINCT ON (cfv.card_id) cfv.card_id,
+               1 - (cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)}) AS similarity
+        FROM card_field_values cfv
+        JOIN cards c ON cfv.card_id = c.id
+        WHERE c.deck_id = ${deckId}
+          AND cfv.embedding IS NOT NULL
+          AND cfv.card_id != ${row.card_id}
+        ORDER BY cfv.card_id, cfv.embedding <=> ${sql.raw(`'${vectorLiteral}'::vector`)} ASC
+      ) sub
+      ORDER BY similarity DESC
+      LIMIT 5
     `);
 
     for (const n of neighbors) {

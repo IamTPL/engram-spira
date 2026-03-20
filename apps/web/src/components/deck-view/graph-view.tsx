@@ -12,11 +12,11 @@ import { currentUser } from '@/stores/auth.store';
 import Skeleton from '@/components/ui/skeleton';
 import { Network, Maximize2, ZoomIn, ZoomOut } from 'lucide-solid';
 import cytoscape from 'cytoscape';
-import fcose from 'cytoscape-fcose';
+import dagre from 'cytoscape-dagre';
 import type { Core, NodeSingular } from 'cytoscape';
 
-// Register fcose layout (once)
-cytoscape.use(fcose);
+// Register dagre layout (once)
+cytoscape.use(dagre);
 
 interface GraphEdge {
   id: string;
@@ -76,8 +76,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
     const d = graphQuery.data;
     if (!d) return 400;
     const nodeCount = d.nodes.length;
-    // Min 400px, max 700px, scale with node count
-    return Math.min(700, Math.max(400, 300 + nodeCount * 15));
+    return Math.min(800, Math.max(400, 300 + nodeCount * 15));
   });
 
   // Initialize Cytoscape when data arrives
@@ -101,7 +100,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
       ...connectedNodes.map((n) => ({
         data: {
           id: n.id,
-          label: n.label.length > 25 ? n.label.slice(0, 23) + '…' : n.label,
+          label: n.label.length > 20 ? n.label.slice(0, 18) + '…' : n.label,
           fullLabel: n.label,
           retention: n.retention,
           color: retentionColor(n.retention),
@@ -129,20 +128,20 @@ const GraphView: Component<GraphViewProps> = (props) => {
           style: {
             'background-color': 'data(color)',
             label: 'data(label)',
-            'font-size': '12px',
+            'font-size': '11px',
             'font-family': 'system-ui, -apple-system, sans-serif',
             color: '#cbd5e1',
             'text-valign': 'bottom',
-            'text-margin-y': 8,
-            width: 18,
-            height: 18,
+            'text-margin-y': 6,
+            width: 16,
+            height: 16,
             'border-width': 1.5,
             'border-color': 'rgba(255,255,255,0.25)',
-            'text-max-width': '120px',
+            'text-max-width': '100px',
             'text-wrap': 'ellipsis',
             'text-outline-color': 'rgba(0,0,0,0.6)',
             'text-outline-width': 2,
-            'overlay-padding': 6,
+            'overlay-padding': 4,
           },
         },
         {
@@ -150,8 +149,8 @@ const GraphView: Component<GraphViewProps> = (props) => {
           style: {
             'border-width': 2.5,
             'border-color': '#fff',
-            width: 24,
-            height: 24,
+            width: 22,
+            height: 22,
             'font-weight': 'bold',
             color: '#f1f5f9',
             'z-index': 10,
@@ -168,41 +167,42 @@ const GraphView: Component<GraphViewProps> = (props) => {
           style: {
             'line-color': '#8b5cf6',
             width: 2,
-            'curve-style': 'bezier',
+            'curve-style': 'taxi',
+            'taxi-direction': 'downward',
+            'taxi-turn': '60px',
             'target-arrow-shape': 'triangle',
             'target-arrow-color': '#8b5cf6',
-            'arrow-scale': 0.9,
+            'arrow-scale': 0.8,
           },
         },
         {
           selector: 'edge[type = "related"]',
           style: {
-            'line-color': 'rgba(100,116,139,0.35)',
+            'line-color': 'rgba(100,116,139,0.4)',
             width: 1.5,
             'line-style': 'dashed',
-            'curve-style': 'bezier',
+            'curve-style': 'taxi',
+            'taxi-direction': 'downward',
+            'taxi-turn': '40px',
           },
         },
       ],
       layout: {
-        name: 'fcose',
+        name: 'dagre',
+        rankDir: 'TB',          // Top to Bottom (tree direction)
+        nodeSep: 80,            // Horizontal spacing between nodes
+        rankSep: 100,           // Vertical spacing between levels
+        edgeSep: 30,            // Spacing between edges
+        ranker: 'network-simplex',
         animate: true,
-        animationDuration: 600,
-        nodeRepulsion: () => 12000,
-        idealEdgeLength: () => 250,
-        gravity: 0.05,
-        gravityRange: 3.8,
-        nodeSeparation: 120,
-        padding: 50,
-        randomize: true,
-        quality: 'default',
-        tile: true,
+        animationDuration: 500,
         fit: true,
+        padding: 40,
       } as any,
       userZoomingEnabled: true,
       userPanningEnabled: true,
       boxSelectionEnabled: false,
-      minZoom: 0.2,
+      minZoom: 0.15,
       maxZoom: 4,
     });
 
