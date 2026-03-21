@@ -17,19 +17,27 @@ export interface VerificationResult {
   reason: string;
 }
 
-const VERIFICATION_PROMPT = `You are an educational relationship classifier. Given two flashcard contents, determine if they are meaningfully related for learning purposes.
+const VERIFICATION_PROMPT = `You are an educational relationship classifier for a flashcard learning app. Given two flashcard contents, determine if they are meaningfully related for building a knowledge graph.
 
 Card A: "{cardA}"
 Card B: "{cardB}"
 
 Respond with EXACTLY one JSON object, no markdown:
-{"related": true/false, "reason": "one short sentence"}
+{"related": true/false, "reason": "one short sentence explaining the relationship"}
 
-Rules:
-- "related" = true ONLY if understanding one card directly helps understand the other
-- Words from the same broad field/domain but unrelated concepts = false
-- Synonyms, antonyms, cause-effect, part-whole = true
-- Be strict: when in doubt, respond false`;
+A pair IS related (true) when:
+- They belong to the same semantic family or hierarchy (e.g. Father ↔ Mother, Dog ↔ Cat, CPU ↔ RAM)
+- One is a parent/child/sibling/member of the same category as the other
+- Synonyms, antonyms, cause-effect, part-whole, or complementary concepts
+- Understanding one directly aids understanding the other
+- They would logically appear together in a mind map, family tree, or taxonomy
+
+A pair is NOT related (false) when:
+- They share a broad domain but have no direct conceptual link (e.g. "Cloud" in weather vs "Database" in computing)
+- The connection is superficial or requires multiple reasoning leaps
+- They are completely different topics
+
+When in doubt for vocabulary cards from the same deck, lean toward true — the user grouped them together intentionally.`;
 
 /**
  * Verify a batch of relationship candidates using Gemini LLM.

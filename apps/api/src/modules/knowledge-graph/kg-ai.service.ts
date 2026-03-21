@@ -30,7 +30,7 @@ export interface RelationshipSuggestion {
  * Detect potential relationships between cards in a deck.
  *
  * Pipeline:
- * 1. Cosine similarity filter (threshold 0.90) — instant, uses pre-computed embeddings
+ * 1. Cosine similarity filter (threshold 0.75) — instant, uses pre-computed embeddings
  * 2. LLM verification of top candidates — ~200-400ms/call, filters false positives
  * 3. Return only LLM-confirmed pairs with reason
  *
@@ -39,7 +39,7 @@ export interface RelationshipSuggestion {
 export async function detectRelationships(
   userId: string,
   deckId: string,
-  threshold = 0.9,
+  threshold = 0.75,
   maxSuggestions = 20,
 ): Promise<{ suggestions: RelationshipSuggestion[] }> {
   // Verify ownership

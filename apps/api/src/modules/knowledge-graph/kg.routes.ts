@@ -72,7 +72,7 @@ export const kgRoutes = new Elysia({ prefix: '/knowledge-graph' })
       body: t.Object({
         deckId: t.String({ format: 'uuid' }),
         threshold: t.Optional(
-          t.Number({ minimum: 0.5, maximum: 1.0, default: 0.9 }),
+          t.Number({ minimum: 0.5, maximum: 1.0, default: 0.75 }),
         ),
       }),
     },

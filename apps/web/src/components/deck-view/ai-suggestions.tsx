@@ -32,7 +32,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
     try {
       const { data, error } = await (api['knowledge-graph'] as any).ai.detect.post({
         deckId: props.deckId,
-        threshold: 0.9,
+        threshold: 0.75,
       });
       if (error) throw new Error(getApiError(error));
       const result = data as { suggestions: Suggestion[] };
