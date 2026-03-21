@@ -1,4 +1,4 @@
-import { type Component, Show, For, createSignal, createMemo } from 'solid-js';
+import { type Component, Show, For, Index, createSignal, createMemo } from 'solid-js';
 import { createQuery } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
@@ -160,7 +160,7 @@ const TemplateBuilder: Component = () => {
                     <Badge variant="muted" class="text-[10px]">System</Badge>
                   </div>
                   <span class="text-xs text-muted-foreground">
-                    {tmpl.fields.length} fields
+                    {tmpl.fields?.length ?? 0} fields
                   </span>
                 </div>
               )}
@@ -175,7 +175,7 @@ const TemplateBuilder: Component = () => {
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs text-muted-foreground">
-                      {tmpl.fields.length} fields
+                      {tmpl.fields?.length ?? 0} fields
                     </span>
                     <button
                       class="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
@@ -222,20 +222,20 @@ const TemplateBuilder: Component = () => {
                     <Plus class="h-3 w-3 mr-1" /> Add Field
                   </Button>
                 </div>
-                <For each={fields()}>
+                <Index each={fields()}>
                   {(field, index) => (
                     <div class="flex items-center gap-2">
                       <GripVertical class="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
                       <Input
                         placeholder="Field name"
-                        value={field.name}
-                        onInput={(e) => updateField(index(), 'name', e.currentTarget.value)}
+                        value={field().name}
+                        onInput={(e) => updateField(index, 'name', e.currentTarget.value)}
                         class="h-8 text-xs flex-1"
                       />
                       <select
                         class="h-8 rounded-md border bg-transparent px-2 text-xs"
-                        value={field.fieldType}
-                        onChange={(e) => updateField(index(), 'fieldType', e.currentTarget.value)}
+                        value={field().fieldType}
+                        onChange={(e) => updateField(index, 'fieldType', e.currentTarget.value)}
                       >
                         <For each={FIELD_TYPES}>
                           {(type) => <option value={type}>{type}</option>}
@@ -243,8 +243,8 @@ const TemplateBuilder: Component = () => {
                       </select>
                       <select
                         class="h-8 rounded-md border bg-transparent px-2 text-xs w-20"
-                        value={field.side}
-                        onChange={(e) => updateField(index(), 'side', e.currentTarget.value)}
+                        value={field().side}
+                        onChange={(e) => updateField(index, 'side', e.currentTarget.value)}
                       >
                         <option value="front">Front</option>
                         <option value="back">Back</option>
@@ -252,14 +252,14 @@ const TemplateBuilder: Component = () => {
                       <Show when={fields().length > 2}>
                         <button
                           class="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                          onClick={() => removeField(index())}
+                          onClick={() => removeField(index)}
                         >
                           <Trash2 class="h-3.5 w-3.5" />
                         </button>
                       </Show>
                     </div>
                   )}
-                </For>
+                </Index>
               </div>
 
               {/* Validation hints */}
