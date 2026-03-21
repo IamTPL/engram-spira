@@ -624,6 +624,33 @@
   -webkit-backdrop-filter: blur(4px);
 }
 
+/* ── Prose table styling ──────────────────────────────────────────
+   TailwindCSS v4 prose variants don't reliably style tables from
+   rendered markdown. Explicitly set borders, padding, and header bg. */
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8125rem;
+}
+.prose th,
+.prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose th {
+  background-color: var(--color-muted);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.prose td {
+  font-size: 0.8125rem;
+}
+.prose tr:nth-child(even) td {
+  background-color: color-mix(in srgb, var(--color-muted) 30%, transparent);
+}
+
 /* ── Reduced Motion ─────────────────────────────────────────────
    Disable or simplify animations for users who prefer reduced motion.
    Reduces unnecessary GPU compositing work.                        */
