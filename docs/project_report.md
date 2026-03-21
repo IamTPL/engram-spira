@@ -546,10 +546,19 @@ WBS 5: Polish & Optimization
 
 | Cấp độ | Phương pháp | Công cụ | Mô tả |
 |--------|-------------|---------|--------|
+| **Unit Testing** | Automated | Bun Test (`bun:test`) | 198 test cases cho backend service layer (pure functions + mocked DB) |
 | **Static Analysis** | Type checking | TypeScript `tsc --noEmit` | Kiểm tra kiểu dữ liệu toàn project (CI/CD automated) |
 | **API Testing** | Manual/Automated | Postman / cURL | Kiểm tra endpoint behavior, error handling |
 | **E2E Type Safety** | Compile-time | Eden Treaty | Thay đổi API → frontend báo lỗi ngay khi code |
 | **Integration Testing** | Manual | Browser DevTools | Kiểm tra tương tác giữa các module |
+
+**Backend Unit Test Coverage:**
+
+| Phân loại | Số test | Mô tả |
+|-----------|---------|-------|
+| Pure functions | 85 | SRS engine (SM-2 + FSRS), errors, constants, embedding-utils |
+| Service layer (mocked DB) | 113 | auth, decks, cards, classes, folders, study, forecast, card-templates, users, notifications, AI, knowledge-graph, import-export |
+| **Tổng** | **198** | **20 test files, ~340 assertions, runtime ~500ms** |
 
 ### 7.2. CI/CD Pipeline
 
@@ -650,7 +659,7 @@ Pipeline chạy tự động trên mỗi commit/PR, đảm bảo **zero type err
 
 ### 10.1. Hạn chế hiện tại
 
-- Chưa có unit test và integration test toàn diện (chỉ có static type checking qua CI).
+- Chưa có integration test và frontend test toàn diện (backend đã có 198 unit tests).
 - Chưa deploy production (chỉ chạy local development).
 - Focus Mode gamification còn đơn giản.
 - Knowledge Graph chưa hỗ trợ cross-deck visualization.

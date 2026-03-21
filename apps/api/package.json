@@ -11,7 +11,10 @@
     "db:reset": "drizzle-kit drop && drizzle-kit push",
     "db:seed": "bun run src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",

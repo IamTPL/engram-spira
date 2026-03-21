@@ -154,6 +154,24 @@ modules/
 
 ---
 
+## Testing
+
+Backend unit tests use **Bun's built-in test runner** (`bun:test`) with mocked DB dependencies.
+
+```bash
+cd apps/api
+bun test              # Run all 198 tests
+bun test --coverage   # With coverage report
+bun test --watch      # Watch mode
+```
+
+| Scope | Tests | Modules covered |
+|-------|-------|-----------------|
+| Pure functions | 85 | SRS engine (SM-2 + FSRS), errors, constants, embedding-utils |
+| Service layer | 113 | auth, decks, cards, classes, folders, study, forecast, card-templates, users, notifications, AI, knowledge-graph, import-export |
+
+---
+
 ## Content Hierarchy
 
 ```
