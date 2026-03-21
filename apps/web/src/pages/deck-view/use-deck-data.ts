@@ -109,6 +109,11 @@ export function useDeckData() {
 
   const refetchCards = () => {
     queryClient.invalidateQueries({ queryKey: ['cards', params.deckId] });
+    // Also invalidate folder's deck list so cardCount updates when navigating back
+    const folderId = deck()?.folderId;
+    if (folderId) {
+      queryClient.invalidateQueries({ queryKey: ['decks', folderId] });
+    }
   };
 
   // Resource-like accessors for backward compatibility

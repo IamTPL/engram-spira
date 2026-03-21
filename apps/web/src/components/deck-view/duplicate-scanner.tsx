@@ -83,6 +83,7 @@ const DuplicateScanner: Component<DuplicateScannerProps> = (props) => {
       // Invalidate cards query
       queryClient.invalidateQueries({ queryKey: ['cards'] });
       queryClient.invalidateQueries({ queryKey: ['cards-by-deck'] });
+      queryClient.invalidateQueries({ queryKey: ['decks'] });
     } catch (err: any) {
       toast.error(err?.message ?? 'Delete failed');
     } finally {
