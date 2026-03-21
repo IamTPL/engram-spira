@@ -4,6 +4,8 @@ An AI-powered flashcard web application with dual Spaced Repetition algorithms (
 
 > 📋 **[Final Report (Notion)](https://www.notion.so/Engram-Sprira-32ab6b1ad239801e806bf5823945fca2?source=copy_link)**
 
+> 📋 **[Final Project Presentation (Google Drive)](https://drive.google.com/drive/folders/1q60L_ZoM9F-V06xrYQDP4GPO1R8qcHyh?usp=sharing)**
+
 
 ---
 
