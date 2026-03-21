@@ -9,6 +9,9 @@ import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { api, getApiError } from '@/api/client';
+import { queryClient } from '@/lib/query-client';
+import { toast } from '@/stores/toast.store';
 import {
   ArrowLeft,
   Plus,
@@ -19,10 +22,12 @@ import {
   Sparkles,
   CheckSquare,
   BarChart3,
+  Pencil,
 } from 'lucide-solid';
 import type { DeckData, TemplateData } from './use-deck-data';
 
 interface DeckHeaderProps {
+  deckId: string;
   deck: () => DeckData | null | undefined;
   template: () => TemplateData | null | undefined;
   cardCount: () => number;
@@ -44,6 +49,54 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
   const navigate = useNavigate();
   const [isVisible, setIsVisible] = createSignal(true);
   const [isScrolled, setIsScrolled] = createSignal(false);
+  const [isEditingName, setIsEditingName] = createSignal(false);
+  const [editName, setEditName] = createSignal('');
+  const [savingName, setSavingName] = createSignal(false);
+  let nameInputRef: HTMLInputElement | undefined;
+
+  const startEditName = () => {
+    setEditName(props.deck()?.name ?? '');
+    setIsEditingName(true);
+    queueMicrotask(() => {
+      nameInputRef?.focus();
+      nameInputRef?.select();
+    });
+  };
+
+  const cancelEditName = () => {
+    setIsEditingName(false);
+    setEditName('');
+  };
+
+  const saveEditName = async () => {
+    const newName = editName().trim();
+    const oldName = props.deck()?.name ?? '';
+    if (!newName || newName === oldName) {
+      cancelEditName();
+      return;
+    }
+    setSavingName(true);
+    try {
+      const { error } = await (api.decks as any)[props.deckId].patch({ name: newName });
+      if (error) throw new Error(getApiError(error));
+      queryClient.invalidateQueries({ queryKey: ['deck', props.deckId] });
+      toast.success('Deck renamed');
+      setIsEditingName(false);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to rename deck');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleNameKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveEditName();
+    } else if (e.key === 'Escape') {
+      cancelEditName();
+    }
+  };
 
   onMount(() => {
     const scrollContainer = document.getElementById('main-content');
@@ -104,9 +157,30 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
             <ArrowLeft class="h-4 w-4" />
           </Button>
           <div class="flex-1 min-w-0">
-            <h1 class="text-xl font-bold truncate leading-tight">
-              {props.deck()?.name ?? 'Loading...'}
-            </h1>
+            <Show
+              when={!isEditingName()}
+              fallback={
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  value={editName()}
+                  onInput={(e) => setEditName(e.currentTarget.value)}
+                  onKeyDown={handleNameKeyDown}
+                  onBlur={() => saveEditName()}
+                  disabled={savingName()}
+                  class="text-xl font-bold leading-tight bg-transparent border-b-2 border-primary outline-none w-full min-w-0 py-0 px-0"
+                />
+              }
+            >
+              <h1
+                class="text-xl font-bold truncate leading-tight cursor-pointer hover:text-primary transition-colors group flex items-center gap-1.5"
+                onClick={startEditName}
+                title="Click to rename"
+              >
+                {props.deck()?.name ?? 'Loading...'}
+                <Pencil class="h-3.5 w-3.5 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
+              </h1>
+            </Show>
             <div class="flex items-center gap-3 mt-1">
               <Show when={props.template()}>
                 <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-palette-5/15 text-palette-5 font-medium">

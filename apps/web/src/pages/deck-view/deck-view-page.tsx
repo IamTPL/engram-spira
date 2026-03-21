@@ -429,6 +429,7 @@ const DeckViewPage: Component = () => {
   return (
     <PageShell maxWidth={false} class="p-0" noScroll>
       <DeckHeader
+        deckId={params.deckId}
         deck={deck}
         template={template}
         cardCount={cardCount}
