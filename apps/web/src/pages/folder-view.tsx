@@ -17,6 +17,7 @@ import {
   Layers,
   ChevronRight,
   Search,
+  Trash2,
 } from 'lucide-solid';
 
 // ── Pastel gradient presets for deck cards (palette priority order) ──────────
@@ -70,6 +71,10 @@ const FolderViewPage: Component = () => {
   const [newDeckTemplateId, setNewDeckTemplateId] = createSignal('');
   const [creating, setCreating] = createSignal(false);
 
+  // ── Delete Deck state ───────────────────────────────────────────────
+  const [confirmDeleteDeckId, setConfirmDeleteDeckId] = createSignal<string | null>(null);
+  const [deletingDeck, setDeletingDeck] = createSignal(false);
+
   // ── Data ────────────────────────────────────────────────────────────
   const folderQuery = createQuery(() => ({
     queryKey: ['folder', params.folderId],
@@ -113,6 +118,23 @@ const FolderViewPage: Component = () => {
   };
 
   const deckCount = () => decks()?.length ?? 0;
+
+  // ── Delete deck handler ─────────────────────────────────────────────
+  const handleDeleteDeck = async (deckId: string) => {
+    setDeletingDeck(true);
+    try {
+      const { error } = await (api.decks as any)[deckId].delete();
+      if (error) throw new Error(getApiError(error));
+      setConfirmDeleteDeckId(null);
+      refetchDecks();
+      queryClient.invalidateQueries({ queryKey: ['sidebar-folders'] });
+      toast.success('Deck deleted');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to delete deck');
+    } finally {
+      setDeletingDeck(false);
+    }
+  };
 
   // ── Create deck handler ─────────────────────────────────────────────
   const handleCreateDeck = async (e: Event) => {
@@ -310,44 +332,100 @@ const FolderViewPage: Component = () => {
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <For each={filteredDecks()}>
                   {(deck, index) => (
-                    <button
-                      class="group relative overflow-hidden rounded-2xl p-5 text-left transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      style={{ background: getGradient(index()) }}
-                      onClick={() => navigate(`/deck/${deck.id}`)}
-                    >
-                      {/* Decorative shapes */}
-                      <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25 dark:bg-white/10" />
-                      <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15 dark:bg-white/5" />
+                    <div class="relative group">
+                      <button
+                        class="relative overflow-hidden rounded-2xl p-5 text-left transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none w-full"
+                        style={{ background: getGradient(index()) }}
+                        onClick={() => navigate(`/deck/${deck.id}`)}
+                      >
+                        {/* Decorative shapes */}
+                        <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25 dark:bg-white/10" />
+                        <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15 dark:bg-white/5" />
 
-                      {/* Content */}
-                      <div class="relative z-10 flex flex-col h-full min-h-30">
-                        {/* Deck name */}
-                        <h3 class="text-lg font-bold text-slate-800 dark:text-white leading-tight mb-1 line-clamp-2">
-                          {deck.name}
-                        </h3>
+                        {/* Content */}
+                        <div class="relative z-10 flex flex-col h-full min-h-30">
+                          {/* Deck name */}
+                          <h3 class="text-lg font-bold text-slate-800 dark:text-white leading-tight mb-1 line-clamp-2">
+                            {deck.name}
+                          </h3>
 
-                        {/* Card count */}
-                        <p class="text-slate-600 dark:text-white/80 text-sm mb-auto">
-                          {deck.cardCount}{' '}
-                          {deck.cardCount === 1 ? 'card' : 'cards'}
-                        </p>
+                          {/* Card count */}
+                          <p class="text-slate-600 dark:text-white/80 text-sm mb-auto">
+                            {deck.cardCount}{' '}
+                            {deck.cardCount === 1 ? 'card' : 'cards'}
+                          </p>
 
-                        {/* Bottom row */}
-                        <div class="flex items-center justify-between mt-4">
-                          {/* Template badge */}
-                          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 dark:bg-white/20 text-slate-700 dark:text-white/90 font-medium">
-                            <Layers class="h-3 w-3" />
-                            <TemplateName
-                              templateId={deck.cardTemplateId}
-                              templates={templates() ?? []}
-                            />
-                          </span>
+                          {/* Bottom row */}
+                          <div class="flex items-center justify-between mt-4">
+                            {/* Template badge */}
+                            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 dark:bg-white/20 text-slate-700 dark:text-white/90 font-medium">
+                              <Layers class="h-3 w-3" />
+                              <TemplateName
+                                templateId={deck.cardTemplateId}
+                                templates={templates() ?? []}
+                              />
+                            </span>
 
-                          {/* Arrow */}
-                          <ChevronRight class="h-5 w-5 text-slate-500 dark:text-white/70 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-0.5 transition-[color,transform]" />
+                            {/* Arrow */}
+                            <ChevronRight class="h-5 w-5 text-slate-500 dark:text-white/70 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-0.5 transition-[color,transform]" />
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+
+                      {/* Delete button (top-right corner) */}
+                      <button
+                        class="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-white/60 dark:bg-black/40 text-slate-500 dark:text-white/60 opacity-0 group-hover:opacity-100 hover:bg-destructive/90! hover:text-white! transition-all backdrop-blur-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDeleteDeckId(deck.id);
+                        }}
+                        title="Delete deck"
+                      >
+                        <Trash2 class="h-3.5 w-3.5" />
+                      </button>
+
+                      {/* Delete confirmation overlay */}
+                      <Show when={confirmDeleteDeckId() === deck.id}>
+                        <div
+                          class="absolute inset-0 z-30 flex items-center justify-center bg-black/60 rounded-2xl backdrop-blur-sm animate-fade-in"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div class="text-center space-y-3 px-4">
+                            <p class="text-sm font-medium text-white">
+                              Delete <strong>{deck.name}</strong>?
+                            </p>
+                            <p class="text-xs text-white/70">
+                              All {deck.cardCount} cards will be permanently deleted.
+                            </p>
+                            <div class="flex items-center justify-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                class="h-7 text-xs bg-white/10 border-white/20 text-white hover:bg-white/20"
+                                onClick={(e: MouseEvent) => {
+                                  e.stopPropagation();
+                                  setConfirmDeleteDeckId(null);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                class="h-7 text-xs"
+                                disabled={deletingDeck()}
+                                onClick={(e: MouseEvent) => {
+                                  e.stopPropagation();
+                                  handleDeleteDeck(deck.id);
+                                }}
+                              >
+                                {deletingDeck() ? 'Deleting...' : 'Delete'}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
                   )}
                 </For>
               </div>

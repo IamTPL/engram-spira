@@ -87,7 +87,7 @@ const TemplateBuilder: Component = () => {
     try {
       const { error } = await (api['card-templates'] as any).post({
         name: name().trim(),
-        description: description().trim() || null,
+        description: description().trim(),
         fields: fields().map((f, i) => ({
           name: f.name.trim(),
           fieldType: f.fieldType,
