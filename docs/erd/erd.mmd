@@ -1,0 +1,187 @@
+erDiagram
+    users {
+        uuid id PK
+        varchar email UK
+        text password_hash
+        varchar display_name
+        text avatar_url
+        varchar srs_algorithm "sm2 | fsrs"
+        boolean email_verified
+        varchar email_verification_token
+        timestamp email_token_expires_at
+        timestamp created_at
+    }
+
+    sessions {
+        text id PK
+        uuid user_id FK
+        timestamp expires_at
+    }
+
+    classes {
+        uuid id PK
+        uuid user_id FK
+        varchar name
+        text description
+        integer sort_order
+        timestamp created_at
+    }
+
+    folders {
+        uuid id PK
+        uuid class_id FK
+        varchar name
+        integer sort_order
+        timestamp created_at
+    }
+
+    decks {
+        uuid id PK
+        uuid user_id FK
+        uuid folder_id FK
+        uuid card_template_id FK
+        varchar name
+        timestamp created_at
+    }
+
+    card_templates {
+        uuid id PK
+        uuid user_id FK "nullable for system tpl"
+        varchar name
+        text description
+        boolean is_system
+        timestamp created_at
+    }
+
+    template_fields {
+        uuid id PK
+        uuid template_id FK
+        varchar name
+        varchar field_type "text | textarea | image_url | audio_url"
+        varchar side "front | back"
+        integer sort_order
+        boolean is_required
+        jsonb config
+    }
+
+    cards {
+        uuid id PK
+        uuid deck_id FK
+        integer sort_order
+        timestamp created_at
+    }
+
+    card_field_values {
+        uuid id PK
+        uuid card_id FK
+        uuid template_field_id FK
+        jsonb value
+        vector embedding "768d via pgvector"
+    }
+
+    study_progress {
+        uuid id PK
+        uuid user_id FK
+        uuid card_id FK
+        integer box_level "SM-2 repetition count"
+        double ease_factor "SM-2 multiplier"
+        integer interval_days "SM-2 interval"
+        timestamp next_review_at
+        timestamp last_reviewed_at
+        real stability "FSRS stability"
+        real difficulty "FSRS difficulty"
+        varchar fsrs_state "new | learning | review | relearning"
+        real last_elapsed_days "FSRS elapsed"
+        integer fsrs_learning_steps "FSRS learning step"
+    }
+
+    review_logs {
+        uuid id PK
+        uuid user_id FK
+        uuid card_id FK
+        varchar rating "again | hard | good | easy"
+        varchar state "new | learning | review | relearning"
+        integer elapsed_days
+        integer scheduled_days
+        integer review_duration_ms
+        timestamp reviewed_at
+    }
+
+    study_daily_logs {
+        uuid id PK
+        uuid user_id FK
+        date date
+        integer cards_studied
+        timestamp created_at
+    }
+
+    card_links {
+        uuid id PK
+        uuid source_card_id FK
+        uuid target_card_id FK
+        varchar link_type "prerequisite | related"
+        timestamp created_at
+    }
+
+    card_concepts {
+        uuid id PK
+        uuid card_id FK
+        varchar concept
+        timestamp created_at
+    }
+
+    ai_generation_jobs {
+        uuid id PK
+        uuid user_id FK
+        uuid deck_id FK
+        varchar status "processing | pending | failed | saved | expired"
+        text error_message
+        text source_text
+        integer card_count
+        jsonb generated_cards
+        varchar model
+        timestamp created_at
+    }
+
+    password_reset_tokens {
+        uuid id PK
+        uuid user_id FK
+        varchar token
+        timestamp expires_at
+    }
+
+    fsrs_user_params {
+        uuid id PK
+        uuid user_id FK
+        jsonb params
+        timestamp updated_at
+    }
+
+    %% ── Relationships ──
+
+    users ||--o{ sessions : "has"
+    users ||--o{ classes : "owns"
+    users ||--o{ card_templates : "creates"
+    users ||--o{ study_progress : "tracks"
+    users ||--o{ review_logs : "records"
+    users ||--o{ study_daily_logs : "logs"
+    users ||--o{ ai_generation_jobs : "requests"
+    users ||--o{ password_reset_tokens : "has"
+    users ||--|| fsrs_user_params : "configures"
+
+    classes ||--o{ folders : "contains"
+    folders ||--o{ decks : "contains"
+    decks ||--o{ cards : "contains"
+    decks }o--|| card_templates : "uses"
+
+    card_templates ||--o{ template_fields : "defines"
+    cards ||--o{ card_field_values : "has values"
+    template_fields ||--o{ card_field_values : "typed by"
+
+    cards ||--o{ study_progress : "progress"
+    cards ||--o{ review_logs : "reviewed in"
+    cards ||--o{ card_concepts : "has concepts"
+    cards ||--o{ card_links : "source links"
+    cards ||--o{ card_links : "target links"
+
+    ai_generation_jobs }o--|| decks : "generates for"

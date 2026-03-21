@@ -1,4 +1,4 @@
-import { type Component, Show, createMemo, createEffect } from 'solid-js';
+import { type Component, Show, createMemo, createEffect, Index } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import {
   isDrawerOpen,
@@ -37,7 +37,7 @@ import {
   Dice5,
   Dice6,
 } from 'lucide-solid';
-import { onCleanup, createSignal, For, type Accessor } from 'solid-js';
+import { onCleanup, createSignal } from 'solid-js';
 
 /* ══════════════════════════════════════════════════════════════
    FOCUS DRAWER
@@ -302,9 +302,9 @@ const FocusDrawer: Component = () => {
                   Customize 6-Sided Dice Rewards
                 </h3>
                 <div class="space-y-3">
-                  <For each={rewardLabels()}>
-                    {(label: string, idx: Accessor<number>) => {
-                      const Icon = DICE_ICONS[idx()];
+                  <Index each={rewardLabels()}>
+                    {(label, idx) => {
+                      const Icon = DICE_ICONS[idx];
                       return (
                         <div class="flex items-center gap-3">
                           <div class="h-8 w-8 rounded bg-blue-700/10 flex items-center justify-center text-blue-700 shrink-0 border border-blue-700/20">
@@ -312,18 +312,18 @@ const FocusDrawer: Component = () => {
                           </div>
                           <input
                             type="text"
-                            value={label}
+                            value={label()}
                             onInput={(e) =>
-                              updateRewardLabel(idx(), e.currentTarget.value)
+                              updateRewardLabel(idx, e.currentTarget.value)
                             }
-                            placeholder={`Reward ${idx() + 1}`}
+                            placeholder={`Reward ${idx + 1}`}
                             class="flex-1 bg-transparent border-b border-border/50 focus:border-blue-700 pb-1 text-sm text-foreground outline-none transition-colors"
                             maxLength={40}
                           />
                         </div>
                       );
                     }}
-                  </For>
+                  </Index>
                 </div>
                 <p class="text-[10px] text-muted-foreground mt-4 text-center">
                   These exactly map to the dice faces rolled after a session.

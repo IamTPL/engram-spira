@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   FileText,
   LayoutTemplate,
+  Database,
   Loader2,
   AlertCircle,
   ZoomIn,
@@ -27,7 +28,7 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type TopTab = 'srs' | 'c4';
+type TopTab = 'srs' | 'c4' | 'erd';
 
 interface C4Diagram {
   id: string;
@@ -41,7 +42,10 @@ interface C4Diagram {
 const TOP_TABS: { id: TopTab; label: string; icon: any }[] = [
   { id: 'srs', label: 'SRS Document', icon: FileText },
   { id: 'c4', label: 'C4 Architecture', icon: LayoutTemplate },
+  { id: 'erd', label: 'ERD', icon: Database },
 ];
+
+const ERD_URL = '/docs/erd/erd.svg';
 
 const C4_DIAGRAMS: C4Diagram[] = [
   {
@@ -125,7 +129,7 @@ function sanitizeSvg(svgText: string): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(svgText, 'image/svg+xml');
 
-  doc.querySelectorAll('script, foreignObject').forEach((el) => el.remove());
+  doc.querySelectorAll('script').forEach((el) => el.remove());
 
   const all = doc.querySelectorAll('*');
   for (const el of all) {
@@ -539,6 +543,48 @@ const DocsPage: Component = () => {
                 </span>
               </div>
               <C4DiagramView diagram={activeDiagram()} />
+            </div>
+          </div>
+        </Show>
+
+        {/* ── ERD Tab ── */}
+        <Show when={topTab() === 'erd'}>
+          <div class="space-y-4">
+            <div class="rounded-xl border bg-card p-2">
+              <div class="px-3 py-2 mb-2 flex items-center justify-between">
+                <div>
+                  <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Database Schema
+                  </p>
+                  <h2 class="text-sm font-semibold">Entity Relationship Diagram</h2>
+                </div>
+                <span class="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+                  16 Tables
+                </span>
+              </div>
+              {(() => {
+                const erdQuery = createQuery(() => ({
+                  queryKey: ['erd-svg'],
+                  queryFn: () => fetchSvg(ERD_URL),
+                  retry: false,
+                }));
+                return (
+                  <Switch>
+                    <Match when={erdQuery.isLoading}>
+                      <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
+                        <Loader2 class="h-5 w-5 animate-spin" />
+                        <span class="text-sm">Loading ERD…</span>
+                      </div>
+                    </Match>
+                    <Match when={erdQuery.isError}>
+                      <PlaceholderCard diagramLabel="ERD" />
+                    </Match>
+                    <Match when={erdQuery.data}>
+                      <SvgViewer svgContent={erdQuery.data!} />
+                    </Match>
+                  </Switch>
+                );
+              })()}
             </div>
           </div>
         </Show>
