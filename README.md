@@ -2,6 +2,9 @@
 
 An AI-powered flashcard web application with dual Spaced Repetition algorithms (SM-2 & FSRS), Knowledge Graph visualization, and semantic search — built on a modern, fully type-safe stack.
 
+> 📋 **[Final Report (Notion)](https://www.notion.so/Engram-Sprira-32ab6b1ad239801e806bf5823945fca2?source=copy_link)**
+
+
 ---
 
 ## Tech Stack
