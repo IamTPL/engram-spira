@@ -1,7 +1,7 @@
 # Shadcn-Solid Command Center Redesign Design
 
 Date: 2026-06-28
-Status: Review revision 1
+Status: Review revision 4
 Project: Engram Spira
 
 ## Summary
@@ -593,6 +593,25 @@ The response shapes below describe the `data` member of that envelope unless
 the endpoint is not an aggregate. Required section failures should still return
 a normal API error instead of an envelope with unusable data.
 
+Envelope usage:
+
+| Endpoint | Response wrapper | Stable `meta.sections` keys |
+| --- | --- | --- |
+| `GET /dashboard/command-center` | `AggregateResponse<CommandCenterResponse>` | `reviewQueue`, `streak`, `dueDecks`, `recent`, `weakAreas`, `forecast`, `pendingSuggestions`, `notifications` |
+| `GET /study/queue` | direct `StudyQueueResponse` | none |
+| `GET /command/search` | direct `CommandSearchResponse` | none |
+| `GET /library/explorer` | `AggregateResponse<LibraryExplorerResponse>` | `classes`, `counts`, `recentDecks` |
+| `GET /decks/:id/workspace` | `AggregateResponse<DeckWorkspaceResponse>` | `deck`, `cards`, `study`, `analytics`, `counters` |
+| `POST /create/preview` | direct `CreatePreviewResponse` | none |
+| `POST /create/commit` | direct `CreateCommitResponse` | none |
+| `GET /insights/overview` | `AggregateResponse<InsightsOverviewResponse>` | `forecast`, `weakAreas`, `atRiskCards`, `heatmap`, `trends` |
+
+Optional aggregate sections must be nullable when a failed section could be
+confused with a valid zero value. A zero count means the section computed
+successfully and found zero items. `null` plus `meta.sections[key].status ===
+'error'` means the section failed and the UI should render a compact retry or
+unavailable state.
+
 List-style payloads must include explicit limits. Initial defaults should favor
 fast shell rendering:
 
@@ -656,7 +675,7 @@ type CommandCenterResponse = {
   pendingSuggestions: {
     duplicates: number;
     aiSuggestions: number;
-  };
+  } | null;
   notifications: Array<{
     id: string;
     title: string;
@@ -968,7 +987,7 @@ type DeckWorkspaceResponse = {
     graphLinks: number;
     duplicates: number;
     aiSuggestions: number;
-  };
+  } | null;
 };
 ```
 
@@ -1048,6 +1067,29 @@ Validation rules:
 - Duplicate detection returns candidates but does not automatically remove cards
   unless the user selects a skip/merge resolution.
 
+Duplicate resolution rules:
+
+- `create`: create a new card from the preview fields.
+- `skip`: do not create or update a card for that preview row.
+- `merge`: update the selected `mergeTargetCardId` using conservative fill-only
+  semantics.
+
+Merge semantics:
+
+- The target card must belong to the current user.
+- The target card must belong to the target deck for the first implementation.
+- Existing card identity, deck, template, order, study progress, review logs,
+  links, and concepts are preserved.
+- Incoming fields are taken from `CreateCommitRequest.cards[].fields` when
+  provided, otherwise from the preview record.
+- Merge may fill target fields that are missing or empty.
+- Merge must not overwrite a non-empty target field with a different value.
+- If an incoming field conflicts with a non-empty target field, commit fails
+  with a validation error listing the conflicting field names.
+- If the incoming value equals the existing non-empty target value after
+  trimming, it is treated as no-op, not a conflict.
+- Merge does not delete existing target fields.
+
 Preview storage:
 
 ```ts
@@ -1124,11 +1166,19 @@ type CreateCommitResponse = {
 Commit rules:
 
 - `idempotencyKey` is required and scoped to `previewId` + current user.
-- Repeating the same commit request with the same idempotency key returns the
-  same result without creating duplicate cards.
+- The server stores a fingerprint of the normalized commit payload with the
+  idempotency key.
+- Repeating the same commit request with the same idempotency key and same
+  fingerprint returns the same result without creating duplicate cards.
+- Reusing the same idempotency key with a different fingerprint returns a 409
+  conflict-style validation error and performs no writes.
+- Committing the same `previewId` again with a different idempotency key returns
+  a 409 conflict-style validation error once any previous commit for that
+  preview succeeded.
 - Commit fails if the preview is expired.
 - Commit fails if any requested `clientId` is not part of the preview.
 - Commit fails if a `merge` resolution lacks a valid `mergeTargetCardId`.
+- Commit fails if a `merge` resolution has conflicting non-empty target fields.
 - Successful commit invalidates deck workspace, library explorer, command
   center, insights, and relevant command-search caches.
 
