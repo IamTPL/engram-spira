@@ -571,6 +571,28 @@ HTTP status conventions. They should also avoid duplicating business rules from
 existing services; aggregate services compose existing module services and add
 presentation metadata only.
 
+Aggregate endpoints should return a section-status envelope so optional widget
+failures are explicit and renderable:
+
+```ts
+type AggregateResponse<TData> = {
+  data: TData;
+  meta: {
+    generatedAt: string;
+    sections: Record<
+      string,
+      | { status: 'ok' }
+      | { status: 'empty' }
+      | { status: 'error'; message: string; retryable: boolean }
+    >;
+  };
+};
+```
+
+The response shapes below describe the `data` member of that envelope unless
+the endpoint is not an aggregate. Required section failures should still return
+a normal API error instead of an envelope with unusable data.
+
 List-style payloads must include explicit limits. Initial defaults should favor
 fast shell rendering:
 
@@ -772,6 +794,89 @@ Execution rules:
 - Actions that require a selected deck/card must validate params before
   execution and show a compact error if context is missing.
 
+Command action registry interface:
+
+```ts
+type CommandActionContext = {
+  route: string;
+  currentUserId: string;
+  selectedDeckId?: string;
+  selectedCardId?: string;
+  selectedFolderId?: string;
+  selectedClassId?: string;
+};
+
+type CommandActionResult =
+  | {
+      status: 'success';
+      message?: string;
+      navigateTo?: string;
+      invalidate?: QueryInvalidationKey[];
+    }
+  | {
+      status: 'error';
+      message: string;
+      fieldErrors?: Record<string, string>;
+    }
+  | {
+      status: 'confirm';
+      title: string;
+      description: string;
+      confirmLabel: string;
+      destructive?: boolean;
+      onConfirmAction: CommandActionRef;
+    };
+
+type CommandActionDefinition<TParams extends Record<string, unknown> = Record<string, unknown>> = {
+  id: string;
+  label: string;
+  keywords: string[];
+  requiredParams: Array<keyof TParams>;
+  validateParams: (params: Record<string, unknown>, context: CommandActionContext) => TParams | CommandActionResult;
+  run: (params: TParams, context: CommandActionContext) => Promise<CommandActionResult> | CommandActionResult;
+};
+
+type QueryInvalidationKey =
+  | 'command-center'
+  | 'library-explorer'
+  | 'study-queue'
+  | 'deck-workspace'
+  | 'insights-overview'
+  | 'command-search';
+```
+
+Initial action IDs:
+
+| Action id | Required params | Behavior | Invalidation |
+| --- | --- | --- | --- |
+| `navigate.home` | none | Navigate to `/`. | none |
+| `navigate.study` | optional `mode`, `deckId` | Navigate/open Study workspace. | none |
+| `navigate.library` | optional `classId`, `folderId`, `deckId` | Navigate/open Library scope. | none |
+| `navigate.create` | optional `targetDeckId`, `source` | Navigate/open Create workspace. | none |
+| `navigate.insights` | none | Navigate to Insights. | none |
+| `study.startQueue` | `mode`; optional scope id | Start a queue using `/study/queue`. | `study-queue`, `command-center` |
+| `deck.create` | `folderId`, `name`, `templateId` | Create deck after validation. | `library-explorer`, `command-center` |
+| `deck.delete.confirm` | `deckId` | Return confirmation result only. | none |
+| `deck.delete` | `deckId` | Delete deck after confirmation. | `library-explorer`, `command-center` |
+| `card.createManual` | `deckId`, `templateId` | Open manual create form. | none |
+| `create.openAiPaste` | optional `targetDeckId` | Open AI paste create flow. | none |
+| `create.importCsv` | optional `targetDeckId` | Open CSV import flow. | none |
+| `insight.studyAtRisk` | optional `deckId` or `groupId` | Start at-risk study queue. | `study-queue`, `command-center` |
+| `settings.open` | optional `section` | Navigate/open Settings section. | none |
+
+Runtime behavior:
+
+- Command menu, toolbars, and context panel all call the same registry.
+- The caller owns loading UI and must disable duplicate submission for the same
+  action/params while it is pending.
+- `success.message` shows a toast when present.
+- `error.message` shows a toast or inline compact error depending on caller
+  surface.
+- `navigateTo` runs after success toast scheduling.
+- `invalidate` maps to TanStack Query invalidation scopes.
+- Confirmation results must be rendered through a shadcn alert dialog and then
+  dispatch `onConfirmAction`.
+
 `GET /library/explorer`
 
 Returns class/folder/deck tree with counts, due counts, and recency metadata.
@@ -875,24 +980,108 @@ validation and duplicate information.
 Request shape:
 
 ```ts
-type CreatePreviewRequest = {
-  source: 'manual' | 'ai-paste' | 'csv' | 'json';
-  targetDeckId: string;
-  templateId: string;
-  payload: unknown;
+type CreatePreviewRequest =
+  | {
+      source: 'manual';
+      targetDeckId: string;
+      templateId: string;
+      payload: ManualCreatePayload;
+    }
+  | {
+      source: 'ai-paste';
+      targetDeckId: string;
+      templateId: string;
+      payload: AiPasteCreatePayload;
+    }
+  | {
+      source: 'csv';
+      targetDeckId: string;
+      templateId: string;
+      payload: CsvCreatePayload;
+    }
+  | {
+      source: 'json';
+      targetDeckId: string;
+      templateId: string;
+      payload: JsonCreatePayload;
+    };
+
+type ManualCreatePayload = {
+  fields: Record<string, string>;
+};
+
+type AiPasteCreatePayload = {
+  text: string;
+  mode: 'vocabulary' | 'qa';
+  requestedCount?: number;
+};
+
+type CsvCreatePayload = {
+  filename: string;
+  content: string;
+  delimiter?: ',' | ';' | '\t';
+  hasHeader: boolean;
+  fieldMapping: Record<string, string>;
+};
+
+type JsonCreatePayload = {
+  filename: string;
+  content: string;
+  fieldMapping?: Record<string, string>;
 };
 ```
+
+Limits:
+
+- Manual: one card per preview request.
+- AI paste: max 30,000 characters and max 50 requested cards.
+- CSV: max 1 MB content and max 1,000 rows.
+- JSON: max 1 MB content and max 1,000 cards.
+- All text fields should be trimmed server-side but not silently truncated.
+
+Validation rules:
+
+- `targetDeckId` must belong to the current user.
+- `templateId` must be valid for the target deck or explicitly allowed by the
+  existing template rules.
+- Required template fields must be present before commit.
+- Duplicate detection returns candidates but does not automatically remove cards
+  unless the user selects a skip/merge resolution.
+
+Preview storage:
+
+```ts
+type CreatePreviewRecord = {
+  previewId: string;
+  userId: string;
+  targetDeckId: string;
+  templateId: string;
+  source: CreatePreviewRequest['source'];
+  expiresAt: string;
+};
+```
+
+Preview records expire after 60 minutes. They may be stored in memory for the
+first implementation if that matches existing app constraints, but the behavior
+must be explicit: expired previews return a validation error telling the user to
+generate the preview again.
 
 Response shape:
 
 ```ts
 type CreatePreviewResponse = {
   previewId: string;
+  expiresAt: string;
   cards: Array<{
     clientId: string;
     fields: Record<string, string>;
     validationErrors: string[];
-    duplicateOf: string | null;
+    duplicateCandidates: Array<{
+      cardId: string;
+      similarity: number;
+      title: string;
+    }>;
+    resolution: 'create' | 'skip' | 'merge';
   }>;
   summary: {
     total: number;
@@ -912,7 +1101,13 @@ Request shape:
 ```ts
 type CreateCommitRequest = {
   previewId: string;
-  selectedClientIds: string[];
+  idempotencyKey: string;
+  cards: Array<{
+    clientId: string;
+    resolution: 'create' | 'skip' | 'merge';
+    mergeTargetCardId?: string;
+    fields?: Record<string, string>;
+  }>;
 };
 ```
 
@@ -922,8 +1117,20 @@ Response shape:
 type CreateCommitResponse = {
   createdCardIds: string[];
   skippedClientIds: string[];
+  mergedCardIds: string[];
 };
 ```
+
+Commit rules:
+
+- `idempotencyKey` is required and scoped to `previewId` + current user.
+- Repeating the same commit request with the same idempotency key returns the
+  same result without creating duplicate cards.
+- Commit fails if the preview is expired.
+- Commit fails if any requested `clientId` is not part of the preview.
+- Commit fails if a `merge` resolution lacks a valid `mergeTargetCardId`.
+- Successful commit invalidates deck workspace, library explorer, command
+  center, insights, and relevant command-search caches.
 
 `GET /insights/overview`
 
@@ -967,8 +1174,11 @@ Aggregate endpoints should prefer complete responses, but not every optional
 widget should make the whole shell unusable.
 
 - Required identity/scope failures return a normal API error.
-- Optional sections can return empty arrays plus an `omitted` metadata field in
-  the future if needed.
+- Optional section failures are represented in `meta.sections` using
+  `{ status: 'error', message, retryable }`.
+- Optional empty sections are represented in `meta.sections` using
+  `{ status: 'empty' }` plus an empty array or null data in the corresponding
+  response field.
 - The frontend must render compact panel-level error states for optional
   failures and route-level errors for required workspace data.
 
