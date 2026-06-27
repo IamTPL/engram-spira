@@ -1,7 +1,7 @@
 # Shadcn-Solid Command Center Redesign Design
 
 Date: 2026-06-28
-Status: Review revision 4
+Status: Review revision 5
 Project: Engram Spira
 
 ## Summary
@@ -600,7 +600,7 @@ Envelope usage:
 | `GET /dashboard/command-center` | `AggregateResponse<CommandCenterResponse>` | `reviewQueue`, `streak`, `dueDecks`, `recent`, `weakAreas`, `forecast`, `pendingSuggestions`, `notifications` |
 | `GET /study/queue` | direct `StudyQueueResponse` | none |
 | `GET /command/search` | direct `CommandSearchResponse` | none |
-| `GET /library/explorer` | `AggregateResponse<LibraryExplorerResponse>` | `classes`, `counts`, `recentDecks` |
+| `GET /library/explorer` | `AggregateResponse<LibraryExplorerResponse>` | `classes`, `recentDecks` |
 | `GET /decks/:id/workspace` | `AggregateResponse<DeckWorkspaceResponse>` | `deck`, `cards`, `study`, `analytics`, `counters` |
 | `POST /create/preview` | direct `CreatePreviewResponse` | none |
 | `POST /create/commit` | direct `CreateCommitResponse` | none |
@@ -931,6 +931,17 @@ type LibraryExplorerResponse = {
 };
 ```
 
+Library explorer count rules:
+
+- Count fields in `LibraryExplorerResponse` are required, not optional widget
+  data.
+- Counts are computed as part of the `classes` section and must not use `0` as
+  a fallback for a failed count query.
+- If the explorer tree or its counts cannot be computed reliably, the `classes`
+  section is considered required and the endpoint returns a normal API error.
+- `recentDeckIds` is the only optional section; if it fails, return an empty
+  array and mark `meta.sections.recentDecks` as `{ status: 'error', ... }`.
+
 `GET /decks/:id/workspace`
 
 Returns deck workspace data:
@@ -1099,6 +1110,18 @@ type CreatePreviewRecord = {
   targetDeckId: string;
   templateId: string;
   source: CreatePreviewRequest['source'];
+  requestFingerprint: string;
+  cards: Array<{
+    clientId: string;
+    fields: Record<string, string>;
+    validationErrors: string[];
+    duplicateCandidates: Array<{
+      cardId: string;
+      similarity: number;
+      title: string;
+    }>;
+    defaultResolution: 'create' | 'skip' | 'merge';
+  }>;
   expiresAt: string;
 };
 ```
@@ -1107,6 +1130,17 @@ Preview records expire after 60 minutes. They may be stored in memory for the
 first implementation if that matches existing app constraints, but the behavior
 must be explicit: expired previews return a validation error telling the user to
 generate the preview again.
+
+Preview storage requirements:
+
+- The server must retain normalized preview card fields until expiry or
+  successful commit.
+- The server must retain duplicate candidates and default resolutions so commit
+  can validate `clientId`, merge targets, and omitted `fields`.
+- The commit request may override `fields` and `resolution`, but omitted fields
+  resolve to the stored preview card fields.
+- Successful commit marks the preview consumed while preserving enough
+  idempotency data to replay the same commit response.
 
 Response shape:
 
@@ -1170,12 +1204,16 @@ Commit rules:
   idempotency key.
 - Repeating the same commit request with the same idempotency key and same
   fingerprint returns the same result without creating duplicate cards.
+- Idempotency replay is checked before preview expiry. A previously successful
+  commit may be replayed with the same idempotency key and fingerprint even
+  after the preview's 60-minute expiry.
 - Reusing the same idempotency key with a different fingerprint returns a 409
   conflict-style validation error and performs no writes.
 - Committing the same `previewId` again with a different idempotency key returns
   a 409 conflict-style validation error once any previous commit for that
   preview succeeded.
-- Commit fails if the preview is expired.
+- A new commit attempt fails if the preview is expired and no matching
+  successful idempotency record exists.
 - Commit fails if any requested `clientId` is not part of the preview.
 - Commit fails if a `merge` resolution lacks a valid `mergeTargetCardId`.
 - Commit fails if a `merge` resolution has conflicting non-empty target fields.
