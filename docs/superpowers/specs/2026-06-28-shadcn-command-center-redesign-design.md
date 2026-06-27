@@ -1,7 +1,7 @@
 # Shadcn-Solid Command Center Redesign Design
 
 Date: 2026-06-28
-Status: Draft for review
+Status: Review revision 1
 Project: Engram Spira
 
 ## Summary
@@ -136,7 +136,8 @@ command menu or context panel.
 
 ### Right Context/Action Panel
 
-The panel changes based on route and selected object. It can show:
+The panel changes based on route and selected object. It supports these content
+categories, selected through the route-specific ownership table below:
 
 - Review queue summary.
 - Current deck actions.
@@ -149,6 +150,79 @@ The panel changes based on route and selected object. It can show:
 - Error/retry states for contextual data.
 
 On mobile this becomes a sheet/drawer.
+
+Panel ownership rules:
+
+- `AppShell` owns panel layout, open/collapsed state, persistence, and mobile
+  sheet behavior.
+- Each workspace exports a `contextPanel` descriptor or component for the shell
+  to render.
+- The panel may read route aggregate data passed from the workspace. It should
+  not independently refetch the same route aggregate.
+- The panel may lazy-load optional secondary data, such as graph insight
+  details, only when opened or when the relevant tab is active.
+- Global panel content is used only when no route-specific content exists.
+- Panel actions dispatch through the same command action registry used by the
+  command menu.
+
+Route-specific panel responsibilities:
+
+| Workspace | Panel responsibility |
+| --- | --- |
+| Home | Review queue, next actions, notifications, recent work. |
+| Study | Current queue, card context, related cards, shortcuts, SRS metadata. |
+| Library | Selected class/folder/deck summary, create/import actions, filters. |
+| Deck | Deck actions, selected card metadata, duplicate/AI/graph counters. |
+| Create | Preview summary, validation issues, commit readiness. |
+| Insights | Selected insight explanation and direct study/create actions. |
+| Settings | Unsaved changes, account/security actions where useful. |
+| Docs | Table of contents or related docs where useful. |
+
+Panel testing requirements:
+
+- Each workspace has a default empty selection state.
+- Each workspace has at least one actionable panel state.
+- Mobile sheet opens and closes through keyboard and pointer interactions.
+- Panel actions are reachable from command search when appropriate.
+
+## Responsive Layout Rules
+
+Desktop, tablet, and mobile need explicit behavior.
+
+### Desktop: `>= 1280px`
+
+- Top command bar is persistent.
+- Task rail is icon-only and persistent.
+- Library explorer is visible by default and resizable/collapsible.
+- Right context panel is visible by default and collapsible.
+- Main workspace uses remaining width and must not hide primary actions behind
+  horizontal overflow.
+
+### Laptop / Tablet: `768px - 1279px`
+
+- Top command bar remains persistent.
+- Task rail may stay icon-only.
+- Library explorer collapses behind a trigger when width is constrained.
+- Right context panel is collapsed by default and opens as a sheet.
+- Workspace toolbars wrap into two rows before overflowing.
+
+### Mobile: `< 768px`
+
+- Top command entry remains reachable as a compact search button/input.
+- Primary navigation uses bottom nav: Home, Study, Library, Create, Insights.
+- Settings and secondary actions move to menus.
+- Library explorer opens as a sheet.
+- Context panel opens as a sheet.
+- Command menu opens full-screen.
+- Study controls keep fixed, stable dimensions and remain thumb-reachable.
+
+Persistence rules:
+
+- Collapsed state for explorer and context panel can persist in local storage.
+- Route changes should preserve user collapse preference but update panel
+  content.
+- Mobile sheets close after navigation unless the action explicitly opens a
+  detail panel.
 
 ## Page-By-Page Redesign
 
@@ -313,6 +387,76 @@ neutral shadcn auth/status layouts:
 - Clear validation and loading states.
 - Links between auth flows remain obvious.
 
+## Existing Route Inventory and Mapping
+
+The implementation plan must account for every current route in
+`apps/web/src/app.tsx`.
+
+| Current route | Current surface | New workspace mapping | Notes |
+| --- | --- | --- | --- |
+| `/login` | Login page | Auth | Guest-only route. Use neutral auth layout and preserve redirect to `/` when already logged in. |
+| `/register` | Registration page | Auth | Guest-only route. Preserve password validation and strength feedback. |
+| `/reset-password` | Password reset | Auth | Keep token-based reset behavior and error handling. |
+| `/verify-email` | Email verification | Auth/status | Keep verification status states and resend path where supported. |
+| `/` | Dashboard | Home / Command Center | Becomes the primary cockpit with review queue, recent work, insights, and actions. |
+| `/folder/:folderId` | Folder deck grid | Library | Becomes a scoped Library view. Preserve create deck, search/filter, delete deck, and template selection. |
+| `/deck/:deckId` | Deck/cards workspace | Deck / Card Workspace | Becomes tabbed deck workspace: cards, study, graph, duplicates, AI suggestions, analytics. |
+| `/study/interleaved` | Interleaved study | Study | Becomes one queue mode inside Study. Existing route may redirect to the new route/state if routing is consolidated. |
+| `/study/:deckId` | Deck study mode | Study | Becomes deck-scoped study queue. Preserve keyboard shortcuts and SRS rating behavior. |
+| `/settings` | Settings | Settings | Use shadcn tabs/forms. Preserve profile, theme, study algorithm, and account actions. |
+| `/feedback` | Feedback page | Feedback | Can remain a page or become a route-backed dialog/sheet. Preserve submission behavior. |
+| `/docs` | Docs page | Docs | Preserve markdown docs rendering. Add neutral reading surface and navigation polish. |
+| `*` | Not found | Status | Use neutral status layout with routes back to Home/Library/Study. |
+
+Global surfaces currently mounted at app root must also survive:
+
+- `FocusDrawer`: becomes a Study or command-triggered focus panel. It remains
+  lazy-loaded because it can pull in Three.js through the reward experience.
+- `GlobalSearch`: is replaced by or migrated into the new command menu.
+- `Toaster`: is replaced by shadcn-solid compatible toast/sonner behavior.
+- `RouteAnnouncer` and `AppErrorBoundary`: remain part of the shell and must be
+  verified after the shell rewrite.
+
+## Supporting Surface Acceptance Criteria
+
+Full polish means these surfaces have explicit acceptance criteria, not just a
+visual restyle.
+
+### Auth and Status
+
+- Login/register/reset/verify/not-found use the same neutral auth/status
+  layout system.
+- Form labels, validation errors, loading buttons, and success/error alerts are
+  visible and keyboard accessible.
+- Guest/protected route redirects remain unchanged.
+- Password reset and email verification preserve token query behavior.
+
+### Settings
+
+- Settings are grouped into tabs or sidebar sections: profile, appearance,
+  study algorithm, notifications, and account/security.
+- Study algorithm settings preserve current SM-2/FSRS selection behavior.
+- Theme settings map to the new light/dark/system neutral token set.
+- Profile updates show inline validation and toast confirmation.
+
+### Docs
+
+- Markdown rendering remains functional.
+- Tables use neutral shadcn-compatible styling.
+- Long docs have a readable max width and do not collide with shell panels.
+- Docs are reachable from command search.
+
+### Feedback
+
+- Feedback form supports type, message, validation, submit loading, success,
+  and error states.
+- Feedback is reachable from command search and settings/help areas.
+
+### Not Found
+
+- Unknown routes render a polished status state.
+- Primary actions return to Home, Library, or Study.
+
 ## Component Architecture
 
 ### UI Primitive Layer
@@ -421,6 +565,23 @@ Visual principles:
 Add experience-oriented aggregate endpoints so the frontend can render the new
 shell and workspaces without excessive request orchestration.
 
+All new endpoints below are authenticated unless explicitly marked public. They
+should use the existing API error shape: `{ error: string }` with the current
+HTTP status conventions. They should also avoid duplicating business rules from
+existing services; aggregate services compose existing module services and add
+presentation metadata only.
+
+List-style payloads must include explicit limits. Initial defaults should favor
+fast shell rendering:
+
+- command results: max 8 per group, 30 total by default.
+- explorer tree: include all classes/folders/decks for the current user unless
+  data volume requires pagination later.
+- deck cards: paginated, default 50 cards.
+- recent work: default 5 decks and 5 cards.
+- insights previews: default 5 weak groups and 7-14 forecast days depending on
+  the existing study service behavior.
+
 ### Proposed Endpoints
 
 `GET /dashboard/command-center`
@@ -436,6 +597,54 @@ Returns:
 - Pending suggestions.
 - Notifications.
 
+Response shape:
+
+```ts
+type CommandCenterResponse = {
+  reviewQueue: {
+    dueCount: number;
+    newCount: number;
+    learningCount: number;
+    atRiskCount: number;
+    nextAction: CommandActionRef | null;
+  };
+  streak: { current: number; longest: number } | null;
+  dueDecks: Array<{
+    id: string;
+    name: string;
+    folderId: string | null;
+    dueCount: number;
+    newCount: number;
+    lastStudiedAt: string | null;
+  }>;
+  recent: {
+    decks: Array<{ id: string; name: string; updatedAt: string | null }>;
+    cards: Array<{ id: string; deckId: string; title: string; updatedAt: string | null }>;
+  };
+  weakAreas: Array<{
+    id: string;
+    label: string;
+    cardCount: number;
+    avgRetention: number | null;
+    action: CommandActionRef;
+  }>;
+  forecast: {
+    days: Array<{ date: string; atRiskCount: number; avgRetention: number | null }>;
+  };
+  pendingSuggestions: {
+    duplicates: number;
+    aiSuggestions: number;
+  };
+  notifications: Array<{
+    id: string;
+    title: string;
+    body: string | null;
+    createdAt: string;
+    href: string | null;
+  }>;
+};
+```
+
 `GET /study/queue`
 
 Query modes:
@@ -449,6 +658,45 @@ Query modes:
 - `at-risk`
 
 Returns ordered cards and metadata explaining why each card is in the queue.
+
+Query shape:
+
+```ts
+type StudyQueueQuery = {
+  mode: 'due' | 'deck' | 'folder' | 'class' | 'smart-group' | 'interleaved' | 'at-risk';
+  deckId?: string;
+  folderId?: string;
+  classId?: string;
+  smartGroupId?: string;
+  limit?: number;
+};
+```
+
+Response shape:
+
+```ts
+type StudyQueueResponse = {
+  mode: StudyQueueQuery['mode'];
+  title: string;
+  cards: Array<{
+    id: string;
+    deckId: string;
+    front: string;
+    back: string;
+    templateName: string | null;
+    reason: 'due' | 'new' | 'learning' | 'at-risk' | 'manual' | 'interleaved';
+    dueAt: string | null;
+    retentionEstimate: number | null;
+  }>;
+  summary: {
+    total: number;
+    due: number;
+    new: number;
+    learning: number;
+    atRisk: number;
+  };
+};
+```
 
 `GET /command/search`
 
@@ -465,9 +713,99 @@ Returns unified command/search results:
 Each result should include type, title, subtitle, href or action id, and
 optional metadata.
 
+Query shape:
+
+```ts
+type CommandSearchQuery = {
+  q: string;
+  scope?: 'all' | 'cards' | 'decks' | 'library' | 'actions' | 'docs';
+  currentRoute?: string;
+  limit?: number;
+};
+```
+
+Response shape:
+
+```ts
+type CommandSearchResponse = {
+  groups: Array<{
+    id: 'actions' | 'cards' | 'decks' | 'folders' | 'classes' | 'docs' | 'settings';
+    label: string;
+    results: CommandResult[];
+  }>;
+};
+
+type CommandResult = {
+  id: string;
+  type: 'action' | 'card' | 'deck' | 'folder' | 'class' | 'doc' | 'setting';
+  title: string;
+  subtitle: string | null;
+  href: string | null;
+  action: CommandActionRef | null;
+  icon: string | null;
+  keywords: string[];
+  disabledReason: string | null;
+};
+
+type CommandActionRef = {
+  id: string;
+  label: string;
+  params?: Record<string, string | number | boolean | null>;
+};
+```
+
+Ranking rules:
+
+- Exact title matches first.
+- Route-aware actions before global actions.
+- Recently opened decks/cards before older matches.
+- Entity matches before docs/settings for non-action queries.
+- Disabled actions may appear only when the disabled reason helps the user
+  understand what to do next.
+
+Execution rules:
+
+- Navigation results use `href`.
+- Action results use a local command registry keyed by `action.id`.
+- Destructive actions never execute directly from search; they open a
+  confirmation dialog.
+- Actions that require a selected deck/card must validate params before
+  execution and show a compact error if context is missing.
+
 `GET /library/explorer`
 
 Returns class/folder/deck tree with counts, due counts, and recency metadata.
+
+Response shape:
+
+```ts
+type LibraryExplorerResponse = {
+  classes: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    folderCount: number;
+    deckCount: number;
+    cardCount: number;
+    dueCount: number;
+    folders: Array<{
+      id: string;
+      name: string;
+      deckCount: number;
+      cardCount: number;
+      dueCount: number;
+      decks: Array<{
+        id: string;
+        name: string;
+        cardCount: number;
+        dueCount: number;
+        updatedAt: string | null;
+      }>;
+    }>;
+  }>;
+  recentDeckIds: string[];
+};
+```
 
 `GET /decks/:id/workspace`
 
@@ -483,18 +821,128 @@ Returns deck workspace data:
 
 Heavy graph data can remain lazy-loaded.
 
+Query shape:
+
+```ts
+type DeckWorkspaceQuery = {
+  cardPage?: number;
+  cardPageSize?: number;
+  cardSearch?: string;
+  sort?: 'createdAt' | 'updatedAt' | 'dueAt' | 'template';
+};
+```
+
+Response shape:
+
+```ts
+type DeckWorkspaceResponse = {
+  deck: {
+    id: string;
+    name: string;
+    folderId: string;
+    cardTemplateId: string;
+    cardCount: number;
+  };
+  cards: {
+    items: Array<{ id: string; title: string; preview: string; updatedAt: string | null }>;
+    page: number;
+    pageSize: number;
+    total: number;
+  };
+  study: {
+    dueCount: number;
+    newCount: number;
+    learningCount: number;
+    lastStudiedAt: string | null;
+  };
+  analytics: {
+    avgRetention: number | null;
+    atRiskCount: number;
+  };
+  counters: {
+    graphLinks: number;
+    duplicates: number;
+    aiSuggestions: number;
+  };
+};
+```
+
 `POST /create/preview`
 
 Accepts manual, AI, CSV, or import payloads and returns preview cards plus
 validation and duplicate information.
 
+Request shape:
+
+```ts
+type CreatePreviewRequest = {
+  source: 'manual' | 'ai-paste' | 'csv' | 'json';
+  targetDeckId: string;
+  templateId: string;
+  payload: unknown;
+};
+```
+
+Response shape:
+
+```ts
+type CreatePreviewResponse = {
+  previewId: string;
+  cards: Array<{
+    clientId: string;
+    fields: Record<string, string>;
+    validationErrors: string[];
+    duplicateOf: string | null;
+  }>;
+  summary: {
+    total: number;
+    valid: number;
+    invalid: number;
+    possibleDuplicates: number;
+  };
+};
+```
+
 `POST /create/commit`
 
 Commits reviewed preview cards to the target deck.
 
+Request shape:
+
+```ts
+type CreateCommitRequest = {
+  previewId: string;
+  selectedClientIds: string[];
+};
+```
+
+Response shape:
+
+```ts
+type CreateCommitResponse = {
+  createdCardIds: string[];
+  skippedClientIds: string[];
+};
+```
+
 `GET /insights/overview`
 
 Returns forecast, weak groups, heatmap summary, at-risk cards, and trend data.
+
+Response shape:
+
+```ts
+type InsightsOverviewResponse = {
+  forecast: CommandCenterResponse['forecast'];
+  weakAreas: CommandCenterResponse['weakAreas'];
+  atRiskCards: Array<{ id: string; deckId: string; title: string; retentionEstimate: number | null }>;
+  heatmap: Array<{ date: string; count: number }>;
+  trends: {
+    reviewedThisWeek: number;
+    retentionDelta: number | null;
+  };
+};
+```
 
 ### Frontend Query Strategy
 
@@ -503,8 +951,35 @@ Returns forecast, weak groups, heatmap summary, at-risk cards, and trend data.
 - Heavy data such as graph and heatmap loads lazily when tabs open.
 - Mutations invalidate by scope: command center, explorer, deck workspace,
   study queue, insights.
+- Suggested cache keys:
+  - `['command-center']`
+  - `['library-explorer']`
+  - `['command-search', q, scope, currentRoute]`
+  - `['study-queue', mode, scopeId, limit]`
+  - `['deck-workspace', deckId, cardPage, cardPageSize, cardSearch, sort]`
+  - `['insights-overview']`
 - Use optimistic updates only for lightweight rename/reorder interactions.
 - Use server-confirmed state for create/import/study review mutations.
+
+### Partial Failure Rules
+
+Aggregate endpoints should prefer complete responses, but not every optional
+widget should make the whole shell unusable.
+
+- Required identity/scope failures return a normal API error.
+- Optional sections can return empty arrays plus an `omitted` metadata field in
+  the future if needed.
+- The frontend must render compact panel-level error states for optional
+  failures and route-level errors for required workspace data.
+
+### Existing vs New Scope Clarification
+
+Template-based creation is not a new product subsystem; card templates already
+exist and should be integrated into the Create workspace.
+
+Notifications are not a new product subsystem; the repo already has a
+notifications module. The Command Center should surface existing notification
+data where available, and degrade gracefully if there are no notifications.
 
 ## Error, Loading, and Empty States
 
@@ -555,6 +1030,11 @@ Performance remains a design requirement.
 
 ## Implementation Phases
 
+This design can produce multiple implementation plans or one master plan with
+strict milestones. Full polish is the desired end state, not permission to ship
+an unbounded single PR. Each phase below must end in a working app state and a
+verification checkpoint.
+
 ### Phase 1: Foundation
 
 - Add shadcn-solid setup.
@@ -562,11 +1042,26 @@ Performance remains a design requirement.
 - Replace/align base UI primitives.
 - Build app shell skeleton: task rail, command bar, explorer, context panel.
 
+Exit criteria:
+
+- App builds with new primitive layer.
+- Existing protected and guest routes still render.
+- Shell can wrap at least Home and one secondary route.
+- Light/dark neutral tokens are visible and stable.
+
 ### Phase 2: Experience API
 
 - Add aggregate endpoints and service tests.
 - Implement command-center snapshot, library explorer, command search, study
   queue, deck workspace, create preview/commit, and insights overview.
+
+Exit criteria:
+
+- New routes/services have backend tests for success, empty, and auth/error
+  states.
+- Frontend can query mocked or real aggregate shapes without ad hoc response
+  interpretation.
+- Existing API routes remain compatible.
 
 ### Phase 3: Core Workspaces
 
@@ -579,6 +1074,13 @@ Performance remains a design requirement.
 - Migrate graph, heatmap, duplicate scanner, and AI suggestions into the new
   workspace patterns.
 
+Exit criteria:
+
+- Home, Study, Library, Deck/Card, Create, and Insights are usable end to end.
+- Command search can navigate to core entities and run safe actions.
+- Context panel has route-specific content for each core workspace.
+- Heavy graph/heatmap content lazy-loads.
+
 ### Phase 4: Supporting Surfaces
 
 - Redesign Settings.
@@ -586,6 +1088,12 @@ Performance remains a design requirement.
 - Redesign Feedback.
 - Redesign Auth/status pages.
 - Redesign Not Found.
+
+Exit criteria:
+
+- Every current route listed in the route inventory renders in the new system.
+- Auth redirects and token flows still work.
+- Supporting surfaces meet their acceptance criteria.
 
 ### Phase 5: Full QA Polish
 
@@ -598,6 +1106,41 @@ Performance remains a design requirement.
 - Mobile viewport check.
 - Visual overlap check.
 - Performance review for shell, study, library, graph, and docs.
+
+Exit criteria:
+
+- All automated verification passes.
+- Desktop, tablet, and mobile route walkthroughs pass.
+- No known blocking accessibility, layout overlap, or blank-state defects
+  remain.
+
+## Planning Boundaries
+
+The implementation plan should be decomposed into epics with disjoint ownership
+where possible:
+
+1. UI primitive and theme foundation.
+2. Shell/navigation/responsive layout.
+3. Backend aggregate APIs.
+4. Command search and action registry.
+5. Home and Insights.
+6. Study workspace.
+7. Library and Deck/Card workspace.
+8. Create/import/AI preview workflow.
+9. Supporting routes.
+10. QA polish.
+
+Dependencies:
+
+- Foundation precedes all redesigned screens.
+- API contracts precede data-rich workspace implementation.
+- Shell precedes route migration.
+- Command action registry precedes command-search execution.
+- Supporting routes can run after the main shell is stable.
+
+The plan may split these epics into multiple PRs or checkpoints. A checkpoint
+must not leave protected routes unreachable, auth broken, or core study review
+behavior unusable.
 
 ## Testing Strategy
 
@@ -653,4 +1196,3 @@ Manual UX checklist:
 - Aggregate endpoints must not duplicate business logic already owned by
   existing services.
 - Graph and heatmap views may need special lazy-loading and sizing QA.
-
