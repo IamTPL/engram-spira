@@ -194,17 +194,17 @@ const GlobalSearch: Component = () => {
   return (
     <Show when={searchOpen()}>
       <Portal>
-        <div class="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
+        <div class="fixed inset-0 z-50 flex items-stretch justify-stretch md:items-start md:justify-center md:pt-[12vh]">
           <button
             class="absolute inset-0 cursor-default bg-background/70 backdrop-blur-sm animate-fade-in"
             aria-label="Close command center"
             onClick={closeSearch}
           />
 
-          <div class="relative z-10 w-full max-w-2xl px-3 animate-scale-in">
+          <div class="relative z-10 flex h-full w-full animate-scale-in md:h-auto md:max-w-2xl md:px-3">
             <Command
               shouldFilter={false}
-              class="overflow-hidden rounded-lg border bg-popover shadow-xl"
+              class="flex h-full flex-col overflow-hidden rounded-none border-0 bg-popover shadow-xl md:h-auto md:rounded-lg md:border"
             >
               <div class="relative [&_[data-cmdk-input-wrapper]]:pr-12">
                 <CommandInput
@@ -223,7 +223,7 @@ const GlobalSearch: Component = () => {
                 </button>
               </div>
 
-              <CommandList class="max-h-[460px]">
+              <CommandList class="max-h-none flex-1 md:max-h-[460px]">
                 <Show when={isLoading()}>
                   <div class="space-y-2 p-3">
                     <For each={[1, 2, 3, 4]}>

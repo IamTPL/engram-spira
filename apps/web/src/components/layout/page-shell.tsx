@@ -1,7 +1,5 @@
-import { type Component, type JSX, splitProps } from 'solid-js';
+import { type Component, type JSX } from 'solid-js';
 import { cn } from '@/lib/utils';
-import Sidebar from './sidebar';
-import MobileNav from './mobile-nav';
 
 type PageShellProps = {
   children: JSX.Element;
@@ -19,31 +17,22 @@ const PageShell: Component<PageShellProps> = (props) => {
   };
 
   return (
-    <div class="h-screen flex overflow-hidden">
-      <Sidebar />
-      <div class="flex flex-col flex-1 overflow-hidden">
-        <MobileNav />
-        <main
-          id="main-content"
-          class={cn(
-            'flex-1 pb-mobile-nav',
-            props.noScroll
-              ? 'overflow-hidden flex flex-col'
-              : 'overflow-y-auto',
-          )}
-        >
-          <div
-            class={cn(
-              props.noScroll
-                ? 'flex-1 min-h-0 flex flex-col overflow-hidden'
-                : 'mx-auto p-4 md:p-6',
-              !props.noScroll && maxWidthClass(),
-              props.class,
-            )}
-          >
-            {props.children}
-          </div>
-        </main>
+    <div
+      class={cn(
+        'h-full min-h-0',
+        props.noScroll ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
+      )}
+    >
+      <div
+        class={cn(
+          props.noScroll
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+            : 'mx-auto p-4 md:p-6',
+          !props.noScroll && maxWidthClass(),
+          props.class,
+        )}
+      >
+        {props.children}
       </div>
     </div>
   );

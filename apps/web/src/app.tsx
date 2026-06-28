@@ -7,6 +7,7 @@ import AppErrorBoundary from '@/components/ui/app-error-boundary';
 import Spinner from '@/components/ui/spinner';
 import Toaster from '@/components/ui/toaster';
 import RouteAnnouncer from '@/components/route-announcer';
+import { AppShell } from '@/components/app-shell/app-shell';
 
 // Direct imports for critical-path pages (login, register, dashboard)
 // to avoid lazy-load Suspense interaction with the Router
@@ -28,9 +29,6 @@ const NotFoundPage = lazy(() => import('@/pages/not-found'));
 
 // Lazy-load FocusDrawer — it pulls in Three.js (~500KB) via reward popup
 const FocusDrawer = lazy(() => import('@/components/focus/focus-drawer'));
-
-// Lazy-load GlobalSearch — only loaded when user presses Cmd+K
-const GlobalSearch = lazy(() => import('@/components/search/global-search'));
 
 const LoadingScreen = () => (
   <div class="min-h-screen flex items-center justify-center bg-background">
@@ -68,7 +66,9 @@ const guest = (Page: Component) => () => (
 
 const protect = (Page: Component) => () => (
   <ProtectedRoute>
-    <Page />
+    <AppShell>
+      <Page />
+    </AppShell>
   </ProtectedRoute>
 );
 
@@ -88,7 +88,6 @@ const App: Component = () => {
               <Toaster />
               <Suspense>
                 <FocusDrawer />
-                <GlobalSearch />
               </Suspense>
             </>
           )}
