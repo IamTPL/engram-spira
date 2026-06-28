@@ -173,6 +173,47 @@ describe('create preview service', () => {
     ).rejects.toThrow(new ValidationError('requestedCount must be between 1 and 30'));
   });
 
+  test('malformed preview payloads return validation errors instead of TypeError', async () => {
+    await expect(
+      createPreview(
+        'user-1',
+        {
+          source: 'ai-paste',
+          targetDeckId: 'deck-1',
+          templateId: 'template-1',
+          payload: {},
+        } as any,
+        services(),
+      ),
+    ).rejects.toThrow(new ValidationError('text is required'));
+
+    await expect(
+      createPreview(
+        'user-1',
+        {
+          source: 'csv',
+          targetDeckId: 'deck-1',
+          templateId: 'template-1',
+          payload: { filename: 'cards.csv', content: 'A,B', hasHeader: true },
+        } as any,
+        services(),
+      ),
+    ).rejects.toThrow(new ValidationError('fieldMapping is required'));
+
+    await expect(
+      createPreview(
+        'user-1',
+        {
+          source: 'not-real',
+          targetDeckId: 'deck-1',
+          templateId: 'template-1',
+          payload: {},
+        } as any,
+        services(),
+      ),
+    ).rejects.toThrow(new ValidationError('Invalid create source'));
+  });
+
   test('CSV/JSON size and row limits', async () => {
     await expect(
       createPreview(
@@ -348,6 +389,43 @@ describe('create preview service', () => {
     ).rejects.toThrow(new ConflictError('Preview already committed'));
   });
 
+  test('commit preflights all cards before creating any cards', async () => {
+    const svc = services();
+    const preview = await createPreview(
+      'user-1',
+      {
+        source: 'json',
+        targetDeckId: 'deck-1',
+        templateId: 'template-1',
+        payload: {
+          filename: 'cards.json',
+          content: JSON.stringify([
+            { Front: 'Valid one', Back: 'Back one' },
+            { Front: 'Missing back' },
+          ]),
+        },
+      },
+      svc,
+    );
+
+    await expect(
+      commitCreatePreview(
+        'user-1',
+        {
+          previewId: preview.previewId,
+          idempotencyKey: 'preflight-before-create',
+          cards: [
+            { clientId: preview.cards[0].clientId, resolution: 'create' },
+            { clientId: preview.cards[1].clientId, resolution: 'create' },
+          ],
+        },
+        svc,
+      ),
+    ).rejects.toThrow(new ValidationError('Required fields missing: Back'));
+
+    expect(svc.created).toEqual([]);
+  });
+
   test('target deck ownership failure returns Deck not found', async () => {
     await expect(
       createPreview(
@@ -514,7 +592,7 @@ describe('create preview service', () => {
         },
         svc,
       ),
-    ).rejects.toThrow(new NotFoundError('Merge target'));
+    ).rejects.toThrow(new ConflictError('Merge target not found'));
   });
 
   test('same-user merge target in different deck returns Merge target not found', async () => {
@@ -536,7 +614,7 @@ describe('create preview service', () => {
         },
         svc,
       ),
-    ).rejects.toThrow(new NotFoundError('Merge target'));
+    ).rejects.toThrow(new ConflictError('Merge target not found'));
   });
 
   test('merge conflict reports conflicting field names', async () => {

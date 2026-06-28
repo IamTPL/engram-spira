@@ -59,10 +59,10 @@ type SearchableStaticItem = {
 
 export type CommandSearchLoaders = {
   loadActions: (userId: string) => Promise<SearchableAction[]>;
-  loadCards: (userId: string) => Promise<SearchableCard[]>;
-  loadDecks: (userId: string) => Promise<SearchableDeck[]>;
-  loadFolders: (userId: string) => Promise<SearchableFolder[]>;
-  loadClasses: (userId: string) => Promise<SearchableClass[]>;
+  loadCards: (userId: string, q: string) => Promise<SearchableCard[]>;
+  loadDecks: (userId: string, q: string) => Promise<SearchableDeck[]>;
+  loadFolders: (userId: string, q: string) => Promise<SearchableFolder[]>;
+  loadClasses: (userId: string, q: string) => Promise<SearchableClass[]>;
   loadDocs: (userId: string) => Promise<SearchableStaticItem[]>;
   loadSettings: (userId: string) => Promise<SearchableStaticItem[]>;
 };
@@ -99,10 +99,10 @@ export async function searchCommands(
   const [actions, cards, decks, folders, classes, docs, settings] =
     await Promise.all([
       loaders.loadActions(userId),
-      loaders.loadCards(userId),
-      loaders.loadDecks(userId),
-      loaders.loadFolders(userId),
-      loaders.loadClasses(userId),
+      loaders.loadCards(userId, q),
+      loaders.loadDecks(userId, q),
+      loaders.loadFolders(userId, q),
+      loaders.loadClasses(userId, q),
       loaders.loadDocs(userId),
       loaders.loadSettings(userId),
     ]);
@@ -146,8 +146,9 @@ export async function searchCommands(
 
 export const defaultCommandSearchLoaders: CommandSearchLoaders = {
   loadActions: async () => defaultActions,
-  loadCards: async (userId) =>
-    db.execute<SearchableCard>(sql`
+  loadCards: async (userId, q) => {
+    const pattern = likePattern(q);
+    return db.execute<SearchableCard>(sql`
       SELECT
         c.id,
         c.deck_id AS "deckId",
@@ -167,12 +168,22 @@ export const defaultCommandSearchLoaders: CommandSearchLoaders = {
       LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
       LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
       WHERE d.user_id = ${userId}
+        AND (
+          d.name ILIKE ${pattern}
+          OR EXISTS (
+            SELECT 1
+            FROM card_field_values match_cfv
+            WHERE match_cfv.card_id = c.id
+              AND match_cfv.value #>> '{}' ILIKE ${pattern}
+          )
+        )
       GROUP BY c.id, c.deck_id, d.name, d.folder_id, f.class_id, c.created_at
       ORDER BY c.created_at DESC, c.id
-      LIMIT 200
-    `),
-  loadDecks: async (userId) =>
-    db.execute<SearchableDeck>(sql`
+    `);
+  },
+  loadDecks: async (userId, q) => {
+    const pattern = likePattern(q);
+    return db.execute<SearchableDeck>(sql`
       SELECT
         d.id,
         d.name,
@@ -182,26 +193,31 @@ export const defaultCommandSearchLoaders: CommandSearchLoaders = {
       FROM decks d
       JOIN folders f ON f.id = d.folder_id
       WHERE d.user_id = ${userId}
+        AND d.name ILIKE ${pattern}
       ORDER BY d.created_at DESC, d.id
-      LIMIT 200
-    `),
-  loadFolders: async (userId) =>
-    db.execute<SearchableFolder>(sql`
+    `);
+  },
+  loadFolders: async (userId, q) => {
+    const pattern = likePattern(q);
+    return db.execute<SearchableFolder>(sql`
       SELECT f.id, f.name, f.class_id AS "classId"
       FROM folders f
       JOIN classes c ON c.id = f.class_id
       WHERE c.user_id = ${userId}
+        AND f.name ILIKE ${pattern}
       ORDER BY f.sort_order, f.name, f.id
-      LIMIT 200
-    `),
-  loadClasses: async (userId) =>
-    db.execute<SearchableClass>(sql`
+    `);
+  },
+  loadClasses: async (userId, q) => {
+    const pattern = likePattern(q);
+    return db.execute<SearchableClass>(sql`
       SELECT id, name
       FROM classes
       WHERE user_id = ${userId}
+        AND name ILIKE ${pattern}
       ORDER BY sort_order, name, id
-      LIMIT 200
-    `),
+    `);
+  },
   loadDocs: async () => defaultDocs,
   loadSettings: async () => defaultSettings,
 };
@@ -211,7 +227,7 @@ const defaultActions: SearchableAction[] = [
     id: 'create-card',
     label: 'Create card',
     keywords: ['new', 'add', 'flashcard'],
-    routePatterns: ['/decks/:id/workspace', '/study/:id'],
+    routePatterns: ['/deck/:id', '/study/:id'],
   },
   {
     id: 'create-deck',
@@ -222,7 +238,7 @@ const defaultActions: SearchableAction[] = [
     id: 'start-study',
     label: 'Start study',
     keywords: ['review', 'queue'],
-    routePatterns: ['/decks/:id/workspace'],
+    routePatterns: ['/deck/:id'],
   },
   {
     id: 'import-cards',
@@ -236,14 +252,14 @@ const defaultDocs: SearchableStaticItem[] = [
     id: 'docs-create-cards',
     title: 'Create cards',
     subtitle: 'Documentation',
-    href: '/docs/create-cards',
+    href: '/docs',
     keywords: ['manual', 'csv', 'json', 'ai paste'],
   },
   {
     id: 'docs-study',
     title: 'Study queue',
     subtitle: 'Documentation',
-    href: '/docs/study',
+    href: '/docs',
     keywords: ['review', 'due', 'retention'],
   },
 ];
@@ -253,14 +269,14 @@ const defaultSettings: SearchableStaticItem[] = [
     id: 'settings-profile',
     title: 'Profile settings',
     subtitle: 'Settings',
-    href: '/settings/profile',
+    href: '/settings',
     keywords: ['account', 'user'],
   },
   {
     id: 'settings-ai',
     title: 'AI settings',
     subtitle: 'Settings',
-    href: '/settings/ai',
+    href: '/settings',
     keywords: ['generation', 'paste'],
   },
 ];
@@ -316,7 +332,7 @@ function rankCards(cards: SearchableCard[], q: string): RankedResult[] {
         type: 'card' as const,
         title: card.title,
         subtitle: card.deckName,
-        href: `/decks/${card.deckId}/workspace?cardId=${card.id}`,
+        href: `/deck/${card.deckId}?cardId=${card.id}`,
         action: null,
         icon: null,
         keywords: [card.deckName],
@@ -339,7 +355,7 @@ function rankDecks(decks: SearchableDeck[], q: string): RankedResult[] {
         type: 'deck' as const,
         title: deck.name,
         subtitle: null,
-        href: `/decks/${deck.id}/workspace`,
+        href: `/deck/${deck.id}`,
         action: null,
         icon: null,
         keywords: [],
@@ -362,7 +378,7 @@ function rankFolders(folders: SearchableFolder[], q: string): RankedResult[] {
         type: 'folder' as const,
         title: folder.name,
         subtitle: null,
-        href: `/folders/${folder.id}`,
+        href: `/folder/${folder.id}`,
         action: null,
         icon: null,
         keywords: [],
@@ -385,7 +401,7 @@ function rankClasses(classes: SearchableClass[], q: string): RankedResult[] {
         type: 'class' as const,
         title: klass.name,
         subtitle: null,
-        href: `/classes/${klass.id}`,
+        href: null,
         action: null,
         icon: null,
         keywords: [],
@@ -493,4 +509,8 @@ function toTime(value: string | null) {
   if (!value) return 0;
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? time : 0;
+}
+
+function likePattern(value: string) {
+  return `%${value.replace(/[%_]/g, '\\$&')}%`;
 }

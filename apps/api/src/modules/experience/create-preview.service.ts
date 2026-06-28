@@ -10,6 +10,7 @@ import {
 } from '../../shared/errors';
 import { create as createCard } from '../cards/cards.service';
 import { getWithFields } from '../card-templates/card-templates.service';
+import { enqueueEmbedding } from '../embedding/embedding.service';
 import type {
   CreateCommitRequest,
   CreateCommitResponse,
@@ -57,6 +58,16 @@ type InternalPreviewRecord = CreatePreviewRecord & {
   >;
   consumedByKey: string | null;
 };
+
+type CommitOperation =
+  | { resolution: 'skip'; clientId: string }
+  | { resolution: 'create'; clientId: string; fields: Record<string, string> }
+  | {
+      resolution: 'merge';
+      clientId: string;
+      mergeTargetCardId: string;
+      fieldsToFill: Record<string, string>;
+    };
 
 export type PreviewStore = {
   get: (previewId: string) => InternalPreviewRecord | undefined;
@@ -160,6 +171,7 @@ export const defaultCreatePreviewServices: CreatePreviewServices = {
     }));
     if (values.length > 0) {
       await db.insert(cardFieldValues).values(values).onConflictDoNothing();
+      enqueueEmbedding(cardId);
     }
     return { id: cardId };
   },
@@ -256,6 +268,7 @@ export async function commitCreatePreview(
     if (existingIdempotency.succeeded && existingIdempotency.result) {
       return existingIdempotency.result;
     }
+    throw new ConflictError('Commit already attempted');
   }
 
   if (record.consumedByKey && record.consumedByKey !== request.idempotencyKey) {
@@ -266,11 +279,62 @@ export async function commitCreatePreview(
     throw new ConflictError('Preview expired');
   }
 
+  const operations = await planCommitOperations(services, userId, record, request);
+
+  record.consumedByKey = request.idempotencyKey;
+  record.commitRecords.set(request.idempotencyKey, {
+    fingerprint: commitFingerprint,
+    result: null,
+    succeeded: false,
+  });
+  services.store.set(record);
+
   const result: CreateCommitResponse = {
     createdCardIds: [],
     skippedClientIds: [],
     mergedCardIds: [],
   };
+
+  for (const operation of operations) {
+    if (operation.resolution === 'skip') {
+      result.skippedClientIds.push(operation.clientId);
+      continue;
+    }
+
+    if (operation.resolution === 'create') {
+      const created = await services.createCard(
+        userId,
+        record.targetDeckId,
+        operation.fields,
+      );
+      result.createdCardIds.push(created.id);
+      continue;
+    }
+
+    await services.fillMissingCardFields(
+      userId,
+      operation.mergeTargetCardId,
+      operation.fieldsToFill,
+    );
+    result.mergedCardIds.push(operation.mergeTargetCardId);
+  }
+
+  record.commitRecords.set(request.idempotencyKey, {
+    fingerprint: commitFingerprint,
+    result,
+    succeeded: true,
+  });
+  services.store.set(record);
+  return result;
+}
+
+async function planCommitOperations(
+  services: CreatePreviewServices,
+  userId: string,
+  record: InternalPreviewRecord,
+  request: CreateCommitRequest,
+): Promise<CommitOperation[]> {
+  const operations: CommitOperation[] = [];
 
   for (const requestedCard of request.cards) {
     const previewCard = record.cards.find(
@@ -279,7 +343,7 @@ export async function commitCreatePreview(
     if (!previewCard) throw new ConflictError('Unknown preview record');
 
     if (requestedCard.resolution === 'skip') {
-      result.skippedClientIds.push(requestedCard.clientId);
+      operations.push({ resolution: 'skip', clientId: requestedCard.clientId });
       continue;
     }
 
@@ -288,12 +352,11 @@ export async function commitCreatePreview(
     }
 
     if (requestedCard.resolution === 'create') {
-      const created = await services.createCard(
-        userId,
-        record.targetDeckId,
-        previewCard.fields,
-      );
-      result.createdCardIds.push(created.id);
+      operations.push({
+        resolution: 'create',
+        clientId: requestedCard.clientId,
+        fields: previewCard.fields,
+      });
       continue;
     }
 
@@ -307,37 +370,127 @@ export async function commitCreatePreview(
       record.targetDeckId,
     );
     const fieldsToFill = getFillOnlyFields(previewCard.fields, mergeTarget.fields);
-    await services.fillMissingCardFields(
-      userId,
-      requestedCard.mergeTargetCardId,
+    operations.push({
+      resolution: 'merge',
+      clientId: requestedCard.clientId,
+      mergeTargetCardId: requestedCard.mergeTargetCardId,
       fieldsToFill,
-    );
-    result.mergedCardIds.push(requestedCard.mergeTargetCardId);
+    });
   }
 
-  record.consumedByKey = request.idempotencyKey;
-  record.commitRecords.set(request.idempotencyKey, {
-    fingerprint: commitFingerprint,
-    result,
-    succeeded: true,
-  });
-  services.store.set(record);
-  return result;
+  return operations;
 }
 
-function validatePreviewRequestShape(request: CreatePreviewRequest) {
-  if (!request.targetDeckId) throw new ValidationError('targetDeckId is required');
-  if (!request.templateId) throw new ValidationError('templateId is required');
-  if (!request.payload) throw new ValidationError('payload is required');
+function validatePreviewRequestShape(
+  request: unknown,
+): asserts request is CreatePreviewRequest {
+  if (!isRecord(request)) throw new ValidationError('Invalid preview request');
+  if (!isNonEmptyString(request.targetDeckId)) {
+    throw new ValidationError('targetDeckId is required');
+  }
+  if (!isNonEmptyString(request.templateId)) {
+    throw new ValidationError('templateId is required');
+  }
+  if (!isRecord(request.payload)) throw new ValidationError('payload is required');
+
+  switch (request.source) {
+    case 'manual':
+      if (!isRecord(request.payload.fields)) {
+        throw new ValidationError('fields are required');
+      }
+      return;
+    case 'ai-paste':
+      if (!isString(request.payload.text)) throw new ValidationError('text is required');
+      if (request.payload.mode !== 'vocabulary' && request.payload.mode !== 'qa') {
+        throw new ValidationError('mode must be vocabulary or qa');
+      }
+      if (
+        request.payload.requestedCount !== undefined &&
+        !Number.isInteger(request.payload.requestedCount)
+      ) {
+        throw new ValidationError('requestedCount must be between 1 and 30');
+      }
+      return;
+    case 'csv':
+      if (!isString(request.payload.filename)) {
+        throw new ValidationError('filename is required');
+      }
+      if (!isString(request.payload.content)) {
+        throw new ValidationError('content is required');
+      }
+      if (typeof request.payload.hasHeader !== 'boolean') {
+        throw new ValidationError('hasHeader is required');
+      }
+      if (!isRecord(request.payload.fieldMapping)) {
+        throw new ValidationError('fieldMapping is required');
+      }
+      if (
+        request.payload.delimiter !== undefined &&
+        request.payload.delimiter !== ',' &&
+        request.payload.delimiter !== ';' &&
+        request.payload.delimiter !== '\t'
+      ) {
+        throw new ValidationError('delimiter is invalid');
+      }
+      return;
+    case 'json':
+      if (!isString(request.payload.filename)) {
+        throw new ValidationError('filename is required');
+      }
+      if (!isString(request.payload.content)) {
+        throw new ValidationError('content is required');
+      }
+      if (
+        request.payload.fieldMapping !== undefined &&
+        !isRecord(request.payload.fieldMapping)
+      ) {
+        throw new ValidationError('fieldMapping is invalid');
+      }
+      return;
+    default:
+      throw new ValidationError('Invalid create source');
+  }
 }
 
-function validateCommitRequestShape(request: CreateCommitRequest) {
-  if (!request.previewId) throw new ValidationError('previewId is required');
-  if (!request.idempotencyKey?.trim()) {
+function validateCommitRequestShape(
+  request: unknown,
+): asserts request is CreateCommitRequest {
+  if (!isRecord(request)) throw new ValidationError('Invalid commit request');
+  if (!isNonEmptyString(request.previewId)) {
+    throw new ValidationError('previewId is required');
+  }
+  if (!isNonEmptyString(request.idempotencyKey)) {
     throw new ValidationError('idempotencyKey is required');
   }
   if (!Array.isArray(request.cards) || request.cards.length === 0) {
     throw new ValidationError('cards are required');
+  }
+
+  for (const card of request.cards) {
+    if (!isRecord(card)) throw new ValidationError('Invalid commit card');
+    if (!isNonEmptyString(card.clientId)) {
+      throw new ValidationError('clientId is required');
+    }
+    if (
+      card.resolution !== 'create' &&
+      card.resolution !== 'skip' &&
+      card.resolution !== 'merge'
+    ) {
+      throw new ValidationError('Invalid card resolution');
+    }
+    if (
+      card.fields !== undefined &&
+      (card.resolution === 'skip' || !isStringRecord(card.fields))
+    ) {
+      throw new ValidationError('fields are invalid');
+    }
+    if (
+      card.resolution === 'merge' &&
+      card.mergeTargetCardId !== undefined &&
+      !isNonEmptyString(card.mergeTargetCardId)
+    ) {
+      throw new ValidationError('Merge target is required');
+    }
   }
 }
 
@@ -351,6 +504,8 @@ function parsePayloadRows(request: CreatePreviewRequest): Array<Record<string, s
       return parseCsv(request.payload);
     case 'json':
       return parseJson(request.payload);
+    default:
+      throw new ValidationError('Invalid create source');
   }
 }
 
@@ -496,10 +651,14 @@ async function loadMergeTarget(
   try {
     mergeTarget = await services.loadMergeCard(userId, cardId);
   } catch (error) {
-    if (error instanceof NotFoundError) throw new NotFoundError('Merge target');
+    if (error instanceof NotFoundError) {
+      throw new ConflictError('Merge target not found');
+    }
     throw error;
   }
-  if (mergeTarget.deckId !== targetDeckId) throw new NotFoundError('Merge target');
+  if (mergeTarget.deckId !== targetDeckId) {
+    throw new ConflictError('Merge target not found');
+  }
   return mergeTarget;
 }
 
@@ -620,5 +779,24 @@ function sortForFingerprint(value: unknown): unknown {
     Object.entries(value as Record<string, unknown>)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, nested]) => [key, sortForFingerprint(nested)]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
   );
 }

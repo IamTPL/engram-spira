@@ -60,7 +60,7 @@ function baseLoaders(overrides: Record<string, unknown> = {}) {
         id: 'create-card',
         label: 'Create card',
         keywords: ['new', 'card'],
-        routePatterns: ['/decks/:id/workspace'],
+        routePatterns: ['/deck/:id'],
       },
       {
         id: 'global-create-card',
@@ -165,7 +165,7 @@ describe('command search service', () => {
       'user-1',
       {
         q: 'Create card',
-        currentRoute: '/decks/deck-1/workspace',
+        currentRoute: '/deck/deck-1',
         limit: 10,
       },
       baseLoaders(),
@@ -194,6 +194,24 @@ describe('command search service', () => {
     expect(
       deckScoped.groups.find((g) => g.id === 'cards')?.results.map((r) => r.id),
     ).toEqual(['card-newer', 'card-older']);
+  });
+
+  test('entity hrefs match current frontend routes', async () => {
+    const response = await searchCommands(
+      'user-1',
+      { q: 'Biology', limit: 10 },
+      baseLoaders(),
+    );
+
+    expect(response.groups.find((g) => g.id === 'decks')?.results[0].href).toBe(
+      '/deck/deck-exact',
+    );
+    expect(response.groups.find((g) => g.id === 'folders')?.results[0].href).toBe(
+      '/folder/folder-1',
+    );
+    expect(response.groups.find((g) => g.id === 'classes')?.results[0].href).toBe(
+      null,
+    );
   });
 
   test('default limit applied when omitted', async () => {
