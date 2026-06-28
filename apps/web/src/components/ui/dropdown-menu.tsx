@@ -1,62 +1,26 @@
-import {
-  type Component,
-  type JSX,
-  Show,
-  splitProps,
-  createSignal,
-  createEffect,
-  onCleanup,
-} from 'solid-js';
+import { type JSX, splitProps } from 'solid-js';
+import { DropdownMenu as DropdownMenuPrimitive } from '@kobalte/core/dropdown-menu';
 import { cn } from '@/lib/utils';
 
-type DropdownMenuProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: JSX.Element;
-};
+type DropdownMenuProps = Parameters<typeof DropdownMenuPrimitive>[0];
 
-export const DropdownMenu: Component<DropdownMenuProps> = (props) => {
-  const handleClickOutside = (e: MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest('[data-dropdown-menu]')) {
-      props.onOpenChange(false);
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') props.onOpenChange(false);
-  };
-
-  createEffect(() => {
-    if (props.open) {
-      document.addEventListener('click', handleClickOutside, true);
-      document.addEventListener('keydown', handleKeyDown);
-    } else {
-      document.removeEventListener('click', handleClickOutside, true);
-      document.removeEventListener('keydown', handleKeyDown);
-    }
-  });
-
-  onCleanup(() => {
-    document.removeEventListener('click', handleClickOutside, true);
-    document.removeEventListener('keydown', handleKeyDown);
-  });
-
-  return (
-    <div class="relative inline-block" data-dropdown-menu>
-      {props.children}
-    </div>
-  );
-};
+export function DropdownMenu(props: DropdownMenuProps) {
+  return <DropdownMenuPrimitive modal={false} {...props} />;
+}
 
 type DropdownMenuTriggerProps = JSX.HTMLAttributes<HTMLDivElement>;
 
 export function DropdownMenuTrigger(props: DropdownMenuTriggerProps) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
-    <div class={cn('cursor-pointer', local.class)} {...others}>
+    <DropdownMenuPrimitive.Trigger
+      as="div"
+      disabled
+      class={cn('inline-flex cursor-pointer', local.class)}
+      {...others}
+    >
       {local.children}
-    </div>
+    </DropdownMenuPrimitive.Trigger>
   );
 }
 
@@ -66,36 +30,30 @@ type DropdownMenuContentProps = JSX.HTMLAttributes<HTMLDivElement> & {
 
 export function DropdownMenuContent(props: DropdownMenuContentProps) {
   const [local, others] = splitProps(props, ['class', 'children', 'align']);
-
-  const alignClass = () => {
-    switch (local.align) {
-      case 'start':
-        return 'left-0';
-      case 'center':
-        return 'left-1/2 -translate-x-1/2';
-      case 'end':
-      default:
-        return 'right-0';
-    }
-  };
-
   return (
-    <div
-      class={cn(
-        'absolute top-full mt-1 z-50 min-w-32 overflow-hidden rounded-lg border bg-card p-1 shadow-lg animate-scale-in',
-        alignClass(),
-        local.class,
-      )}
-      role="menu"
-      {...others}
-    >
-      {local.children}
-    </div>
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.Content
+        class={cn(
+          'z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-scale-in',
+          local.align === 'end' && 'origin-top-right',
+          local.align === 'start' && 'origin-top-left',
+          local.class,
+        )}
+        {...others}
+      >
+        {local.children}
+      </DropdownMenuPrimitive.Content>
+    </DropdownMenuPrimitive.Portal>
   );
 }
 
-type DropdownMenuItemProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+type DropdownMenuItemProps = Omit<
+  JSX.ButtonHTMLAttributes<HTMLButtonElement>,
+  'onSelect'
+> & {
   destructive?: boolean;
+  disabled?: boolean;
+  onSelect?: () => void;
 };
 
 export function DropdownMenuItem(props: DropdownMenuItemProps) {
@@ -103,21 +61,24 @@ export function DropdownMenuItem(props: DropdownMenuItemProps) {
     'class',
     'children',
     'destructive',
+    'disabled',
+    'onSelect',
   ]);
   return (
-    <button
-      role="menuitem"
+    <DropdownMenuPrimitive.Item
+      as="button"
+      disabled={local.disabled}
+      onSelect={local.onSelect}
       class={cn(
-        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors cursor-pointer',
-        local.destructive
-          ? 'text-destructive hover:bg-destructive/10 focus:bg-destructive/10'
-          : 'hover:bg-accent focus:bg-accent',
+        'relative flex w-full select-none items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        local.destructive &&
+          'text-destructive focus:bg-destructive/10 focus:text-destructive',
         local.class,
       )}
       {...others}
     >
       {local.children}
-    </button>
+    </DropdownMenuPrimitive.Item>
   );
 }
 
@@ -126,9 +87,8 @@ type DropdownMenuSeparatorProps = JSX.HTMLAttributes<HTMLDivElement>;
 export function DropdownMenuSeparator(props: DropdownMenuSeparatorProps) {
   const [local, others] = splitProps(props, ['class']);
   return (
-    <div
-      class={cn('-mx-1 my-1 h-px bg-border', local.class)}
-      role="separator"
+    <DropdownMenuPrimitive.Separator
+      class={cn('-mx-1 my-1 h-px bg-muted', local.class)}
       {...others}
     />
   );
@@ -139,14 +99,12 @@ type DropdownMenuLabelProps = JSX.HTMLAttributes<HTMLDivElement>;
 export function DropdownMenuLabel(props: DropdownMenuLabelProps) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
-    <div
-      class={cn(
-        'px-2 py-1.5 text-xs font-semibold text-muted-foreground',
-        local.class,
-      )}
+    <DropdownMenuPrimitive.GroupLabel
+      as="div"
+      class={cn('px-2 py-1.5 text-sm font-semibold', local.class)}
       {...others}
     >
       {local.children}
-    </div>
+    </DropdownMenuPrimitive.GroupLabel>
   );
 }

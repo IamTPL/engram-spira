@@ -1,10 +1,10 @@
-import { type JSX, splitProps } from 'solid-js';
+import { type JSX, Show, splitProps } from 'solid-js';
 import { cn } from '@/lib/utils';
 
 type ProgressProps = JSX.HTMLAttributes<HTMLDivElement> & {
   value: number;
   max?: number;
-  variant?: 'default' | 'success' | 'warning' | 'destructive';
+  variant?: 'default' | 'success' | 'warning' | 'destructive' | 'info';
   size?: 'sm' | 'md' | 'lg';
   showLabel?: boolean;
 };
@@ -14,6 +14,7 @@ const variantClasses = {
   success: 'bg-success',
   warning: 'bg-warning',
   destructive: 'bg-destructive',
+  info: 'bg-info',
 } as const;
 
 const sizeClasses = {
@@ -32,7 +33,7 @@ export function Progress(props: ProgressProps) {
     'showLabel',
   ]);
 
-  const max = () => local.max ?? 100;
+  const max = () => Math.max(local.max ?? 100, 1);
   const percentage = () => Math.min(100, Math.max(0, (local.value / max()) * 100));
 
   return (
@@ -55,11 +56,11 @@ export function Progress(props: ProgressProps) {
           style={{ width: `${percentage()}%` }}
         />
       </div>
-      {local.showLabel && (
+      <Show when={local.showLabel}>
         <span class="text-xs font-medium text-muted-foreground tabular-nums shrink-0">
           {Math.round(percentage())}%
         </span>
-      )}
+      </Show>
     </div>
   );
 }

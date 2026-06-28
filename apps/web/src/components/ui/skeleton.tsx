@@ -1,4 +1,4 @@
-import type { Component, JSX } from 'solid-js';
+import { type Component, type JSX, splitProps } from 'solid-js';
 import { cn } from '@/lib/utils';
 
 const shapeClasses = {
@@ -8,25 +8,41 @@ const shapeClasses = {
   card: 'rounded-xl h-32 w-full',
 } as const;
 
-const Skeleton: Component<{
+type SkeletonProps = JSX.HTMLAttributes<HTMLDivElement> & {
   class?: string;
   style?: JSX.CSSProperties;
   shape?: keyof typeof shapeClasses;
   width?: string;
   height?: string;
-}> = (props) => (
-  <div
-    class={cn(
-      'animate-pulse bg-muted',
-      shapeClasses[props.shape ?? 'rectangular'],
-      props.class,
-    )}
-    style={{
-      ...(props.width ? { width: props.width } : {}),
-      ...(props.height ? { height: props.height } : {}),
-      ...props.style,
-    }}
-  />
-);
+};
+
+const Skeleton: Component<SkeletonProps> = (props) => {
+  const [local, others] = splitProps(props, [
+    'class',
+    'shape',
+    'width',
+    'height',
+    'style',
+  ]);
+
+  const style = () => ({
+    ...(local.width ? { width: local.width } : {}),
+    ...(local.height ? { height: local.height } : {}),
+    ...(typeof local.style === 'object' ? local.style : {}),
+  });
+
+  return (
+    <div
+      class={cn(
+        'animate-pulse bg-muted',
+        shapeClasses[local.shape ?? 'rectangular'],
+        local.class,
+      )}
+      style={style()}
+      {...others}
+    />
+  );
+};
 
 export default Skeleton;
+export { Skeleton };

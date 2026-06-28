@@ -1,25 +1,32 @@
 import { type JSX, Show, splitProps } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
 import { cn } from '@/lib/utils';
-import { AlertCircle, CheckCircle2, Info, AlertTriangle } from 'lucide-solid';
+import { AlertCircle, Info } from 'lucide-solid';
+import { cva, type VariantProps } from 'class-variance-authority';
 
-const alertVariants = {
-  default: 'border-border bg-card text-foreground',
-  destructive: 'border-destructive/30 bg-destructive/5 text-destructive',
-  success: 'border-success/30 bg-success/5 text-success',
-  warning: 'border-warning/30 bg-warning/5 text-warning',
-  info: 'border-info/30 bg-info/5 text-info',
-} as const;
+const alertVariants = cva(
+  'relative w-full rounded-lg border px-4 py-3 text-sm',
+  {
+    variants: {
+      variant: {
+        default: 'bg-background text-foreground',
+        destructive:
+          'border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
 
 const alertIcons = {
   default: Info,
   destructive: AlertCircle,
-  success: CheckCircle2,
-  warning: AlertTriangle,
-  info: Info,
 } as const;
 
-type AlertProps = JSX.HTMLAttributes<HTMLDivElement> & {
-  variant?: keyof typeof alertVariants;
+type AlertProps = JSX.HTMLAttributes<HTMLDivElement> &
+  VariantProps<typeof alertVariants> & {
   title?: string;
   icon?: boolean;
 };
@@ -34,31 +41,49 @@ export function Alert(props: AlertProps) {
   ]);
 
   const variant = () => local.variant ?? 'default';
-  const IconComponent = () => alertIcons[variant()];
   const showIcon = () => local.icon !== false;
 
   return (
     <div
       role="alert"
       class={cn(
-        'relative flex gap-3 rounded-lg border p-4 text-sm',
-        alertVariants[variant()],
+        alertVariants({ variant: local.variant }),
+        showIcon() && '[&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-7',
         local.class,
       )}
       {...others}
     >
       <Show when={showIcon()}>
-        {(() => {
-          const Icon = IconComponent();
-          return <Icon class="h-4 w-4 shrink-0 mt-0.5" />;
-        })()}
+        <Dynamic component={alertIcons[variant()]} class="h-4 w-4" />
       </Show>
-      <div class="flex-1 min-w-0">
-        <Show when={local.title}>
-          <h5 class="font-medium leading-none mb-1">{local.title}</h5>
-        </Show>
-        <div class="text-sm opacity-90">{local.children}</div>
-      </div>
+      <Show when={local.title}>
+        <AlertTitle>{local.title}</AlertTitle>
+      </Show>
+      <Show when={local.children}>
+        <AlertDescription>{local.children}</AlertDescription>
+      </Show>
+    </div>
+  );
+}
+
+type AlertTitleProps = JSX.HTMLAttributes<HTMLHeadingElement>;
+
+export function AlertTitle(props: AlertTitleProps) {
+  const [local, others] = splitProps(props, ['class', 'children']);
+  return (
+    <h5 class={cn('mb-1 font-medium leading-none tracking-tight', local.class)} {...others}>
+      {local.children}
+    </h5>
+  );
+}
+
+type AlertDescriptionProps = JSX.HTMLAttributes<HTMLParagraphElement>;
+
+export function AlertDescription(props: AlertDescriptionProps) {
+  const [local, others] = splitProps(props, ['class', 'children']);
+  return (
+    <div class={cn('text-sm [&_p]:leading-relaxed', local.class)} {...others}>
+      {local.children}
     </div>
   );
 }

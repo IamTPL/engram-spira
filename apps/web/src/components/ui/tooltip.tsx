@@ -1,44 +1,73 @@
-import { type Component, type JSX, createSignal, Show } from 'solid-js';
+import { type JSX, Show, splitProps } from 'solid-js';
+import { Tooltip as TooltipPrimitive } from '@kobalte/core/tooltip';
 import { cn } from '@/lib/utils';
 
-type TooltipProps = {
-  content: JSX.Element | string;
+type TooltipProps = Parameters<typeof TooltipPrimitive>[0] & {
+  content?: JSX.Element | string;
   side?: 'top' | 'bottom' | 'left' | 'right';
-  children: JSX.Element;
   class?: string;
 };
 
-const sideClasses = {
-  top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
-  bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
-  left: 'right-full top-1/2 -translate-y-1/2 mr-2',
-  right: 'left-full top-1/2 -translate-y-1/2 ml-2',
-} as const;
-
-export const Tooltip: Component<TooltipProps> = (props) => {
-  const [show, setShow] = createSignal(false);
-
+export function Tooltip(props: TooltipProps) {
+  const [local, others] = splitProps(props, [
+    'children',
+    'content',
+    'side',
+    'class',
+  ]);
   return (
-    <div
-      class="relative inline-flex"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onFocusIn={() => setShow(true)}
-      onFocusOut={() => setShow(false)}
+    <TooltipPrimitive
+      gutter={6}
+      placement={local.side}
+      {...others}
     >
-      {props.children}
-      <Show when={show()}>
-        <div
-          role="tooltip"
-          class={cn(
-            'absolute z-50 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1 text-xs text-background shadow-md animate-fade-in pointer-events-none',
-            sideClasses[props.side ?? 'top'],
-            props.class,
-          )}
-        >
-          {props.content}
-        </div>
+      <Show
+        when={local.content}
+        fallback={local.children}
+      >
+        {(content) => (
+          <>
+            <TooltipTrigger>{local.children}</TooltipTrigger>
+            <TooltipContent class={local.class}>{content()}</TooltipContent>
+          </>
+        )}
       </Show>
-    </div>
+    </TooltipPrimitive>
   );
+}
+
+type TooltipTriggerProps = Parameters<typeof TooltipPrimitive.Trigger>[0];
+
+export function TooltipTrigger(props: TooltipTriggerProps) {
+  const [local, others] = splitProps(props, ['class', 'children']);
+  return (
+    <TooltipPrimitive.Trigger
+      as="span"
+      class={cn('inline-flex', local.class)}
+      {...others}
+    >
+      {local.children}
+    </TooltipPrimitive.Trigger>
+  );
+}
+
+type TooltipContentProps = Parameters<typeof TooltipPrimitive.Content>[0] & {
+  side?: 'top' | 'bottom' | 'left' | 'right';
 };
+
+export function TooltipContent(props: TooltipContentProps) {
+  const [local, others] = splitProps(props, ['class', 'children', 'side']);
+  return (
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Content
+        class={cn(
+          'z-50 overflow-hidden rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground shadow-md animate-fade-in',
+          local.class,
+        )}
+        {...others}
+      >
+        {local.children}
+      </TooltipPrimitive.Content>
+    </TooltipPrimitive.Portal>
+  );
+}

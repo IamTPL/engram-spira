@@ -1,29 +1,48 @@
-import { createSignal } from 'solid-js';
+import { type JSX } from 'solid-js';
+import { toast as sonnerToast, type ExternalToast } from 'solid-sonner';
 
-export type ToastType = 'success' | 'error' | 'info';
+export type ToastType = 'success' | 'error' | 'info' | 'warning';
+export type ToastMessage = string | JSX.Element | (() => JSX.Element);
 
 export interface Toast {
-  id: string;
-  message: string;
+  id: string | number;
+  message: ToastMessage;
   type: ToastType;
 }
 
-const [toasts, setToasts] = createSignal<Toast[]>([]);
+export const toasts = () =>
+  sonnerToast.getToasts().map((toast) => ({
+    id: toast.id,
+    message: toast.title ?? '',
+    type: normalizeToastType(toast.type),
+  }));
 
-export { toasts };
-
-export function addToast(message: string, type: ToastType = 'success') {
-  const id = crypto.randomUUID();
-  setToasts((prev) => [...prev, { id, message, type }]);
-  setTimeout(() => removeToast(id), 3000);
+function normalizeToastType(type: string | undefined): ToastType {
+  if (type === 'error') return 'error';
+  if (type === 'info') return 'info';
+  if (type === 'warning') return 'warning';
+  return 'success';
 }
 
-export function removeToast(id: string) {
-  setToasts((prev) => prev.filter((t) => t.id !== id));
+export function addToast(
+  message: ToastMessage,
+  type: ToastType = 'success',
+  data?: ExternalToast,
+) {
+  return toast[type](message, data);
+}
+
+export function removeToast(id: string | number) {
+  sonnerToast.dismiss(id);
 }
 
 export const toast = {
-  success: (message: string) => addToast(message, 'success'),
-  error: (message: string) => addToast(message, 'error'),
-  info: (message: string) => addToast(message, 'info'),
+  success: (message: ToastMessage, data?: ExternalToast) =>
+    sonnerToast.success(message, data),
+  error: (message: ToastMessage, data?: ExternalToast) =>
+    sonnerToast.error(message, data),
+  info: (message: ToastMessage, data?: ExternalToast) =>
+    sonnerToast.info(message, data),
+  warning: (message: ToastMessage, data?: ExternalToast) =>
+    sonnerToast.warning(message, data),
 };

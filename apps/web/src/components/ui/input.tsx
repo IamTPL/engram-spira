@@ -16,19 +16,21 @@ export function Input(props: InputProps) {
   ]);
 
   const hasIcon = () => !!local.iconLeft || !!local.iconRight;
+  const inputClass = () =>
+    cn(
+      'flex h-9 w-full rounded-md border bg-background px-3 py-1 text-base shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+      local.error
+        ? 'border-destructive focus-visible:ring-destructive'
+        : 'border-input',
+      local.class,
+    );
 
   return (
     <Show
       when={hasIcon()}
       fallback={
         <input
-          class={cn(
-            'flex h-10 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm transition-all duration-[--duration-normal] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50',
-            local.error
-              ? 'border-destructive focus-visible:ring-destructive'
-              : 'border-input',
-            local.class,
-          )}
+          class={inputClass()}
           {...others}
         />
       }
@@ -41,13 +43,9 @@ export function Input(props: InputProps) {
         </Show>
         <input
           class={cn(
-            'flex h-10 w-full rounded-md border bg-transparent py-2 text-sm shadow-sm transition-all duration-[--duration-normal] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50',
-            local.error
-              ? 'border-destructive focus-visible:ring-destructive'
-              : 'border-input',
+            inputClass(),
             local.iconLeft ? 'pl-10 pr-3' : 'pl-3',
             local.iconRight ? 'pr-10' : 'pr-3',
-            local.class,
           )}
           {...others}
         />
