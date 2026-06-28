@@ -2,6 +2,10 @@ import { sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { NotFoundError } from '../../shared/errors';
 import { aggregateResponse, resolveSection } from './aggregate.helpers';
+import {
+  atRiskRetentionFilterSql,
+  retentionEstimateSelectSql,
+} from './retention-sql';
 import type {
   AggregateResponse,
   DeckWorkspaceQuery,
@@ -95,6 +99,8 @@ export const defaultDeckWorkspaceLoaders: DeckWorkspaceLoaders = {
 };
 
 async function loadDeck(userId: string, deckId: string) {
+  if (!isUuid(deckId)) return null;
+
   const [row] = await db.execute<DeckWorkspaceResponse['deck']>(sql`
     SELECT
       d.id,
@@ -208,23 +214,10 @@ async function loadAnalytics(userId: string, deckId: string) {
   }>(sql`
     SELECT
       AVG(
-        CASE
-          WHEN sp.last_reviewed_at IS NULL THEN NULL
-          ELSE GREATEST(
-            0,
-            LEAST(
-              1,
-              1 - (
-                EXTRACT(EPOCH FROM (NOW() - sp.last_reviewed_at)) / 86400
-              ) / GREATEST(COALESCE(sp.stability, sp.interval_days::real, 1), 1) * 0.1
-            )
-          )
-        END
+        ${retentionEstimateSelectSql()}
       )::real AS "avgRetention",
       COUNT(c.id) FILTER (
-        WHERE sp.id IS NOT NULL
-          AND sp.next_review_at > NOW()
-          AND sp.last_reviewed_at IS NOT NULL
+        WHERE ${atRiskRetentionFilterSql()}
       )::int AS "atRiskCount"
     FROM cards c
     JOIN decks d ON d.id = c.deck_id
@@ -245,4 +238,10 @@ async function loadCounters() {
 function toIso(value: Date | string | null) {
   if (value === null) return null;
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
 }

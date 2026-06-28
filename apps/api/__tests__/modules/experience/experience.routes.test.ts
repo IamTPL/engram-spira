@@ -69,14 +69,20 @@ function routeServices(overrides: Record<string, unknown> = {}) {
       }
       if (
         (query.mode === 'deck' || query.mode === 'at-risk') &&
-        query.deckId === 'missing'
+        (query.deckId === 'missing' || query.deckId === 'other-deck')
       ) {
         throw new AppError(404, 'Deck not found');
       }
-      if (query.mode === 'folder' && query.folderId === 'missing') {
+      if (
+        query.mode === 'folder' &&
+        (query.folderId === 'missing' || query.folderId === 'other-folder')
+      ) {
         throw new AppError(404, 'Folder not found');
       }
-      if (query.mode === 'class' && query.classId === 'missing') {
+      if (
+        query.mode === 'class' &&
+        (query.classId === 'missing' || query.classId === 'other-class')
+      ) {
         throw new AppError(404, 'Class not found');
       }
       if (query.mode === 'smart-group' && query.smartGroupId === 'missing') {
@@ -95,7 +101,9 @@ function routeServices(overrides: Record<string, unknown> = {}) {
         ['classes', 'recentDecks'],
       ),
     getDeckWorkspace: async (_userId: string, deckId: string) => {
-      if (deckId === 'missing') throw new AppError(404, 'Deck not found');
+      if (deckId === 'missing' || deckId === 'other-deck') {
+        throw new AppError(404, 'Deck not found');
+      }
       return createAggregate(
         {
           deck: {
@@ -215,13 +223,17 @@ describe('experience aggregate routes', () => {
 
     for (const [path, error] of [
       ['/study/queue?mode=deck&deckId=missing', 'Deck not found'],
+      ['/study/queue?mode=deck&deckId=other-deck', 'Deck not found'],
       ['/study/queue?mode=folder&folderId=missing', 'Folder not found'],
+      ['/study/queue?mode=folder&folderId=other-folder', 'Folder not found'],
       ['/study/queue?mode=class&classId=missing', 'Class not found'],
+      ['/study/queue?mode=class&classId=other-class', 'Class not found'],
       [
         '/study/queue?mode=smart-group&smartGroupId=missing',
         'Smart group not found',
       ],
       ['/study/queue?mode=at-risk&deckId=missing', 'Deck not found'],
+      ['/study/queue?mode=at-risk&deckId=other-deck', 'Deck not found'],
     ]) {
       const response = await app.handle(
         new Request(`http://test${path}`, {
@@ -273,6 +285,38 @@ describe('experience aggregate routes', () => {
 
     expect(missing.status).toBe(404);
     expect(await json(missing)).toEqual({ error: 'Deck not found' });
+
+    const unauthorized = await app.handle(
+      new Request('http://test/decks/other-deck/workspace', {
+        headers: { authorization: 'Bearer test-user' },
+      }),
+    );
+
+    expect(unauthorized.status).toBe(404);
+    expect(await json(unauthorized)).toEqual({ error: 'Deck not found' });
+  });
+
+  test('GET experience routes reject malformed integer query values', async () => {
+    const app = appWithExperience();
+
+    for (const [path, error] of [
+      ['/study/queue?mode=due&limit=abc', 'limit must be an integer'],
+      ['/study/queue?mode=due&limit=1.5', 'limit must be an integer'],
+      ['/decks/deck-1/workspace?cardPage=abc', 'cardPage must be an integer'],
+      [
+        '/decks/deck-1/workspace?cardPageSize=1.5',
+        'cardPageSize must be an integer',
+      ],
+    ]) {
+      const response = await app.handle(
+        new Request(`http://test${path}`, {
+          headers: { authorization: 'Bearer test-user' },
+        }),
+      );
+
+      expect(response.status).toBe(422);
+      expect(await json(response)).toEqual({ error });
+    }
   });
 
   test('GET /insights/overview returns exact section keys', async () => {

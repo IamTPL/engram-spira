@@ -1,5 +1,6 @@
 import Elysia from 'elysia';
 import { requireAuth } from '../auth/auth.middleware';
+import { ValidationError } from '../../shared/errors';
 import { getCommandCenter } from './command-center.service';
 import { getDeckWorkspace } from './deck-workspace.service';
 import { getInsightsOverview } from './insights-overview.service';
@@ -54,7 +55,7 @@ export const experienceRoutes = createExperienceRoutes();
 
 function parseStudyQueueQuery(query: Record<string, unknown>): StudyQueueQuery {
   const mode = String(query.mode ?? 'due') as StudyQueueQuery['mode'];
-  const limit = parseOptionalNumber(query.limit);
+  const limit = parseOptionalNumber(query.limit, 'limit');
   const base = limit === undefined ? { mode } : { mode, limit };
 
   switch (mode) {
@@ -88,8 +89,8 @@ function parseDeckWorkspaceQuery(
   query: Record<string, unknown>,
 ): DeckWorkspaceQuery {
   const parsed: DeckWorkspaceQuery = {};
-  const cardPage = parseOptionalNumber(query.cardPage);
-  const cardPageSize = parseOptionalNumber(query.cardPageSize);
+  const cardPage = parseOptionalNumber(query.cardPage, 'cardPage');
+  const cardPageSize = parseOptionalNumber(query.cardPageSize, 'cardPageSize');
   const cardSearch = stringOrUndefined(query.cardSearch);
   const sort = stringOrUndefined(query.sort);
 
@@ -108,10 +109,13 @@ function parseDeckWorkspaceQuery(
   return parsed;
 }
 
-function parseOptionalNumber(value: unknown) {
+function parseOptionalNumber(value: unknown, name: string) {
   if (value === undefined || value === null || value === '') return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    throw new ValidationError(`${name} must be an integer`);
+  }
+  return parsed;
 }
 
 function stringOrUndefined(value: unknown) {

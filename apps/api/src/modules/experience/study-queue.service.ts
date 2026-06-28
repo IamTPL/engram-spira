@@ -1,6 +1,10 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
 import { NotFoundError, ValidationError } from '../../shared/errors';
+import {
+  atRiskRetentionFilterSql,
+  retentionEstimateSelectSql,
+} from './retention-sql';
 import type { StudyQueueQuery, StudyQueueResponse } from './experience.types';
 
 export type StudyQueueRow = {
@@ -142,6 +146,7 @@ function reasonForRow(
   mode: StudyQueueQuery['mode'],
 ): StudyQueueResponse['cards'][number]['reason'] {
   if (mode === 'interleaved') return 'interleaved';
+  if (mode === 'at-risk') return 'at-risk';
   if (row.dueAt === null) return 'new';
   if (isDue(row.dueAt)) return 'due';
   if (row.boxLevel === 0 && row.lastReviewedAt !== null) return 'learning';
@@ -199,12 +204,16 @@ function toIso(value: Date | string | null) {
 
 export const defaultStudyQueueLoaders: StudyQueueLoaders = {
   ensureDeck: async (userId, deckId) => {
+    if (!isUuid(deckId)) throw new NotFoundError('Deck');
+
     const [row] = await db.execute<{ id: string }>(sql`
       SELECT id FROM decks WHERE id = ${deckId} AND user_id = ${userId} LIMIT 1
     `);
     if (!row) throw new NotFoundError('Deck');
   },
   ensureFolder: async (userId, folderId) => {
+    if (!isUuid(folderId)) throw new NotFoundError('Folder');
+
     const [row] = await db.execute<{ id: string }>(sql`
       SELECT f.id
       FROM folders f
@@ -215,6 +224,8 @@ export const defaultStudyQueueLoaders: StudyQueueLoaders = {
     if (!row) throw new NotFoundError('Folder');
   },
   ensureClass: async (userId, classId) => {
+    if (!isUuid(classId)) throw new NotFoundError('Class');
+
     const [row] = await db.execute<{ id: string }>(sql`
       SELECT id FROM classes WHERE id = ${classId} AND user_id = ${userId} LIMIT 1
     `);
@@ -246,13 +257,16 @@ async function loadQueueRows(
   if (scope.classId) filters.push(sql`cl.id = ${scope.classId}`);
   if (scope.smartGroupId) filters.push(sql`cc.concept = ${scope.smartGroupId}`);
 
-  if (query.mode === 'due' || query.mode === 'deck' || query.mode === 'folder' || query.mode === 'class') {
+  if (
+    query.mode === 'due' ||
+    query.mode === 'deck' ||
+    query.mode === 'folder' ||
+    query.mode === 'class'
+  ) {
     filters.push(sql`(sp.id IS NULL OR sp.next_review_at <= NOW())`);
   }
   if (query.mode === 'at-risk') {
-    filters.push(sql`sp.id IS NOT NULL`);
-    filters.push(sql`sp.next_review_at > NOW()`);
-    filters.push(sql`sp.last_reviewed_at IS NOT NULL`);
+    filters.push(atRiskRetentionFilterSql());
   }
 
   const smartGroupJoin =
@@ -266,18 +280,7 @@ async function loadQueueRows(
       MIN(CASE WHEN tf.side = 'back' THEN cfv.value #>> '{}' END) AS back,
       ct.name AS "templateName",
       sp.next_review_at AS "dueAt",
-      CASE
-        WHEN sp.last_reviewed_at IS NULL THEN NULL
-        ELSE GREATEST(
-          0,
-          LEAST(
-            1,
-            1 - (
-              EXTRACT(EPOCH FROM (NOW() - sp.last_reviewed_at)) / 86400
-            ) / GREATEST(COALESCE(sp.stability, sp.interval_days::real, 1), 1) * 0.1
-          )
-        )
-      END AS "retentionEstimate",
+      ${retentionEstimateSelectSql()} AS "retentionEstimate",
       sp.box_level AS "boxLevel",
       sp.last_reviewed_at AS "lastReviewedAt",
       c.sort_order AS "sortOrder"
@@ -292,8 +295,14 @@ async function loadQueueRows(
     LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
     WHERE ${sql.join(filters, sql` AND `)}
     GROUP BY c.id, c.deck_id, ct.name, sp.next_review_at, sp.last_reviewed_at,
-      sp.box_level, sp.stability, sp.interval_days, c.sort_order
+      sp.box_level, sp.stability, sp.interval_days, sp.ease_factor, c.sort_order
     ORDER BY COALESCE(sp.next_review_at, NOW()) ASC, c.sort_order ASC, c.id ASC
     LIMIT ${query.limit ?? 50}
   `);
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
 }

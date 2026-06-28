@@ -627,13 +627,28 @@ describe('insights overview aggregate service', () => {
         loadWeakAreas: async () => {
           throw new Error('Weak areas failed');
         },
+        loadAtRiskCards: async () => {
+          throw new Error('At-risk cards failed');
+        },
+        loadHeatmap: async () => {
+          throw new Error('Heatmap failed');
+        },
+        loadTrends: async () => {
+          throw new Error('Trends failed');
+        },
       }),
     );
 
     expect(response.data.forecast).toBeNull();
     expect(response.data.weakAreas).toEqual([]);
+    expect(response.data.atRiskCards).toEqual([]);
+    expect(response.data.heatmap).toBeNull();
+    expect(response.data.trends).toBeNull();
     expect(response.meta.sections.forecast.status).toBe('error');
     expect(response.meta.sections.weakAreas.status).toBe('error');
+    expect(response.meta.sections.atRiskCards.status).toBe('error');
+    expect(response.meta.sections.heatmap.status).toBe('error');
+    expect(response.meta.sections.trends.status).toBe('error');
   });
 });
 
@@ -779,6 +794,27 @@ describe('study queue service', () => {
       due: 1,
       new: 1,
       learning: 1,
+      atRisk: 1,
+    });
+  });
+
+  test('marks at-risk queue cards with at-risk reason', async () => {
+    const response = await getStudyQueue(
+      'user-1',
+      { mode: 'at-risk', limit: 10 },
+      studyQueueLoaders({
+        loadQueueRows: async () => [fixture.queueRows[3]],
+      }),
+    );
+
+    expect(response.cards).toHaveLength(1);
+    expect(response.cards[0].id).toBe('card-risk');
+    expect(response.cards[0].reason).toBe('at-risk');
+    expect(response.summary).toEqual({
+      total: 1,
+      due: 0,
+      new: 0,
+      learning: 0,
       atRisk: 1,
     });
   });

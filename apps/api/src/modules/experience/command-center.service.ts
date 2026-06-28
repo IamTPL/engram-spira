@@ -5,6 +5,7 @@ import * as recommendationsService from '../study/recommendations.service';
 import * as studyService from '../study/study.service';
 import * as notificationsService from '../notifications/notifications.service';
 import { aggregateResponse, resolveSection } from './aggregate.helpers';
+import { atRiskRetentionFilterSql } from './retention-sql';
 import type {
   CommandCenterResponse,
   CommandCenterSections,
@@ -121,9 +122,7 @@ async function loadReviewQueue(userId: string) {
         WHERE sp.id IS NOT NULL AND sp.box_level = 0 AND sp.next_review_at > NOW()
       )::int AS "learningCount",
       COUNT(*) FILTER (
-        WHERE sp.id IS NOT NULL
-          AND sp.next_review_at > NOW()
-          AND sp.last_reviewed_at IS NOT NULL
+        WHERE ${atRiskRetentionFilterSql()}
       )::int AS "atRiskCount"
     FROM cards c
     JOIN decks d ON d.id = c.deck_id

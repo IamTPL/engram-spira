@@ -3,6 +3,10 @@ import { db } from '../../db';
 import * as forecastService from '../study/forecast.service';
 import * as recommendationsService from '../study/recommendations.service';
 import { aggregateResponse, resolveSection } from './aggregate.helpers';
+import {
+  AT_RISK_RETENTION_THRESHOLD,
+  retentionEstimateSelectSql,
+} from './retention-sql';
 import type {
   AggregateResponse,
   CommandCenterResponse,
@@ -109,30 +113,28 @@ async function loadAtRiskCards(userId: string) {
     title: string | null;
     retentionEstimate: number | null;
   }>(sql`
-    SELECT
-      c.id,
-      c.deck_id AS "deckId",
-      MIN(CASE WHEN tf.side = 'front' THEN cfv.value #>> '{}' END) AS title,
-      GREATEST(
-        0,
-        LEAST(
-          1,
-          1 - (
-            EXTRACT(EPOCH FROM (NOW() - sp.last_reviewed_at)) / 86400
-          ) / GREATEST(COALESCE(sp.stability, sp.interval_days::real, 1), 1) * 0.1
-        )
-      ) AS "retentionEstimate"
-    FROM study_progress sp
-    JOIN cards c ON c.id = sp.card_id
-    JOIN decks d ON d.id = c.deck_id
-    LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
-    LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
-    WHERE sp.user_id = ${userId}
-      AND d.user_id = ${userId}
-      AND sp.next_review_at > NOW()
-      AND sp.last_reviewed_at IS NOT NULL
-    GROUP BY c.id, c.deck_id, sp.last_reviewed_at, sp.stability, sp.interval_days
-    ORDER BY "retentionEstimate" ASC, c.id ASC
+    WITH scored AS (
+      SELECT
+        c.id,
+        c.deck_id AS "deckId",
+        MIN(CASE WHEN tf.side = 'front' THEN cfv.value #>> '{}' END) AS title,
+        ${retentionEstimateSelectSql()} AS "retentionEstimate"
+      FROM study_progress sp
+      JOIN cards c ON c.id = sp.card_id
+      JOIN decks d ON d.id = c.deck_id
+      LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
+      LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
+      WHERE sp.user_id = ${userId}
+        AND d.user_id = ${userId}
+        AND sp.next_review_at > NOW()
+        AND sp.last_reviewed_at IS NOT NULL
+      GROUP BY c.id, c.deck_id, sp.last_reviewed_at, sp.stability,
+        sp.interval_days, sp.ease_factor
+    )
+    SELECT id, "deckId", title, "retentionEstimate"
+    FROM scored
+    WHERE "retentionEstimate" < ${AT_RISK_RETENTION_THRESHOLD}
+    ORDER BY "retentionEstimate" ASC, id ASC
     LIMIT 20
   `);
 
