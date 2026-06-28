@@ -1,103 +1,186 @@
 import {
   type Component,
-  Show,
   For,
-  createSignal,
+  Show,
   createEffect,
+  createMemo,
+  createSignal,
   onCleanup,
   onMount,
 } from 'solid-js';
-import { useNavigate } from '@solidjs/router';
+import { useLocation, useNavigate } from '@solidjs/router';
 import { createQuery } from '@tanstack/solid-query';
 import { Portal } from 'solid-js/web';
 import { api, getApiError } from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Skeleton } from '@/components/ui/skeleton';
 import { createDebouncedSignal } from '@/lib/create-debounced-signal';
-import { searchOpen, closeSearch } from '@/stores/search.store';
-import Skeleton from '@/components/ui/skeleton';
-import { Search, FileText, ArrowRight, X } from 'lucide-solid';
+import { closeSearch, openSearch, searchOpen } from '@/stores/search.store';
+import type {
+  CommandActionRef,
+  CommandResult,
+  CommandSearchResponse,
+} from '../../../../api/src/modules/experience/experience.types';
+import {
+  ArrowRight,
+  BookOpen,
+  Command as CommandIcon,
+  FileText,
+  FolderOpen,
+  Layers,
+  Library,
+  Settings,
+  Sparkles,
+  X,
+} from 'lucide-solid';
 
-interface SearchResult {
-  cardId: string;
-  deckId: string;
-  deckName: string;
-  similarity: number;
-  fields: {
-    fieldName: string;
-    fieldType: string;
-    side: string;
-    value: unknown;
-  }[];
+type FlattenedResult = CommandResult & {
+  groupId: CommandSearchResponse['groups'][number]['id'];
+  groupLabel: string;
+};
+
+const resultIcons: Record<CommandResult['type'], Component<{ class?: string }>> = {
+  action: Sparkles,
+  card: FileText,
+  deck: BookOpen,
+  folder: FolderOpen,
+  class: Layers,
+  doc: Library,
+  setting: Settings,
+};
+
+function currentDeckId(pathname: string) {
+  const deckMatch = pathname.match(/^\/deck\/([^/?#]+)/);
+  if (deckMatch) return deckMatch[1];
+  const studyMatch = pathname.match(/^\/study\/([^/?#]+)/);
+  return studyMatch?.[1];
 }
 
 const GlobalSearch: Component = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [debouncedQuery, setQuery, immediateQuery] = createDebouncedSignal(
     '',
-    300,
+    180,
   );
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   let inputRef: HTMLInputElement | undefined;
 
-  const searchQuery = createQuery(() => ({
-    queryKey: ['global-search', debouncedQuery()],
+  const commandQuery = createQuery(() => ({
+    queryKey: ['command-search', debouncedQuery(), location.pathname],
     queryFn: async () => {
       const q = debouncedQuery().trim();
-      if (q.length < 2) return null;
-      const { data, error } = await (api.search as any).get({
-        query: { q, limit: 15 },
+      if (!q) return null;
+      const { data, error } = await (api.command as any).search.get({
+        query: {
+          q,
+          limit: 24,
+          currentRoute: location.pathname,
+        },
       });
       if (error) throw new Error(getApiError(error));
-      return data as { results: SearchResult[]; query: string; total: number };
+      return data as CommandSearchResponse;
     },
-    enabled: debouncedQuery().trim().length >= 2,
-    staleTime: 30_000,
+    enabled: searchOpen() && debouncedQuery().trim().length > 0,
+    staleTime: 15_000,
   }));
 
-  const results = () => searchQuery.data?.results ?? [];
-  const hasQuery = () => debouncedQuery().trim().length >= 2;
-  const isLoading = () => searchQuery.isFetching && hasQuery();
+  const groups = () => commandQuery.data?.groups ?? [];
+  const flattened = createMemo<FlattenedResult[]>(() =>
+    groups().flatMap((group) =>
+      group.results.map((result) => ({
+        ...result,
+        groupId: group.id,
+        groupLabel: group.label,
+      })),
+    ),
+  );
+  const enabledResults = createMemo(() =>
+    flattened().filter((result) => !result.disabledReason),
+  );
+  const hasQuery = () => immediateQuery().trim().length > 0;
+  const isLoading = () => commandQuery.isFetching && hasQuery();
 
-  // Reset selection when results change
   createEffect(() => {
-    results();
+    flattened();
     setSelectedIndex(0);
   });
 
-  // Focus input when modal opens
   createEffect(() => {
     if (searchOpen()) {
-      setTimeout(() => inputRef?.focus(), 50);
+      setTimeout(() => inputRef?.focus(), 40);
     } else {
       setQuery('');
       setSelectedIndex(0);
     }
   });
 
-  const handleSelect = (result: SearchResult) => {
-    closeSearch();
-    navigate(`/deck/${result.deckId}`);
+  const runAction = (action: CommandActionRef | null) => {
+    const deckId = currentDeckId(location.pathname);
+    if (!action) return;
+
+    if (action.id === 'start-study' && deckId) {
+      navigate(`/study/${deckId}`);
+      return;
+    }
+
+    if ((action.id === 'create-card' || action.id === 'import-cards') && deckId) {
+      navigate(`/deck/${deckId}`);
+      return;
+    }
+
+    if (action.id === 'create-deck') {
+      navigate('/');
+      return;
+    }
+
+    navigate('/');
   };
 
-  const handleKeyDown = (e: KeyboardEvent) => {
+  const handleSelect = (result: FlattenedResult) => {
+    if (result.disabledReason) return;
+    closeSearch();
+    if (result.href) {
+      navigate(result.href);
+      return;
+    }
+    runAction(result.action);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      openSearch();
+      return;
+    }
+
     if (!searchOpen()) return;
 
-    if (e.key === 'Escape') {
-      e.preventDefault();
+    if (event.key === 'Escape') {
+      event.preventDefault();
       closeSearch();
       return;
     }
 
-    const items = results();
+    const items = enabledResults();
     if (items.length === 0) return;
 
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.min(index + 1, items.length - 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
       const item = items[selectedIndex()];
       if (item) handleSelect(item);
     }
@@ -106,179 +189,134 @@ const GlobalSearch: Component = () => {
   onMount(() => document.addEventListener('keydown', handleKeyDown));
   onCleanup(() => document.removeEventListener('keydown', handleKeyDown));
 
-  const getFieldPreview = (result: SearchResult): string => {
-    const frontField = result.fields.find((f) => f.side === 'front');
-    if (!frontField) return '';
-    const val = frontField.value;
-    if (typeof val === 'string') return val.slice(0, 120);
-    if (val && typeof val === 'object' && 'text' in val)
-      return String((val as { text: unknown }).text).slice(0, 120);
-    return '';
-  };
-
-  const getBackPreview = (result: SearchResult): string => {
-    const backField = result.fields.find((f) => f.side === 'back');
-    if (!backField) return '';
-    const val = backField.value;
-    if (typeof val === 'string') return val.slice(0, 80);
-    if (val && typeof val === 'object' && 'text' in val)
-      return String((val as { text: unknown }).text).slice(0, 80);
-    return '';
-  };
-
-  const similarityColor = (sim: number): string => {
-    if (sim >= 0.8) return 'bg-green-500/15 text-green-600 dark:text-green-400';
-    if (sim >= 0.6) return 'bg-amber-500/15 text-amber-600 dark:text-amber-400';
-    return 'bg-muted text-muted-foreground';
-  };
+  const resultIcon = (type: CommandResult['type']) => resultIcons[type];
 
   return (
     <Show when={searchOpen()}>
       <Portal>
-        <div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-          {/* Backdrop */}
-          <div
-            class="absolute inset-0 overlay-backdrop animate-fade-in"
+        <div class="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
+          <button
+            class="absolute inset-0 cursor-default bg-background/70 backdrop-blur-sm animate-fade-in"
+            aria-label="Close command center"
             onClick={closeSearch}
           />
 
-          {/* Search Panel */}
-          <div class="relative z-10 w-full max-w-lg mx-4 animate-scale-in">
-            <div class="rounded-xl border bg-card shadow-xl overflow-hidden">
-              {/* Search Input */}
-              <div class="flex items-center gap-3 px-4 border-b">
-                <Search class="h-4 w-4 text-muted-foreground shrink-0" />
-                <input
+          <div class="relative z-10 w-full max-w-2xl px-3 animate-scale-in">
+            <Command
+              shouldFilter={false}
+              class="overflow-hidden rounded-lg border bg-popover shadow-xl"
+            >
+              <div class="relative [&_[data-cmdk-input-wrapper]]:pr-12">
+                <CommandInput
                   ref={inputRef}
-                  type="text"
-                  placeholder="Search across all your cards..."
-                  class="flex-1 h-12 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                   value={immediateQuery()}
-                  onInput={(e) => setQuery(e.currentTarget.value)}
+                  onValueChange={setQuery}
+                  placeholder="Search commands, decks, cards and settings"
+                  class="h-12"
                 />
-                <Show when={immediateQuery()}>
-                  <button
-                    class="shrink-0 p-1 rounded hover:bg-accent transition-colors"
-                    onClick={() => setQuery('')}
-                  >
-                    <X class="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </Show>
-                <kbd class="hidden sm:inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
-                  ESC
-                </kbd>
-              </div>
-
-              {/* Results */}
-              <div class="max-h-80 overflow-y-auto">
-                {/* Loading */}
-                <Show when={isLoading()}>
-                  <div class="p-3 space-y-2">
-                    <For each={[1, 2, 3]}>
-                      {() => (
-                        <div class="flex items-center gap-3 p-3 rounded-lg">
-                          <Skeleton shape="text" width="100%" height="40px" />
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-
-                {/* Results list */}
-                <Show when={!isLoading() && hasQuery() && results().length > 0}>
-                  <div class="p-2">
-                    <For each={results()}>
-                      {(result, index) => (
-                        <button
-                          class={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                            index() === selectedIndex()
-                              ? 'bg-accent'
-                              : 'hover:bg-accent/50'
-                          }`}
-                          onClick={() => handleSelect(result)}
-                          onMouseEnter={() => setSelectedIndex(index())}
-                        >
-                          <div class="h-8 w-8 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                            <FileText class="h-4 w-4 text-muted-foreground" />
-                          </div>
-                          <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium truncate">
-                              {getFieldPreview(result)}
-                            </p>
-                            <Show when={getBackPreview(result)}>
-                              <p class="text-xs text-muted-foreground truncate mt-0.5">
-                                {getBackPreview(result)}
-                              </p>
-                            </Show>
-                            <div class="flex items-center gap-2 mt-1">
-                              <span class="text-[10px] text-muted-foreground truncate">
-                                {result.deckName}
-                              </span>
-                              <span
-                                class={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${similarityColor(result.similarity)}`}
-                              >
-                                {Math.round(result.similarity * 100)}%
-                              </span>
-                            </div>
-                          </div>
-                          <ArrowRight class="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-2 opacity-0 group-hover:opacity-100" />
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-
-                {/* No results */}
-                <Show
-                  when={
-                    !isLoading() &&
-                    hasQuery() &&
-                    results().length === 0 &&
-                    searchQuery.data
-                  }
+                <button
+                  class="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={closeSearch}
                 >
-                  <div class="px-4 py-8 text-center">
-                    <p class="text-sm text-muted-foreground">
-                      No cards found for "{debouncedQuery()}"
-                    </p>
-                  </div>
-                </Show>
-
-                {/* Empty state */}
-                <Show when={!hasQuery()}>
-                  <div class="px-4 py-8 text-center">
-                    <Search class="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-                    <p class="text-sm text-muted-foreground">
-                      Search across all your cards
-                    </p>
-                    <p class="text-xs text-muted-foreground/60 mt-1">
-                      Type at least 2 characters to start
-                    </p>
-                  </div>
-                </Show>
+                  <X class="h-4 w-4" />
+                  <span class="sr-only">Close</span>
+                </button>
               </div>
 
-              {/* Footer */}
-              <Show when={results().length > 0}>
-                <div class="border-t px-4 py-2 flex items-center justify-between text-[10px] text-muted-foreground">
-                  <div class="flex items-center gap-3">
-                    <span class="flex items-center gap-1">
-                      <kbd class="inline-flex h-4 items-center rounded border bg-muted px-1 text-[10px]">
-                        ↑↓
-                      </kbd>
-                      navigate
-                    </span>
-                    <span class="flex items-center gap-1">
-                      <kbd class="inline-flex h-4 items-center rounded border bg-muted px-1 text-[10px]">
-                        ↵
-                      </kbd>
-                      open
-                    </span>
+              <CommandList class="max-h-[460px]">
+                <Show when={isLoading()}>
+                  <div class="space-y-2 p-3">
+                    <For each={[1, 2, 3, 4]}>
+                      {() => <Skeleton shape="text" height="44px" />}
+                    </For>
                   </div>
-                  <span>{searchQuery.data?.total ?? 0} results</span>
-                </div>
-              </Show>
-            </div>
+                </Show>
+
+                <Show when={!isLoading() && !hasQuery()}>
+                  <div class="px-5 py-8 text-center">
+                    <CommandIcon class="mx-auto h-8 w-8 text-muted-foreground/50" />
+                    <p class="mt-3 text-sm font-medium">Command center</p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                      Type a deck, card, action or setting.
+                    </p>
+                  </div>
+                </Show>
+
+                <Show
+                  when={!isLoading() && hasQuery() && flattened().length === 0}
+                >
+                  <CommandEmpty>No matching commands.</CommandEmpty>
+                </Show>
+
+                <Show when={!isLoading() && flattened().length > 0}>
+                  <For each={groups().filter((group) => group.results.length > 0)}>
+                    {(group) => (
+                      <CommandGroup heading={group.label}>
+                        <For each={group.results}>
+                          {(result) => {
+                            const Icon = resultIcon(result.type);
+                            const selected = () =>
+                              enabledResults()[selectedIndex()]?.id === result.id &&
+                              enabledResults()[selectedIndex()]?.type === result.type;
+                            return (
+                              <CommandItem
+                                value={`${group.id}-${result.type}-${result.id}`}
+                                disabled={!!result.disabledReason}
+                                onSelect={() =>
+                                  handleSelect({
+                                    ...result,
+                                    groupId: group.id,
+                                    groupLabel: group.label,
+                                  })
+                                }
+                                onMouseEnter={() => {
+                                  const index = enabledResults().findIndex(
+                                    (item) =>
+                                      item.id === result.id &&
+                                      item.type === result.type,
+                                  );
+                                  if (index >= 0) setSelectedIndex(index);
+                                }}
+                                class={`gap-3 rounded-md px-3 py-2.5 ${selected() ? 'bg-accent' : ''}`}
+                              >
+                                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                                  <Icon class="h-4 w-4" />
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                  <p class="truncate text-sm font-medium">
+                                    {result.title}
+                                  </p>
+                                  <Show when={result.subtitle || result.disabledReason}>
+                                    <p class="truncate text-xs text-muted-foreground">
+                                      {result.disabledReason ?? result.subtitle}
+                                    </p>
+                                  </Show>
+                                </div>
+                                <Badge variant="muted" class="hidden shrink-0 sm:inline-flex">
+                                  {result.type}
+                                </Badge>
+                                <ArrowRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                              </CommandItem>
+                            );
+                          }}
+                        </For>
+                      </CommandGroup>
+                    )}
+                  </For>
+                </Show>
+              </CommandList>
+
+              <div class="flex items-center justify-between border-t px-4 py-2 text-[11px] text-muted-foreground">
+                <span class="inline-flex items-center gap-2">
+                  <kbd class="rounded border bg-muted px-1.5 py-0.5">Esc</kbd>
+                  close
+                </span>
+                <span class="inline-flex items-center gap-2">
+                  <kbd class="rounded border bg-muted px-1.5 py-0.5">Enter</kbd>
+                  open
+                </span>
+              </div>
+            </Command>
           </div>
         </div>
       </Portal>
