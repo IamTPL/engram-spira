@@ -1,6 +1,7 @@
 import type {
   AggregateResponse,
   AggregateSectionMeta,
+  AggregateSectionMap,
 } from './experience.types';
 
 export function okSection(): AggregateSectionMeta {
@@ -18,10 +19,10 @@ export function errorSection(
   return { status: 'error', message, retryable };
 }
 
-export function aggregateResponse<TData>(
+export function aggregateResponse<TData, TSections extends AggregateSectionMap>(
   data: TData,
-  sections: Record<string, AggregateSectionMeta>,
-): AggregateResponse<TData> {
+  sections: TSections,
+): AggregateResponse<TData, TSections> {
   return {
     data,
     meta: {

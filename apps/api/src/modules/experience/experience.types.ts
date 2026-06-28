@@ -5,13 +5,57 @@ export type AggregateSectionMeta =
   | { status: 'empty' }
   | { status: 'error'; message: string; retryable: boolean };
 
-export type AggregateResponse<TData> = {
+export type AggregateSectionMap<TKey extends string = string> = {
+  [K in TKey]: AggregateSectionMeta;
+};
+
+export type AggregateResponse<
+  TData,
+  TSections extends AggregateSectionMap = AggregateSectionMap,
+> = {
   data: TData;
   meta: {
     generatedAt: string;
-    sections: Record<string, AggregateSectionMeta>;
+    sections: TSections;
   };
 };
+
+export type CommandCenterSectionKey =
+  | 'reviewQueue'
+  | 'streak'
+  | 'dueDecks'
+  | 'recent'
+  | 'weakAreas'
+  | 'forecast'
+  | 'pendingSuggestions'
+  | 'notifications';
+
+export type CommandCenterSections =
+  AggregateSectionMap<CommandCenterSectionKey>;
+
+export type LibraryExplorerSectionKey = 'classes' | 'recentDecks';
+
+export type LibraryExplorerSections =
+  AggregateSectionMap<LibraryExplorerSectionKey>;
+
+export type DeckWorkspaceSectionKey =
+  | 'deck'
+  | 'cards'
+  | 'study'
+  | 'analytics'
+  | 'counters';
+
+export type DeckWorkspaceSections = AggregateSectionMap<DeckWorkspaceSectionKey>;
+
+export type InsightsOverviewSectionKey =
+  | 'forecast'
+  | 'weakAreas'
+  | 'atRiskCards'
+  | 'heatmap'
+  | 'trends';
+
+export type InsightsOverviewSections =
+  AggregateSectionMap<InsightsOverviewSectionKey>;
 
 export type CommandActionRef = {
   id: string;
@@ -84,14 +128,45 @@ export type CommandCenterResponse = {
   }>;
 };
 
-export type StudyQueueQuery = {
-  mode: 'due' | 'deck' | 'folder' | 'class' | 'smart-group' | 'interleaved' | 'at-risk';
-  deckId?: string;
-  folderId?: string;
-  classId?: string;
-  smartGroupId?: string;
+type StudyQueueBaseQuery = {
   limit?: number;
 };
+
+type StudyQueueScopeExclusions = {
+  deckId?: never;
+  folderId?: never;
+  classId?: never;
+  smartGroupId?: never;
+};
+
+export type StudyQueueQuery =
+  | (StudyQueueBaseQuery &
+      StudyQueueScopeExclusions & { mode: 'due' | 'interleaved' })
+  | (StudyQueueBaseQuery &
+      Omit<StudyQueueScopeExclusions, 'deckId'> & {
+        mode: 'deck';
+        deckId: string;
+      })
+  | (StudyQueueBaseQuery &
+      Omit<StudyQueueScopeExclusions, 'folderId'> & {
+        mode: 'folder';
+        folderId: string;
+      })
+  | (StudyQueueBaseQuery &
+      Omit<StudyQueueScopeExclusions, 'classId'> & {
+        mode: 'class';
+        classId: string;
+      })
+  | (StudyQueueBaseQuery &
+      Omit<StudyQueueScopeExclusions, 'smartGroupId'> & {
+        mode: 'smart-group';
+        smartGroupId: string;
+      })
+  | (StudyQueueBaseQuery &
+      Omit<StudyQueueScopeExclusions, 'deckId'> & {
+        mode: 'at-risk';
+        deckId?: string;
+      });
 
 export type StudyQueueResponse = {
   mode: StudyQueueQuery['mode'];
@@ -293,15 +368,30 @@ export type CreatePreviewResponse = {
   };
 };
 
+export type CreateCommitCard =
+  | {
+      clientId: string;
+      resolution: 'create';
+      fields?: Record<string, string>;
+      mergeTargetCardId?: never;
+    }
+  | {
+      clientId: string;
+      resolution: 'skip';
+      fields?: never;
+      mergeTargetCardId?: never;
+    }
+  | {
+      clientId: string;
+      resolution: 'merge';
+      mergeTargetCardId: string;
+      fields?: Record<string, string>;
+    };
+
 export type CreateCommitRequest = {
   previewId: string;
   idempotencyKey: string;
-  cards: Array<{
-    clientId: string;
-    resolution: 'create' | 'skip' | 'merge';
-    mergeTargetCardId?: string;
-    fields?: Record<string, string>;
-  }>;
+  cards: CreateCommitCard[];
 };
 
 export type CreateCommitResponse = {
