@@ -1,10 +1,12 @@
 import {
   type Accessor,
   type JSX,
+  For,
   Show,
   createContext,
   createEffect,
   createSignal,
+  createUniqueId,
   onCleanup,
   splitProps,
   useContext,
@@ -21,9 +23,28 @@ type RegisteredSelectOption = {
   class?: string;
 };
 
+type SelectItemEntry = {
+  type: 'item';
+  key: string;
+  value: string;
+  option: RegisteredSelectOption;
+};
+
+type SelectDecorationEntry = {
+  type: 'label' | 'separator';
+  key: string;
+  render: () => JSX.Element;
+};
+
+type SelectContentEntry = SelectItemEntry | SelectDecorationEntry;
+
 type SelectRegistrationContextValue = {
   registeredItems: Accessor<RegisteredSelectOption[]>;
+  contentBeforeItem: (item: any) => SelectDecorationEntry[];
+  trailingContent: Accessor<SelectDecorationEntry[]>;
+  registerContentEntry: (entry: SelectDecorationEntry) => void;
   registerItem: (item: RegisteredSelectOption) => void;
+  unregisterContentEntry: (key: string) => void;
   unregisterItem: (value: string) => void;
   setPlaceholder: (placeholder: JSX.Element | undefined) => void;
 };
@@ -100,9 +121,19 @@ function getTextFromChildren(value: JSX.Element): string {
   return '';
 }
 
+function isSelectItemEntry(entry: SelectContentEntry): entry is SelectItemEntry {
+  return entry.type === 'item';
+}
+
+function isSelectDecorationEntry(
+  entry: SelectContentEntry,
+): entry is SelectDecorationEntry {
+  return entry.type === 'label' || entry.type === 'separator';
+}
+
 export function Select(props: SelectProps) {
-  const [registeredItems, setRegisteredItems] = createSignal<
-    RegisteredSelectOption[]
+  const [contentEntries, setContentEntries] = createSignal<
+    SelectContentEntry[]
   >([]);
   const [placeholder, setPlaceholder] = createSignal<JSX.Element>();
   const [local, others] = splitProps(props, [
@@ -118,27 +149,88 @@ export function Select(props: SelectProps) {
     'placeholder',
   ]);
 
+  const registeredItems = () =>
+    contentEntries()
+      .filter(isSelectItemEntry)
+      .map((entry) => entry.option);
+
+  const contentBeforeItem = (item: any) => {
+    const value = getSelectOptionValue(getItemRawValue(item));
+    const entries = contentEntries();
+    const itemIndex = entries.findIndex(
+      (entry) => entry.type === 'item' && entry.value === value,
+    );
+
+    if (itemIndex === -1) return [];
+
+    let previousItemIndex = -1;
+
+    for (let index = itemIndex - 1; index >= 0; index -= 1) {
+      if (entries[index]?.type === 'item') {
+        previousItemIndex = index;
+        break;
+      }
+    }
+
+    return entries
+      .slice(previousItemIndex + 1, itemIndex)
+      .filter(isSelectDecorationEntry);
+  };
+
+  const trailingContent = () => {
+    const entries = contentEntries();
+    let lastItemIndex = -1;
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (entries[index]?.type === 'item') {
+        lastItemIndex = index;
+        break;
+      }
+    }
+
+    return entries.slice(lastItemIndex + 1).filter(isSelectDecorationEntry);
+  };
+
+  const upsertContentEntry = (entry: SelectContentEntry) => {
+    setContentEntries((entries) => {
+      const nextEntries = entries.slice();
+      const existingIndex = nextEntries.findIndex(
+        (existingEntry) => existingEntry.key === entry.key,
+      );
+
+      if (existingIndex === -1) {
+        nextEntries.push(entry);
+      } else {
+        nextEntries[existingIndex] = entry;
+      }
+
+      return nextEntries;
+    });
+  };
+
   const context: SelectRegistrationContextValue = {
     registeredItems,
+    contentBeforeItem,
+    trailingContent,
+    registerContentEntry: upsertContentEntry,
     registerItem: (item) => {
-      setRegisteredItems((items) => {
-        const nextItems = items.slice();
-        const existingIndex = nextItems.findIndex(
-          (existingItem) => existingItem.value === item.value,
-        );
-
-        if (existingIndex === -1) {
-          nextItems.push(item);
-        } else {
-          nextItems[existingIndex] = item;
-        }
-
-        return nextItems;
+      upsertContentEntry({
+        type: 'item',
+        key: `item:${item.value}`,
+        value: item.value,
+        option: item,
       });
     },
+    unregisterContentEntry: (key) => {
+      setContentEntries((entries) =>
+        entries.filter((entry) => entry.key !== key),
+      );
+    },
     unregisterItem: (value) => {
-      setRegisteredItems((items) =>
-        items.filter((item) => item.value !== value),
+      setContentEntries((entries) =>
+        entries.filter(
+          (entry) => !(entry.type === 'item' && entry.value === value),
+        ),
       );
     },
     setPlaceholder,
@@ -147,7 +239,14 @@ export function Select(props: SelectProps) {
   const options = () => local.options ?? registeredItems();
   const itemComponent = (itemProps: { item: any }) => {
     if (local.itemComponent) return local.itemComponent(itemProps);
-    return <SelectItem item={itemProps.item} />;
+    return (
+      <>
+        <For each={contentBeforeItem(itemProps.item)}>
+          {(entry) => entry.render()}
+        </For>
+        <SelectItem item={itemProps.item} />
+      </>
+    );
   };
   const onChange = (value: any) => {
     local.onChange?.(value);
@@ -224,6 +323,7 @@ export function SelectValue(props: SelectValueProps) {
 type SelectContentProps = Parameters<typeof SelectPrimitive.Content>[0];
 
 export function SelectContent(props: SelectContentProps) {
+  const context = useContext(SelectRegistrationContext);
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
     <>
@@ -239,6 +339,9 @@ export function SelectContent(props: SelectContentProps) {
           {...others}
         >
           <SelectPrimitive.Listbox class="p-1" />
+          <For each={context?.trailingContent() ?? []}>
+            {(entry) => entry.render()}
+          </For>
         </SelectPrimitive.Content>
       </SelectPrimitive.Portal>
     </>
@@ -264,18 +367,19 @@ export function SelectItem(props: SelectItemProps) {
   createEffect(() => {
     if (local.item || local.value == null) return;
 
-    const label = local.children ?? local.value;
-    const textValue = getTextFromChildren(label) || local.value;
+    const registeredValue = local.value;
+    const label = local.children ?? registeredValue;
+    const textValue = getTextFromChildren(label) || registeredValue;
 
     context?.registerItem({
-      value: local.value,
+      value: registeredValue,
       label,
       textValue,
       disabled: local.disabled,
       class: local.class,
     });
 
-    onCleanup(() => context?.unregisterItem(local.value!));
+    onCleanup(() => context?.unregisterItem(registeredValue));
   });
 
   return (
@@ -310,26 +414,82 @@ export function SelectItem(props: SelectItemProps) {
 type SelectLabelProps = Parameters<typeof SelectPrimitive.Label>[0];
 
 export function SelectLabel(props: SelectLabelProps) {
+  const context = useContext(SelectRegistrationContext);
+  const key = createUniqueId();
   const [local, others] = splitProps(props, ['class', 'children']);
+
+  createEffect(() => {
+    if (!context) return;
+
+    context.registerContentEntry({
+      type: 'label',
+      key,
+      render: () => (
+        <li
+          role="presentation"
+          class={cn('px-2 py-1.5 text-sm font-semibold', local.class)}
+          {...others}
+        >
+          {local.children}
+        </li>
+      ),
+    });
+
+    onCleanup(() => context.unregisterContentEntry(key));
+  });
+
   return (
-    <SelectPrimitive.Label
-      class={cn('px-2 py-1.5 text-sm font-semibold', local.class)}
-      {...others}
+    <Show
+      when={!context}
+      fallback={null}
     >
-      {local.children}
-    </SelectPrimitive.Label>
+      <SelectPrimitive.Label
+        class={cn('px-2 py-1.5 text-sm font-semibold', local.class)}
+        {...others}
+      >
+        {local.children}
+      </SelectPrimitive.Label>
+    </Show>
   );
 }
 
 type SelectSeparatorProps = JSX.HTMLAttributes<HTMLDivElement>;
 
 export function SelectSeparator(props: SelectSeparatorProps) {
+  const context = useContext(SelectRegistrationContext);
+  const key = createUniqueId();
   const [local, others] = splitProps(props, ['class']);
+
+  createEffect(() => {
+    if (!context) return;
+
+    context.registerContentEntry({
+      type: 'separator',
+      key,
+      render: () => (
+        <li role="presentation">
+          <div
+            role="separator"
+            class={cn('-mx-1 my-1 h-px bg-muted', local.class)}
+            {...others}
+          />
+        </li>
+      ),
+    });
+
+    onCleanup(() => context.unregisterContentEntry(key));
+  });
+
   return (
-    <div
-      role="separator"
-      class={cn('-mx-1 my-1 h-px bg-muted', local.class)}
-      {...others}
-    />
+    <Show
+      when={!context}
+      fallback={null}
+    >
+      <div
+        role="separator"
+        class={cn('-mx-1 my-1 h-px bg-muted', local.class)}
+        {...others}
+      />
+    </Show>
   );
 }
