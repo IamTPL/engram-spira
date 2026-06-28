@@ -2,11 +2,22 @@ import Elysia from 'elysia';
 import { requireAuth } from '../auth/auth.middleware';
 import { ValidationError } from '../../shared/errors';
 import { getCommandCenter } from './command-center.service';
+import { searchCommands } from './command-search.service';
+import {
+  commitCreatePreview,
+  createPreview,
+} from './create-preview.service';
 import { getDeckWorkspace } from './deck-workspace.service';
 import { getInsightsOverview } from './insights-overview.service';
 import { getLibraryExplorer } from './library-explorer.service';
 import { getStudyQueue } from './study-queue.service';
-import type { DeckWorkspaceQuery, StudyQueueQuery } from './experience.types';
+import type {
+  CommandSearchQuery,
+  CreateCommitRequest,
+  CreatePreviewRequest,
+  DeckWorkspaceQuery,
+  StudyQueueQuery,
+} from './experience.types';
 
 export type ExperienceRouteServices = {
   getCommandCenter: typeof getCommandCenter;
@@ -14,6 +25,9 @@ export type ExperienceRouteServices = {
   getLibraryExplorer: typeof getLibraryExplorer;
   getDeckWorkspace: typeof getDeckWorkspace;
   getInsightsOverview: typeof getInsightsOverview;
+  searchCommands: typeof searchCommands;
+  createPreview: typeof createPreview;
+  commitCreatePreview: typeof commitCreatePreview;
 };
 
 const defaultExperienceRouteServices: ExperienceRouteServices = {
@@ -22,6 +36,9 @@ const defaultExperienceRouteServices: ExperienceRouteServices = {
   getLibraryExplorer,
   getDeckWorkspace,
   getInsightsOverview,
+  searchCommands,
+  createPreview,
+  commitCreatePreview,
 };
 
 export function createExperienceRoutes(
@@ -48,6 +65,15 @@ export function createExperienceRoutes(
     )
     .get('/insights/overview', ({ currentUser }: any) =>
       services.getInsightsOverview(currentUser.id),
+    )
+    .get('/command/search', ({ currentUser, query }: any) =>
+      services.searchCommands(currentUser.id, parseCommandSearchQuery(query)),
+    )
+    .post('/create/preview', ({ currentUser, body }: any) =>
+      services.createPreview(currentUser.id, body as CreatePreviewRequest),
+    )
+    .post('/create/commit', ({ currentUser, body }: any) =>
+      services.commitCreatePreview(currentUser.id, body as CreateCommitRequest),
     );
 }
 
@@ -105,6 +131,43 @@ function parseDeckWorkspaceQuery(
   ) {
     parsed.sort = sort;
   }
+
+  return parsed;
+}
+
+function parseCommandSearchQuery(
+  query: Record<string, unknown>,
+): CommandSearchQuery {
+  const q = String(query.q ?? '').trim();
+  if (!q) throw new ValidationError('Query is required');
+
+  const limit = parseOptionalNumber(query.limit, 'limit');
+  if (limit !== undefined && (limit < 1 || limit > 30)) {
+    throw new ValidationError('Limit must be between 1 and 30');
+  }
+
+  const parsed: CommandSearchQuery = { q };
+  const scope = stringOrUndefined(query.scope);
+  if (
+    scope === 'all' ||
+    scope === 'cards' ||
+    scope === 'decks' ||
+    scope === 'library' ||
+    scope === 'actions' ||
+    scope === 'docs'
+  ) {
+    parsed.scope = scope;
+  }
+  const currentRoute = stringOrUndefined(query.currentRoute);
+  const classId = stringOrUndefined(query.classId);
+  const folderId = stringOrUndefined(query.folderId);
+  const deckId = stringOrUndefined(query.deckId);
+
+  if (currentRoute !== undefined) parsed.currentRoute = currentRoute;
+  if (classId !== undefined) parsed.classId = classId;
+  if (folderId !== undefined) parsed.folderId = folderId;
+  if (deckId !== undefined) parsed.deckId = deckId;
+  if (limit !== undefined) parsed.limit = limit;
 
   return parsed;
 }

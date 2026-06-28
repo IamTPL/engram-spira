@@ -194,6 +194,9 @@ export type CommandSearchQuery = {
   q: string;
   scope?: 'all' | 'cards' | 'decks' | 'library' | 'actions' | 'docs';
   currentRoute?: string;
+  classId?: string;
+  folderId?: string;
+  deckId?: string;
   limit?: number;
 };
 
