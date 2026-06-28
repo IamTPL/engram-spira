@@ -23,6 +23,7 @@ import { aiRoutes } from './modules/ai/ai.routes';
 import { embeddingRoutes } from './modules/embedding/embedding.routes';
 import { searchRoutes } from './modules/search/search.routes';
 import { kgRoutes } from './modules/knowledge-graph/kg.routes';
+import { experienceRoutes } from './modules/experience/experience.routes';
 import {
   cleanupExpiredJobs,
   recoverOrphanedJobs,
@@ -198,6 +199,7 @@ const app = new Elysia({ aot: true })
   .use(embeddingRoutes)
   .use(searchRoutes)
   .use(kgRoutes)
+  .use(experienceRoutes)
   .listen(ENV.PORT);
 
 logger.info(
