@@ -279,8 +279,6 @@ export async function commitCreatePreview(
     throw new ConflictError('Preview expired');
   }
 
-  const operations = await planCommitOperations(services, userId, record, request);
-
   record.consumedByKey = request.idempotencyKey;
   record.commitRecords.set(request.idempotencyKey, {
     fingerprint: commitFingerprint,
@@ -288,6 +286,25 @@ export async function commitCreatePreview(
     succeeded: false,
   });
   services.store.set(record);
+
+  let operations: CommitOperation[];
+  try {
+    operations = await planCommitOperations(services, userId, record, request);
+  } catch (error) {
+    const currentRecord = services.store.get(record.previewId) ?? record;
+    const currentCommit = currentRecord.commitRecords.get(request.idempotencyKey);
+    if (
+      currentRecord.consumedByKey === request.idempotencyKey &&
+      currentCommit &&
+      !currentCommit.succeeded &&
+      currentCommit.result === null
+    ) {
+      currentRecord.consumedByKey = null;
+      currentRecord.commitRecords.delete(request.idempotencyKey);
+      services.store.set(currentRecord);
+    }
+    throw error;
+  }
 
   const result: CreateCommitResponse = {
     createdCardIds: [],

@@ -389,6 +389,86 @@ describe('create preview service', () => {
     ).rejects.toThrow(new ConflictError('Preview already committed'));
   });
 
+  test('concurrent commits with different keys cannot both consume one preview', async () => {
+    let releaseMergeLoad!: () => void;
+    let markFirstWaiting!: () => void;
+    const mergeLoadBarrier = new Promise<void>((resolve) => {
+      releaseMergeLoad = resolve;
+    });
+    const firstWaiting = new Promise<void>((resolve) => {
+      markFirstWaiting = resolve;
+    });
+    let waitingMergeLoads = 0;
+    const svc = services({
+      loadMergeCard: async (_userId: string, cardId: string) => {
+        waitingMergeLoads++;
+        if (waitingMergeLoads === 1) markFirstWaiting();
+        await mergeLoadBarrier;
+        if (cardId !== 'existing-card') throw new NotFoundError('Card');
+        return {
+          id: 'existing-card',
+          deckId: 'deck-1',
+          title: 'Photosynthesis',
+          fields: { Front: 'Photosynthesis', Back: '', Note: '' },
+        };
+      },
+    });
+    const preview = await createPreview(
+      'user-1',
+      {
+        source: 'json',
+        targetDeckId: 'deck-1',
+        templateId: 'template-1',
+        payload: {
+          filename: 'cards.json',
+          content: JSON.stringify([
+            { Front: 'Unique', Back: 'New card' },
+            { Front: 'Photosynthesis', Back: 'Plants make sugar' },
+          ]),
+        },
+      },
+      svc,
+    );
+    const requestCards = [
+      { clientId: preview.cards[0].clientId, resolution: 'create' as const },
+      {
+        clientId: preview.cards[1].clientId,
+        resolution: 'merge' as const,
+        mergeTargetCardId: 'existing-card',
+      },
+    ];
+
+    const first = commitCreatePreview(
+      'user-1',
+      {
+        previewId: preview.previewId,
+        idempotencyKey: 'concurrent-first',
+        cards: requestCards,
+      },
+      svc,
+    );
+    await firstWaiting;
+    const second = commitCreatePreview(
+      'user-1',
+      {
+        previewId: preview.previewId,
+        idempotencyKey: 'concurrent-second',
+        cards: requestCards,
+      },
+      svc,
+    );
+
+    releaseMergeLoad();
+    const results = await Promise.allSettled([first, second]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected?.reason).toEqual(
+      new ConflictError('Preview already committed'),
+    );
+    expect(svc.created).toHaveLength(1);
+  });
+
   test('commit preflights all cards before creating any cards', async () => {
     const svc = services();
     const preview = await createPreview(
