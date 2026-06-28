@@ -1,19 +1,13 @@
 import {
-  type Accessor,
   type Component,
   type JSX,
   Show,
-  createContext,
   createEffect,
   createMemo,
   createSignal,
   on,
-  onCleanup,
-  useContext,
 } from 'solid-js';
 import { useLocation, useNavigate } from '@solidjs/router';
-import { PanelLeft, PanelRight } from 'lucide-solid';
-import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,9 +24,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { SidebarClassList } from '@/components/layout/sidebar/sidebar-class-list';
-import { SidebarFooter } from '@/components/layout/sidebar/sidebar-footer';
-import { SidebarProvider } from '@/components/layout/sidebar/sidebar-context';
 import { commandActionRunner } from '@/lib/command-actions';
 import { experienceQueryKeys } from '@/lib/experience-api';
 import { queryClient } from '@/lib/query-client';
@@ -40,6 +31,7 @@ import { currentUser } from '@/stores/auth.store';
 import { openSearch } from '@/stores/search.store';
 import { toast } from '@/stores/toast.store';
 import { cn } from '@/lib/utils';
+import { AppShellContext } from './app-shell-context';
 import type {
   AppShellContextValue,
   CommandActionContext,
@@ -59,6 +51,7 @@ import {
 } from './app-shell-state';
 import { CommandBar } from './command-bar';
 import { ContextPanel } from './context-panel';
+import { LibraryExplorer } from './library-explorer';
 import { MobileBottomNav } from './mobile-bottom-nav';
 import { TaskRail } from './task-rail';
 
@@ -67,8 +60,6 @@ type AppShellProps = {
 };
 
 type ConfirmationResult = Extract<CommandActionResult, { status: 'confirm' }>;
-
-const AppShellContext = createContext<AppShellContextValue>();
 
 function browserStorage() {
   return typeof window === 'undefined' ? undefined : window.localStorage;
@@ -365,8 +356,7 @@ export const AppShell: Component<AppShellProps> = (props) => {
   };
 
   return (
-    <SidebarProvider>
-      <AppShellContext.Provider value={shellContext}>
+    <AppShellContext.Provider value={shellContext}>
         <div class="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
           <TaskRail
             onOpenExplorer={openExplorerPanel}
@@ -378,8 +368,9 @@ export const AppShell: Component<AppShellProps> = (props) => {
               class="relative hidden h-full min-h-0 shrink-0 border-r bg-background xl:flex"
               style={{ width: `${explorerWidth()}px` }}
             >
-              <LibraryExplorerPanel
+              <LibraryExplorer
                 onCollapse={() => setExplorerCollapsed(true)}
+                onNavigate={closeResponsiveSurfaces}
               />
               <ResizeHandle
                 panel="explorer"
@@ -441,27 +432,34 @@ export const AppShell: Component<AppShellProps> = (props) => {
         </div>
 
         <Sheet open={explorerSheetOpen()} onOpenChange={setExplorerSheetOpen}>
-          <SheetContent side="left" class="w-[min(90vw,360px)] p-0">
-            <SheetHeader class="sr-only">
-              <SheetTitle>Library</SheetTitle>
-            </SheetHeader>
-            <LibraryExplorerPanel onCollapse={() => setExplorerSheetOpen(false)} />
-          </SheetContent>
+          <Show when={explorerSheetOpen()}>
+            <SheetContent side="left" class="w-[min(90vw,360px)] p-0">
+              <SheetHeader class="sr-only">
+                <SheetTitle>Library</SheetTitle>
+              </SheetHeader>
+              <LibraryExplorer
+                onCollapse={() => setExplorerSheetOpen(false)}
+                onNavigate={closeResponsiveSurfaces}
+              />
+            </SheetContent>
+          </Show>
         </Sheet>
 
         <Sheet open={contextSheetOpen()} onOpenChange={setContextSheetOpen}>
-          <SheetContent side="right" class="w-[min(92vw,380px)] p-0">
-            <SheetHeader class="sr-only">
-              <SheetTitle>Context</SheetTitle>
-            </SheetHeader>
-            <ContextPanel
-              descriptor={contextPanel}
-              pendingActionKey={pendingActionKey}
-              onRunAction={runShellAction}
-              onNavigate={navigateWithinShell}
-              onOpenSearch={openSearch}
-            />
-          </SheetContent>
+          <Show when={contextSheetOpen()}>
+            <SheetContent side="right" class="w-[min(92vw,380px)] p-0">
+              <SheetHeader class="sr-only">
+                <SheetTitle>Context</SheetTitle>
+              </SheetHeader>
+              <ContextPanel
+                descriptor={contextPanel}
+                pendingActionKey={pendingActionKey}
+                onRunAction={runShellAction}
+                onNavigate={navigateWithinShell}
+                onOpenSearch={openSearch}
+              />
+            </SheetContent>
+          </Show>
         </Sheet>
 
         <AlertDialog
@@ -494,42 +492,7 @@ export const AppShell: Component<AppShellProps> = (props) => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </AppShellContext.Provider>
-    </SidebarProvider>
-  );
-};
-
-const LibraryExplorerPanel: Component<{ onCollapse: () => void }> = (props) => {
-  const navigate = useNavigate();
-
-  return (
-    <div class="flex h-full min-h-0 w-full flex-col">
-      <div class="flex h-14 shrink-0 items-center gap-2 border-b px-3">
-        <button
-          type="button"
-          class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
-          onClick={() => navigate('/')}
-        >
-          <img src="/logo-engram.webp" alt="" class="h-7 w-auto" />
-          <span class="truncate text-sm font-semibold">Engram Spira</span>
-        </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          aria-label="Collapse library"
-          onClick={props.onCollapse}
-        >
-          <PanelLeft class="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div class="min-h-0 flex-1 overflow-y-auto p-3">
-        <SidebarClassList />
-      </div>
-
-      <SidebarFooter compact={false} />
-    </div>
+    </AppShellContext.Provider>
   );
 };
 
@@ -564,37 +527,8 @@ const ResizeHandle: Component<{
   );
 };
 
-export function useAppShell() {
-  const context = useContext(AppShellContext);
-  if (!context) throw new Error('useAppShell must be used within AppShell');
-  return context;
-}
-
-export function useRegisterContextPanel(
-  descriptorAccessor: Accessor<ContextPanelDescriptor | null>,
-) {
-  const shell = useAppShell();
-
-  createEffect(() => {
-    const descriptor = descriptorAccessor();
-    shell.setContextPanel(descriptor);
-
-    onCleanup(() => {
-      if (!descriptor || shell.contextPanel()?.id === descriptor.id) {
-        shell.setContextPanel(null);
-      }
-    });
-  });
-}
-
-export function useRegisterActionContext(
-  contextAccessor: Accessor<Partial<CommandActionContext>>,
-  keys: Array<keyof CommandActionContext>,
-) {
-  const shell = useAppShell();
-
-  createEffect(() => {
-    shell.setActionContext(contextAccessor());
-    onCleanup(() => shell.clearActionContext(keys));
-  });
-}
+export {
+  useAppShell,
+  useRegisterActionContext,
+  useRegisterContextPanel,
+} from './app-shell-context';

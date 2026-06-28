@@ -37,7 +37,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
   const actions = () => descriptor()?.actions ?? defaultActions;
 
   return (
-    <aside
+    <div
       class={cn(
         'flex h-full min-h-0 flex-col bg-background text-sm',
         props.class,
@@ -84,7 +84,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
           </div>
         </div>
       </Show>
-    </aside>
+    </div>
   );
 };
 
