@@ -1,21 +1,60 @@
-import { type JSX, splitProps } from 'solid-js';
+import {
+  type JSX,
+  createContext,
+  createEffect,
+  createSignal,
+  onCleanup,
+  splitProps,
+  useContext,
+} from 'solid-js';
 import { DropdownMenu as DropdownMenuPrimitive } from '@kobalte/core/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 type DropdownMenuProps = Parameters<typeof DropdownMenuPrimitive>[0];
+type DropdownMenuAlign = 'start' | 'center' | 'end';
+type DropdownMenuPlacement = NonNullable<DropdownMenuProps['placement']>;
 
-export function DropdownMenu(props: DropdownMenuProps) {
-  return <DropdownMenuPrimitive modal={false} {...props} />;
+const DropdownMenuAlignContext = createContext<{
+  setAlign: (align: DropdownMenuAlign | undefined) => void;
+}>();
+
+function getPlacementFromAlign(
+  align: DropdownMenuAlign | undefined,
+): DropdownMenuPlacement {
+  if (align === 'end') return 'bottom-end';
+  if (align === 'start') return 'bottom-start';
+  return 'bottom';
 }
 
-type DropdownMenuTriggerProps = JSX.HTMLAttributes<HTMLDivElement>;
+export function DropdownMenu(props: DropdownMenuProps) {
+  const [contentAlign, setContentAlign] = createSignal<DropdownMenuAlign>();
+  const [local, others] = splitProps(props, ['children', 'placement']);
+
+  return (
+    <DropdownMenuAlignContext.Provider value={{ setAlign: setContentAlign }}>
+      <DropdownMenuPrimitive
+        modal={false}
+        placement={local.placement ?? getPlacementFromAlign(contentAlign())}
+        {...others}
+      >
+        {local.children}
+      </DropdownMenuPrimitive>
+    </DropdownMenuAlignContext.Provider>
+  );
+}
+
+type DropdownMenuTriggerProps = Parameters<
+  typeof DropdownMenuPrimitive.Trigger
+>[0] & {
+  class?: string;
+};
 
 export function DropdownMenuTrigger(props: DropdownMenuTriggerProps) {
-  const [local, others] = splitProps(props, ['class', 'children']);
+  const [local, others] = splitProps(props, ['class', 'children', 'disabled']);
   return (
     <DropdownMenuPrimitive.Trigger
       as="div"
-      disabled
+      disabled={local.disabled}
       class={cn('inline-flex cursor-pointer', local.class)}
       {...others}
     >
@@ -30,6 +69,13 @@ type DropdownMenuContentProps = JSX.HTMLAttributes<HTMLDivElement> & {
 
 export function DropdownMenuContent(props: DropdownMenuContentProps) {
   const [local, others] = splitProps(props, ['class', 'children', 'align']);
+  const context = useContext(DropdownMenuAlignContext);
+
+  createEffect(() => {
+    context?.setAlign(local.align);
+    onCleanup(() => context?.setAlign(undefined));
+  });
+
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content

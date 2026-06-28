@@ -100,16 +100,44 @@ type DialogCloseProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
   onClose?: () => void;
 };
 
+function callClickHandler(
+  handler: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent> | undefined,
+  event: MouseEvent & {
+    currentTarget: HTMLButtonElement;
+    target: Element;
+  },
+) {
+  if (!handler) return;
+
+  if (typeof handler === 'function') {
+    handler(event);
+    return;
+  }
+
+  handler[0](handler[1], event);
+}
+
 export function DialogClose(props: DialogCloseProps) {
-  const [local, others] = splitProps(props, ['class', 'children', 'onClose']);
+  const [local, others] = splitProps(props, [
+    'class',
+    'children',
+    'onClose',
+    'onClick',
+  ]);
+
+  const onClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = (event) => {
+    callClickHandler(local.onClick, event);
+    local.onClose?.();
+  };
+
   return (
     <DialogPrimitive.CloseButton
       class={cn(
         'absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none',
         local.class,
       )}
-      onClick={() => local.onClose?.()}
       {...others}
+      onClick={onClick}
     >
       {local.children ?? (
         <>

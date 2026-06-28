@@ -99,13 +99,22 @@ export function AlertDialogFooter(props: AlertDialogFooterProps) {
   );
 }
 
-type AlertDialogActionProps = JSX.ButtonHTMLAttributes<HTMLButtonElement>;
+type AlertDialogActionProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'default' | 'destructive';
+};
 
 export function AlertDialogAction(props: AlertDialogActionProps) {
-  const [local, others] = splitProps(props, ['class', 'children']);
+  const [local, others] = splitProps(props, [
+    'class',
+    'children',
+    'variant',
+  ]);
   return (
     <AlertDialogPrimitive.CloseButton
-      class={cn(buttonVariants({ variant: 'destructive' }), local.class)}
+      class={cn(
+        buttonVariants({ variant: local.variant ?? 'default' }),
+        local.class,
+      )}
       {...others}
     >
       {local.children}
