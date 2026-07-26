@@ -59,7 +59,9 @@ docs/c4/workspace.json
 docs/c4/.export_tmp/
 docs/c4/export/
 
-skills
+# Root-level vendored skill clone only — .agents/skills/ IS tracked, do not
+# widen this back to a bare `skills` pattern (that also hid .agents/skills).
+/skills
 docs/superpowers
 .gitnexus
 .codegraph

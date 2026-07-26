@@ -4,12 +4,12 @@
     "elysiajs": {
       "source": "elysiajs/skills",
       "sourceType": "github",
-      "computedHash": "d13212a3759c6cd3c0d1de8b9d44558a1504328b73957392acd1f41250f3ef14"
+      "computedHash": "4909bc2a6c6844898a1c8256e75c9d5265a1eb8f9355d90ce3f036434439d304"
     },
     "solid-js-best-practices": {
       "source": "solid-js-best-practices/skills",
       "sourceType": "github",
-      "computedHash": "59359c6dae3decf8857a03f6525aab0a277debfa01f46b3dacd9be2963c13cda"
+      "computedHash": "6c101519b2d0b8777b9c0b709171b41f01ecebbb03957d238b9b41e041faf6c0"
     },
     "enhance-prompt": {
       "source": "enhance-prompt/skills",
@@ -45,6 +45,11 @@
       "source": "executing-plans/skills",
       "sourceType": "github",
       "computedHash": "cce4f0dfb1d271421262578832787f1b4a3040fd04f57c76f6d54c1673743a71"
+    },
+    "design-taste-frontend": {
+      "source": "design-taste-frontend/skills",
+      "sourceType": "github",
+      "computedHash": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89"
     }
   }
 }
