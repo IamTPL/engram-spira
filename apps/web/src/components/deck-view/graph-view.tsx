@@ -1,6 +1,7 @@
 import {
   type Component,
   Show,
+  For,
   createEffect,
   onCleanup,
   createSignal,
@@ -9,6 +10,7 @@ import {
 import { createQuery } from '@tanstack/solid-query';
 import { api } from '@/api/client';
 import { currentUser } from '@/stores/auth.store';
+import { resolvedTheme } from '@/stores/theme.store';
 import Skeleton from '@/components/ui/skeleton';
 import { Network, Maximize2, ZoomIn, ZoomOut } from 'lucide-solid';
 import cytoscape from 'cytoscape';
@@ -29,11 +31,41 @@ interface GraphViewProps {
   deckId: string;
 }
 
-function retentionColor(r: number | null): string {
-  if (r === null) return '#94a3b8';
-  if (r >= 0.8) return '#22c55e';
-  if (r >= 0.6) return '#f59e0b';
-  return '#ef4444';
+interface GraphColors {
+  muted: string;
+  success: string;
+  warning: string;
+  destructive: string;
+  foreground: string;
+  background: string;
+  border: string;
+}
+
+function readSemanticColor(name: string): string {
+  const styles = getComputedStyle(document.documentElement);
+  return (
+    styles.getPropertyValue(name).trim() ||
+    styles.getPropertyValue('--color-foreground').trim()
+  );
+}
+
+function getGraphColors(): GraphColors {
+  return {
+    muted: readSemanticColor('--color-muted-foreground'),
+    success: readSemanticColor('--color-success'),
+    warning: readSemanticColor('--color-warning'),
+    destructive: readSemanticColor('--color-destructive'),
+    foreground: readSemanticColor('--color-foreground'),
+    background: readSemanticColor('--color-background'),
+    border: readSemanticColor('--color-border'),
+  };
+}
+
+function retentionColor(r: number | null, colors: GraphColors): string {
+  if (r === null) return colors.muted;
+  if (r >= 0.8) return colors.success;
+  if (r >= 0.6) return colors.warning;
+  return colors.destructive;
 }
 
 const GraphView: Component<GraphViewProps> = (props) => {
@@ -71,6 +103,11 @@ const GraphView: Component<GraphViewProps> = (props) => {
     return d && d.nodes.length > 0 && d.edges.length === 0;
   };
 
+  const hasNoNodes = () => {
+    const d = graphQuery.data;
+    return d && d.nodes.length === 0;
+  };
+
   // Dynamic container height based on node count
   const containerHeight = createMemo(() => {
     const d = graphQuery.data;
@@ -79,8 +116,21 @@ const GraphView: Component<GraphViewProps> = (props) => {
     return Math.min(800, Math.max(400, 300 + nodeCount * 15));
   });
 
+  const nodeLabels = createMemo(
+    () =>
+      new Map(
+        (graphQuery.data?.nodes ?? []).map((node) => [node.id, node.label]),
+      ),
+  );
+
+  const retentionLabel = (retention: number | null) =>
+    retention === null
+      ? 'Not reviewed'
+      : `${Math.round(retention * 100)}% retention`;
+
   // Initialize Cytoscape when data arrives
   createEffect(() => {
+    resolvedTheme();
     const data = graphQuery.data;
     if (!data || !containerRef || data.edges.length === 0) {
       if (cy) { cy.destroy(); cy = null; }
@@ -94,6 +144,11 @@ const GraphView: Component<GraphViewProps> = (props) => {
       connectedIds.add(e.target);
     }
     const connectedNodes = data.nodes.filter((n) => connectedIds.has(n.id));
+    const colors = getGraphColors();
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+    const fontFamily = getComputedStyle(document.body).fontFamily;
 
     // Build cytoscape elements
     const elements = [
@@ -103,7 +158,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
           label: n.label.length > 20 ? n.label.slice(0, 18) + '…' : n.label,
           fullLabel: n.label,
           retention: n.retention,
-          color: retentionColor(n.retention),
+          color: retentionColor(n.retention, colors),
         },
       })),
       ...data.edges.map((e) => ({
@@ -129,17 +184,17 @@ const GraphView: Component<GraphViewProps> = (props) => {
             'background-color': 'data(color)',
             label: 'data(label)',
             'font-size': '11px',
-            'font-family': 'system-ui, -apple-system, sans-serif',
-            color: '#cbd5e1',
+            'font-family': fontFamily,
+            color: colors.foreground,
             'text-valign': 'bottom',
             'text-margin-y': 6,
             width: 16,
             height: 16,
             'border-width': 1.5,
-            'border-color': 'rgba(255,255,255,0.25)',
+            'border-color': colors.background,
             'text-max-width': '100px',
             'text-wrap': 'ellipsis',
-            'text-outline-color': 'rgba(0,0,0,0.6)',
+            'text-outline-color': colors.background,
             'text-outline-width': 2,
             'overlay-padding': 4,
           },
@@ -148,11 +203,11 @@ const GraphView: Component<GraphViewProps> = (props) => {
           selector: 'node:active, node:selected',
           style: {
             'border-width': 2.5,
-            'border-color': '#fff',
+            'border-color': colors.foreground,
             width: 22,
             height: 22,
             'font-weight': 'bold',
-            color: '#f1f5f9',
+            color: colors.foreground,
             'z-index': 10,
           },
         },
@@ -165,7 +220,8 @@ const GraphView: Component<GraphViewProps> = (props) => {
         {
           selector: 'edge[type = "related"]',
           style: {
-            'line-color': 'rgba(100,116,139,0.4)',
+            'line-color': colors.border,
+            'line-opacity': 0.7,
             width: 1.5,
             'line-style': 'dashed',
             'curve-style': 'taxi',
@@ -181,8 +237,8 @@ const GraphView: Component<GraphViewProps> = (props) => {
         rankSep: 100,           // Vertical spacing between levels
         edgeSep: 30,            // Spacing between edges
         ranker: 'network-simplex',
-        animate: true,
-        animationDuration: 500,
+        animate: !reduceMotion,
+        animationDuration: reduceMotion ? 0 : 450,
         fit: true,
         padding: 40,
       } as any,
@@ -235,77 +291,205 @@ const GraphView: Component<GraphViewProps> = (props) => {
   const handleZoomIn = () => { if (cy) cy.zoom(cy.zoom() * 1.3); };
   const handleZoomOut = () => { if (cy) cy.zoom(cy.zoom() / 1.3); };
 
-  const zoomBtnClass = 'h-7 w-7 flex items-center justify-center rounded-md bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors backdrop-blur-sm';
+  const zoomBtnClass =
+    'flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-xs transition-colors hover:bg-accent hover:text-foreground';
 
   return (
     <Show
       when={!graphQuery.isLoading}
       fallback={<Skeleton shape="card" height="300px" />}
     >
-      {/* Empty state: nodes exist but no relationships */}
-      <Show when={hasNodesButNoEdges()}>
-        <div class="rounded-xl border bg-card p-6 text-center">
-          <Network class="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-          <p class="text-sm font-medium">No relationships yet</p>
-          <p class="text-xs text-muted-foreground mt-1">
-            Use &ldquo;AI Detect Relationships&rdquo; below to discover connections between your cards.
-          </p>
-        </div>
-      </Show>
-      {/* Full graph with Cytoscape.js */}
-      <Show when={hasGraph()}>
-        <div class="rounded-xl border bg-card overflow-hidden relative">
-          <div class="flex items-center justify-between px-4 py-3 border-b">
-            <div class="flex items-center gap-2">
-              <Network class="h-4 w-4 text-muted-foreground" />
-              <h3 class="text-sm font-semibold">Knowledge Graph</h3>
-              <span class="text-[10px] text-muted-foreground ml-1">
-                ({graphQuery.data?.nodes.length ?? 0} nodes, {graphQuery.data?.edges.length ?? 0} edges)
-              </span>
-            </div>
-            <div class="flex items-center gap-3 text-[10px] text-muted-foreground">
-              <div class="flex items-center gap-1">
-                <div class="h-0.5 w-4 border-t border-dashed border-muted-foreground" />
-                <span>Related</span>
+      <Show
+        when={!graphQuery.isError}
+        fallback={
+          <section class="rounded-lg border bg-card p-5">
+            <h3 class="text-sm font-semibold text-foreground">
+              Knowledge graph unavailable
+            </h3>
+            <p class="mt-1 text-sm text-muted-foreground">
+              Relationship data could not be loaded right now.
+            </p>
+          </section>
+        }
+      >
+        <Show when={hasNoNodes()}>
+          <section class="rounded-lg border bg-card p-6 text-center">
+            <Network class="mx-auto mb-3 h-6 w-6 text-muted-foreground" />
+            <p class="text-sm font-medium text-foreground">
+              No graph data yet
+            </p>
+            <p class="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+              Add cards to this deck before detecting relationships.
+            </p>
+          </section>
+        </Show>
+
+        <Show when={hasNodesButNoEdges()}>
+          <section class="rounded-lg border bg-card p-6 text-center">
+            <Network class="mx-auto mb-3 h-6 w-6 text-muted-foreground" />
+            <p class="text-sm font-medium text-foreground">
+              No relationships yet
+            </p>
+            <p class="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+              Use AI relationship detection below to discover connections
+              between cards.
+            </p>
+          </section>
+        </Show>
+
+        <Show when={hasGraph()}>
+          <section
+            class="relative overflow-hidden rounded-lg border bg-card"
+            aria-labelledby="knowledge-graph-title"
+          >
+            <div class="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex min-w-0 items-center gap-2">
+                <Network class="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div class="min-w-0">
+                  <h3
+                    id="knowledge-graph-title"
+                    class="text-sm font-semibold text-foreground"
+                  >
+                    Knowledge graph
+                  </h3>
+                  <p class="text-xs text-muted-foreground">
+                    {graphQuery.data?.nodes.length ?? 0} nodes,{' '}
+                    {graphQuery.data?.edges.length ?? 0} connections
+                  </p>
+                </div>
               </div>
-            </div>
-          </div>
-          {/* Tooltip */}
-          <Show when={hoveredNode()}>
-            <div
-              class="absolute z-20 bg-card border rounded-lg px-3 py-2 shadow-lg text-xs pointer-events-none"
-              style={{
-                left: `${Math.min(hoveredNode()!.x + 10, (containerRef?.clientWidth ?? 400) - 160)}px`,
-                top: `${hoveredNode()!.y - 40}px`,
-              }}
-            >
-              <p class="font-semibold">{hoveredNode()!.label}</p>
-              <p class="text-muted-foreground mt-0.5">
-                Retention:{' '}
-                {hoveredNode()!.retention !== null
-                  ? `${Math.round(hoveredNode()!.retention! * 100)}%`
-                  : 'N/A'}
+              <p class="text-xs text-muted-foreground">
+                Select a node to isolate its connections
               </p>
             </div>
-          </Show>
-          {/* Zoom controls */}
-          <div class="absolute bottom-3 right-3 flex flex-col gap-1 z-10">
-            <button onClick={handleFit} title="Fit all" class={zoomBtnClass}>
-              <Maximize2 class="h-3.5 w-3.5" />
-            </button>
-            <button onClick={handleZoomIn} title="Zoom in" class={zoomBtnClass}>
-              <ZoomIn class="h-3.5 w-3.5" />
-            </button>
-            <button onClick={handleZoomOut} title="Zoom out" class={zoomBtnClass}>
-              <ZoomOut class="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div
-            ref={containerRef}
-            class="w-full cursor-grab active:cursor-grabbing"
-            style={{ height: `${containerHeight()}px` }}
-          />
-        </div>
+
+            <Show when={hoveredNode()}>
+              <div
+                role="tooltip"
+                class="pointer-events-none absolute z-20 rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md"
+                style={{
+                  left: `${Math.min(
+                    hoveredNode()!.x + 10,
+                    (containerRef?.clientWidth ?? 400) - 160,
+                  )}px`,
+                  top: `${hoveredNode()!.y - 40}px`,
+                }}
+              >
+                <p class="font-semibold">{hoveredNode()!.label}</p>
+                <p class="mt-0.5 text-muted-foreground">
+                  Retention:{' '}
+                  {hoveredNode()!.retention !== null
+                    ? `${Math.round(hoveredNode()!.retention! * 100)}%`
+                    : 'Not reviewed'}
+                </p>
+              </div>
+            </Show>
+
+            <div
+              class="absolute bottom-3 right-3 z-10 flex flex-col gap-1"
+              role="toolbar"
+              aria-label="Graph zoom controls"
+            >
+              <button
+                type="button"
+                onClick={handleFit}
+                title="Fit graph"
+                aria-label="Fit graph"
+                class={zoomBtnClass}
+              >
+                <Maximize2 class="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                title="Zoom in"
+                aria-label="Zoom in"
+                class={zoomBtnClass}
+              >
+                <ZoomIn class="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                title="Zoom out"
+                aria-label="Zoom out"
+                class={zoomBtnClass}
+              >
+                <ZoomOut class="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div
+              ref={containerRef}
+              class="w-full cursor-grab active:cursor-grabbing"
+              style={{ height: `${containerHeight()}px` }}
+              role="img"
+              aria-label="Interactive knowledge graph of related cards"
+              aria-describedby="knowledge-graph-canvas-description"
+            />
+
+            <p id="knowledge-graph-canvas-description" class="sr-only">
+              This graph contains {graphQuery.data?.nodes.length ?? 0} nodes
+              and {graphQuery.data?.edges.length ?? 0} relationships. Use the
+              accessible graph data section after the canvas to inspect every
+              item without using pointer controls.
+            </p>
+
+            <details class="border-t bg-card">
+              <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-accent">
+                View accessible graph data
+              </summary>
+              <div class="grid max-h-80 gap-5 overflow-y-auto border-t bg-surface p-4 md:grid-cols-2">
+                <section aria-labelledby="graph-node-list-title">
+                  <h4
+                    id="graph-node-list-title"
+                    class="text-xs font-semibold text-foreground"
+                  >
+                    Cards and retention
+                  </h4>
+                  <ul class="mt-2 space-y-2">
+                    <For each={graphQuery.data?.nodes ?? []}>
+                      {(node) => (
+                        <li class="rounded-md border bg-card px-3 py-2 text-xs">
+                          <span class="font-medium text-foreground">
+                            {node.label}
+                          </span>
+                          <span class="ml-2 text-muted-foreground">
+                            {retentionLabel(node.retention)}
+                          </span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </section>
+
+                <section aria-labelledby="graph-relationship-list-title">
+                  <h4
+                    id="graph-relationship-list-title"
+                    class="text-xs font-semibold text-foreground"
+                  >
+                    Relationships
+                  </h4>
+                  <ul class="mt-2 space-y-2">
+                    <For each={graphQuery.data?.edges ?? []}>
+                      {(edge) => (
+                        <li class="rounded-md border bg-card px-3 py-2 text-xs text-muted-foreground">
+                          <span class="font-medium text-foreground">
+                            {nodeLabels().get(edge.source) ?? edge.source}
+                          </span>
+                          <span> connects to </span>
+                          <span class="font-medium text-foreground">
+                            {nodeLabels().get(edge.target) ?? edge.target}
+                          </span>
+                          <span class="ml-1">({edge.type})</span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </section>
+              </div>
+            </details>
+          </section>
+        </Show>
       </Show>
     </Show>
   );

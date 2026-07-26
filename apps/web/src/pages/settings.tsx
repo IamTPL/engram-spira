@@ -5,12 +5,19 @@ import {
   createSignal,
   createEffect,
 } from 'solid-js';
-import { Portal } from 'solid-js/web';
 import { useNavigate } from '@solidjs/router';
 import { createQuery, createMutation } from '@tanstack/solid-query';
 import { queryClient } from '@/lib/query-client';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { currentUser, updateProfile } from '@/stores/auth.store';
 import {
@@ -76,10 +83,8 @@ const AvatarDisplay: Component<{
       when={props.avatarUrl}
       fallback={
         <div
-          class={`${sizeClass()} rounded-full text-slate-800 font-bold flex items-center justify-center ring-2 ring-palette-5 shrink-0`}
-          style={{
-            background: 'linear-gradient(135deg, #B2D8F1 0%, #B5CCFF 100%)',
-          }}
+          class={`${sizeClass()} flex shrink-0 items-center justify-center rounded-full bg-foreground font-semibold text-background ring-4 ring-border`}
+          aria-label={`Initials for ${props.email}`}
         >
           {initials()}
         </div>
@@ -87,8 +92,8 @@ const AvatarDisplay: Component<{
     >
       <img
         src={props.avatarUrl!}
-        alt="avatar"
-        class={`${sizeClass()} rounded-full object-contain p-0.5 bg-muted ring-4 ring-palette-5/20 shrink-0`}
+        alt={`Avatar for ${props.email}`}
+        class={`${sizeClass()} shrink-0 rounded-full bg-muted object-contain p-0.5 ring-4 ring-border`}
       />
     </Show>
   );
@@ -210,46 +215,61 @@ const SettingsPage: Component = () => {
   };
 
   return (
-    <PageShell maxWidth="max-w-2xl">
-      <div class="space-y-8 animate-fade-in">
+    <PageShell maxWidth="max-w-5xl">
+      <div class="animate-fade-in space-y-10">
         {/* ── Page Header ── */}
-        <div class="flex items-center gap-3">
+        <header class="flex items-start gap-4 border-b pb-7">
           <Button
             variant="ghost"
             size="icon"
-            class="h-8 w-8 shrink-0"
+            class="mt-0.5 h-9 w-9 shrink-0"
             onClick={() => navigate('/')}
+            aria-label="Back to dashboard"
           >
             <ArrowLeft class="h-4 w-4" />
           </Button>
-          <div>
-            <h1 class="text-xl font-bold">Settings</h1>
-            <p class="text-sm text-muted-foreground">
-              Manage your account and preferences
+          <div class="min-w-0">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Workspace settings
+            </p>
+            <h1 class="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              Make Engram Spira yours
+            </h1>
+            <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              Manage your identity, study model, appearance, and account security.
             </p>
           </div>
-        </div>
+        </header>
 
         {/* ── Profile Section ── */}
-        <section class="space-y-4">
-          <div class="flex items-center gap-2">
-            <User class="h-4 w-4 text-muted-foreground" />
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Profile
-            </h2>
+        <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <User class="h-4 w-4 text-muted-foreground" />
+              <h2 class="text-base font-semibold text-foreground">Profile</h2>
+            </div>
+            <p class="text-sm leading-5 text-muted-foreground">
+              Choose how your name and avatar appear across the workspace.
+            </p>
           </div>
 
-          <div class="border rounded-xl bg-card overflow-hidden">
+          <div class="overflow-hidden rounded-xl border bg-card shadow-xs">
             {/* Current profile preview + display name */}
-            <div class="px-5 py-5 flex items-center gap-4 border-b">
+            <div class="flex flex-col gap-5 border-b p-5 sm:flex-row sm:items-center sm:p-6">
               <AvatarDisplay
                 avatarUrl={selectedAvatar()}
                 email={currentUser()?.email ?? ''}
                 size="lg"
               />
               <div class="flex-1 min-w-0">
-                <p class="text-xs text-muted-foreground mb-1.5">Display name</p>
+                <label
+                  for="profile-display-name"
+                  class="mb-2 block text-sm font-medium text-foreground"
+                >
+                  Display name
+                </label>
                 <Input
+                  id="profile-display-name"
                   value={displayName()}
                   onInput={(e) => {
                     setDisplayName(e.currentTarget.value);
@@ -259,24 +279,27 @@ const SettingsPage: Component = () => {
                     currentUser()?.email?.split('@')[0] ?? 'Your name'
                   }
                   maxLength={50}
-                  class="h-9"
+                  autocomplete="name"
                 />
-                <p class="text-xs text-muted-foreground mt-1.5">
+                <p class="mt-2 truncate text-xs text-muted-foreground">
                   {currentUser()?.email}
                 </p>
               </div>
             </div>
 
             {/* Avatar collection picker */}
-            <div class="px-5 py-4">
-              <p class="text-sm font-medium text-foreground mb-3">
+            <div class="p-5 sm:p-6">
+              <p class="mb-4 text-sm font-medium text-foreground">
                 Choose an avatar
               </p>
 
               <Show
                 when={!avatarsQuery.isLoading}
                 fallback={
-                  <div class="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                  <div
+                    class="flex items-center gap-2 py-4 text-sm text-muted-foreground"
+                    aria-live="polite"
+                  >
                     <Loader2 class="h-4 w-4 animate-spin" />
                     Loading avatars...
                   </div>
@@ -285,19 +308,22 @@ const SettingsPage: Component = () => {
                 <Show
                   when={avatars().length > 0}
                   fallback={
-                    <p class="text-sm text-muted-foreground py-2">
+                    <p class="py-2 text-sm text-muted-foreground">
                       No avatars found in collection.
                     </p>
                   }
                 >
-                  <div class="grid grid-cols-8 gap-2">
+                  <div class="grid grid-cols-4 gap-2 min-[360px]:grid-cols-5 min-[360px]:gap-3 sm:grid-cols-8">
                     {/* Option: no avatar (show initials) */}
                     <button
+                      type="button"
                       title="Remove avatar"
-                      class={`relative w-11 h-11 rounded-full border-2 transition-colors flex items-center justify-center bg-muted/50 text-muted-foreground text-xs font-medium hover:bg-muted ${
+                      aria-label="Use initials instead of an avatar"
+                      aria-pressed={selectedAvatar() === null}
+                      class={`relative flex h-11 w-11 items-center justify-center rounded-full border-2 bg-muted/50 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         selectedAvatar() === null
-                          ? 'border-palette-5 ring-2 ring-palette-5/40'
-                          : 'border-transparent'
+                          ? 'border-foreground ring-2 ring-foreground/15'
+                          : 'border-transparent hover:border-border'
                       }`}
                       onClick={() => {
                         setSelectedAvatar(null);
@@ -306,11 +332,8 @@ const SettingsPage: Component = () => {
                     >
                       <X class="h-4 w-4" />
                       <Show when={selectedAvatar() === null}>
-                        <span
-                          class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                          style={{ background: '#B5CCFF' }}
-                        >
-                          <Check class="h-2.5 w-2.5 text-slate-800" />
+                        <span class="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background">
+                          <Check class="h-2.5 w-2.5" />
                         </span>
                       </Show>
                     </button>
@@ -319,11 +342,14 @@ const SettingsPage: Component = () => {
                     <For each={avatars()}>
                       {(url) => (
                         <button
+                          type="button"
                           title={url.split('/').pop()}
-                          class={`relative w-11 h-11 rounded-full border-2 transition-[border-color,transform] overflow-hidden hover:scale-105 ${
+                          aria-label={`Choose avatar ${url.split('/').pop() ?? ''}`}
+                          aria-pressed={selectedAvatar() === url}
+                          class={`relative h-11 w-11 overflow-hidden rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                             selectedAvatar() === url
-                              ? 'border-palette-5 ring-2 ring-palette-5/40'
-                              : 'border-transparent hover:border-muted-foreground/30'
+                              ? 'border-foreground ring-2 ring-foreground/15'
+                              : 'border-transparent hover:border-muted-foreground/40'
                           }`}
                           onClick={() => {
                             setSelectedAvatar(url);
@@ -336,11 +362,8 @@ const SettingsPage: Component = () => {
                             class="w-full h-full object-cover"
                           />
                           <Show when={selectedAvatar() === url}>
-                            <span
-                              class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                              style={{ background: '#B5CCFF' }}
-                            >
-                              <Check class="h-2.5 w-2.5 text-slate-800" />
+                            <span class="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background">
+                              <Check class="h-2.5 w-2.5" />
                             </span>
                           </Show>
                         </button>
@@ -351,14 +374,14 @@ const SettingsPage: Component = () => {
               </Show>
 
               {/* Upload hint */}
-              <p class="text-xs text-muted-foreground mt-3">
+              <p class="mt-4 text-xs text-muted-foreground">
                 Custom avatar upload coming soon.
               </p>
             </div>
 
             {/* Save / Cancel buttons */}
             <Show when={isDirty()}>
-              <div class="px-5 py-4 border-t bg-muted/30 flex items-center justify-end gap-2">
+              <div class="flex items-center justify-end gap-2 border-t bg-muted/30 px-5 py-4 sm:px-6">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -391,26 +414,31 @@ const SettingsPage: Component = () => {
         </section>
 
         {/* ── Account Section (read-only info) ── */}
-        <section class="space-y-4">
-          <div class="flex items-center gap-2">
-            <Shield class="h-4 w-4 text-muted-foreground" />
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Account
-            </h2>
+        <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <Shield class="h-4 w-4 text-muted-foreground" />
+              <h2 class="text-base font-semibold text-foreground">Account</h2>
+            </div>
+            <p class="text-sm leading-5 text-muted-foreground">
+              Review your sign-in details and keep your account secure.
+            </p>
           </div>
-          <div class="border rounded-xl bg-card overflow-hidden divide-y">
-            <div class="px-5 py-4 flex items-center justify-between">
+          <div class="overflow-hidden rounded-xl border bg-card shadow-xs">
+            <div class="flex items-center justify-between border-b px-5 py-4 sm:px-6">
               <div>
                 <p class="text-sm font-medium text-foreground">Email</p>
-                <p class="text-sm text-muted-foreground mt-0.5">
-                  {currentUser()?.email ?? '—'}
+                <p class="mt-1 text-sm text-muted-foreground">
+                  {currentUser()?.email ?? 'Not available'}
                 </p>
               </div>
             </div>
-            <div class="px-5 py-4 flex items-center justify-between">
+            <div class="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
               <div>
                 <p class="text-sm font-medium text-foreground">Password</p>
-                <p class="text-sm text-muted-foreground mt-0.5">••••••••</p>
+                <p class="mt-1 text-sm tracking-[0.16em] text-muted-foreground">
+                  ••••••••
+                </p>
               </div>
               <Button
                 variant="outline"
@@ -424,217 +452,251 @@ const SettingsPage: Component = () => {
           </div>
 
           {/* Change password modal */}
-          <Show when={showPwModal()}>
-            <Portal>
-              <div
-                class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="pw-modal-title"
-                onClick={() => setShowPwModal(false)}
-              >
-                <div
-                  class="bg-card border rounded-xl shadow-lg w-full max-w-sm mx-4 p-6 space-y-4"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <h3 id="pw-modal-title" class="text-lg font-semibold">
-                    Change Password
-                  </h3>
-                  <div class="space-y-3">
-                    <div>
-                      <label
-                        class="text-sm text-muted-foreground"
-                        for="current-pw"
-                      >
-                        Current password
-                      </label>
-                      <Input
-                        id="current-pw"
-                        type="password"
-                        autocomplete="current-password"
-                        value={currentPw()}
-                        onInput={(e) => setCurrentPw(e.currentTarget.value)}
-                        class="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label class="text-sm text-muted-foreground" for="new-pw">
-                        New password
-                      </label>
-                      <Input
-                        id="new-pw"
-                        type="password"
-                        autocomplete="new-password"
-                        value={newPw()}
-                        onInput={(e) => setNewPw(e.currentTarget.value)}
-                        class="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        class="text-sm text-muted-foreground"
-                        for="confirm-pw"
-                      >
-                        Confirm new password
-                      </label>
-                      <Input
-                        id="confirm-pw"
-                        type="password"
-                        autocomplete="new-password"
-                        value={confirmPw()}
-                        onInput={(e) => setConfirmPw(e.currentTarget.value)}
-                        class="mt-1"
-                      />
-                    </div>
-                  </div>
-                  <div class="flex justify-end gap-2 pt-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowPwModal(false)}
-                      disabled={pwSaving()}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleChangePassword}
-                      disabled={
-                        pwSaving() || !currentPw() || !newPw() || !confirmPw()
-                      }
-                    >
-                      <Show when={pwSaving()} fallback="Save">
-                        <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        Saving...
-                      </Show>
-                    </Button>
-                  </div>
+          <Dialog open={showPwModal()} onOpenChange={setShowPwModal}>
+            <DialogContent class="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Change password</DialogTitle>
+                <DialogDescription>
+                  Use at least eight characters for your new password.
+                </DialogDescription>
+              </DialogHeader>
+              <div class="space-y-4">
+                <div>
+                  <label
+                    class="text-sm font-medium text-foreground"
+                    for="current-pw"
+                  >
+                    Current password
+                  </label>
+                  <Input
+                    id="current-pw"
+                    type="password"
+                    autocomplete="current-password"
+                    value={currentPw()}
+                    onInput={(e) => setCurrentPw(e.currentTarget.value)}
+                    class="mt-1"
+                  />
+                </div>
+                <div>
+                  <label class="text-sm font-medium text-foreground" for="new-pw">
+                    New password
+                  </label>
+                  <Input
+                    id="new-pw"
+                    type="password"
+                    autocomplete="new-password"
+                    value={newPw()}
+                    onInput={(e) => setNewPw(e.currentTarget.value)}
+                    class="mt-1"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="text-sm font-medium text-foreground"
+                    for="confirm-pw"
+                  >
+                    Confirm new password
+                  </label>
+                  <Input
+                    id="confirm-pw"
+                    type="password"
+                    autocomplete="new-password"
+                    value={confirmPw()}
+                    onInput={(e) => setConfirmPw(e.currentTarget.value)}
+                    class="mt-1"
+                  />
                 </div>
               </div>
-            </Portal>
-          </Show>
+              <DialogFooter class="border-t pt-4">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPwModal(false)}
+                  disabled={pwSaving()}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleChangePassword}
+                  disabled={pwSaving() || !currentPw() || !newPw() || !confirmPw()}
+                >
+                  <Show when={pwSaving()} fallback="Save">
+                    <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Saving...
+                  </Show>
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </section>
 
         {/* ── Appearance Section ── */}
-        <section class="space-y-4">
-          <div class="flex items-center gap-2">
-            <Palette class="h-4 w-4 text-muted-foreground" />
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Appearance
-            </h2>
+        <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <Palette class="h-4 w-4 text-muted-foreground" />
+              <h2 class="text-base font-semibold text-foreground">Appearance</h2>
+            </div>
+            <p class="text-sm leading-5 text-muted-foreground">
+              Select a theme that stays comfortable throughout every study session.
+            </p>
           </div>
-          <div class="border rounded-xl bg-card overflow-hidden">
-            <div class="px-5 py-4">
-              <p class="text-sm font-medium text-foreground mb-3">Theme</p>
-              <div class="grid grid-cols-3 gap-3">
+          <div class="overflow-hidden rounded-xl border bg-card p-5 shadow-xs sm:p-6">
+              <p class="mb-4 text-sm font-medium text-foreground">Theme</p>
+              <div
+                class="grid grid-cols-1 gap-2 sm:grid-cols-3"
+                role="radiogroup"
+                aria-label="Color theme"
+              >
                 {THEME_OPTIONS.map((opt) => {
                   const Icon = opt.icon;
                   return (
                     <button
-                      class={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors cursor-pointer ${
+                      type="button"
+                      role="radio"
+                      aria-checked={theme() === opt.value}
+                      class={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         theme() === opt.value
-                          ? 'border-palette-5 bg-palette-5/10 text-slate-700'
-                          : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
+                          ? 'border-foreground bg-foreground text-background'
+                          : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
                       }`}
                       onClick={() => setTheme(opt.value)}
                     >
-                      <Icon class="h-5 w-5" />
-                      <span class="text-xs font-medium">{opt.label}</span>
+                      <Icon class="h-4 w-4" />
+                      <span class="text-sm font-medium">{opt.label}</span>
                     </button>
                   );
                 })}
               </div>
-              <p class="text-xs text-muted-foreground mt-3">
+              <p class="mt-4 min-h-4 text-xs text-muted-foreground">
                 <Show when={theme() === 'system'}>
                   Currently using <strong>{resolvedTheme()}</strong> mode based
                   on your system settings.
                 </Show>
               </p>
-            </div>
           </div>
         </section>
 
         {/* ── Study Algorithm Section ── */}
-        <section class="space-y-4">
-          <div class="flex items-center gap-2">
-            <BrainCircuit class="h-4 w-4 text-muted-foreground" />
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Spaced Repetition
-            </h2>
+        <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <BrainCircuit class="h-4 w-4 text-muted-foreground" />
+              <h2 class="text-base font-semibold text-foreground">
+                Spaced repetition
+              </h2>
+            </div>
+            <p class="text-sm leading-5 text-muted-foreground">
+              Control how Engram schedules the next review for each card.
+            </p>
           </div>
-          <div class="border rounded-xl bg-card overflow-hidden">
-            <div class="px-5 py-4">
-              <p class="text-sm font-medium text-foreground mb-1">Algorithm</p>
-              <p class="text-xs text-muted-foreground mb-3">
+          <div class="overflow-hidden rounded-xl border bg-card p-5 shadow-xs sm:p-6">
+              <p class="text-sm font-medium text-foreground">Algorithm</p>
+              <p class="mb-4 mt-1 text-xs leading-5 text-muted-foreground">
                 Choose which spaced repetition algorithm schedules your reviews.
               </p>
-              <div class="grid grid-cols-2 gap-3">
+              <div
+                class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                role="radiogroup"
+                aria-label="Spaced repetition algorithm"
+              >
                 <button
-                  class={`flex flex-col gap-1 p-4 rounded-xl border-2 transition-colors text-left ${
+                  type="button"
+                  role="radio"
+                  aria-checked={(algorithmQuery.data ?? 'sm2') === 'sm2'}
+                  class={`flex flex-col gap-1 rounded-lg border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     (algorithmQuery.data ?? 'sm2') === 'sm2'
-                      ? 'border-palette-5 bg-palette-5/10'
-                      : 'border-transparent bg-muted/50 hover:bg-muted'
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'border-border bg-background hover:bg-muted'
                   }`}
                   disabled={algorithmMutation.isPending}
                   onClick={() => algorithmMutation.mutate('sm2')}
                 >
                   <span class="text-sm font-semibold">SM-2</span>
-                  <span class="text-xs text-muted-foreground">
+                  <span
+                    class={`text-xs ${
+                      (algorithmQuery.data ?? 'sm2') === 'sm2'
+                        ? 'text-background/70'
+                        : 'text-muted-foreground'
+                    }`}
+                  >
                     Classic SuperMemo algorithm. Simple and proven.
                   </span>
                 </button>
                 <button
-                  class={`flex flex-col gap-1 p-4 rounded-xl border-2 transition-colors text-left ${
+                  type="button"
+                  role="radio"
+                  aria-checked={algorithmQuery.data === 'fsrs'}
+                  class={`flex flex-col gap-1 rounded-lg border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     algorithmQuery.data === 'fsrs'
-                      ? 'border-palette-5 bg-palette-5/10'
-                      : 'border-transparent bg-muted/50 hover:bg-muted'
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'border-border bg-background hover:bg-muted'
                   }`}
                   disabled={algorithmMutation.isPending}
                   onClick={() => algorithmMutation.mutate('fsrs')}
                 >
                   <span class="text-sm font-semibold">FSRS</span>
-                  <span class="text-xs text-muted-foreground">
+                  <span
+                    class={`text-xs ${
+                      algorithmQuery.data === 'fsrs'
+                        ? 'text-background/70'
+                        : 'text-muted-foreground'
+                    }`}
+                  >
                     Modern algorithm with better retention modeling.
                   </span>
                 </button>
               </div>
               <Show when={algorithmMutation.isPending}>
-                <div class="flex items-center gap-2 text-xs text-muted-foreground mt-3">
+                <div
+                  class="mt-3 flex items-center gap-2 text-xs text-muted-foreground"
+                  aria-live="polite"
+                >
                   <Loader2 class="h-3 w-3 animate-spin" />
                   Switching algorithm...
                 </div>
               </Show>
-            </div>
           </div>
         </section>
 
         {/* ── Card Templates Section ── */}
-        <section class="space-y-4">
-          <div class="flex items-center gap-2">
-            <Layers class="h-4 w-4 text-muted-foreground" />
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Card Templates
-            </h2>
+        <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <Layers class="h-4 w-4 text-muted-foreground" />
+              <h2 class="text-base font-semibold text-foreground">
+                Card templates
+              </h2>
+            </div>
+            <p class="text-sm leading-5 text-muted-foreground">
+              Define reusable card structures for consistent knowledge capture.
+            </p>
           </div>
-          <TemplateBuilder />
+          <div class="min-w-0">
+            <TemplateBuilder />
+          </div>
         </section>
 
         {/* ── About Section ── */}
-        <section class="space-y-4">
-          <div class="flex items-center gap-2">
-            <Info class="h-4 w-4 text-muted-foreground" />
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              About
-            </h2>
+        <section class="grid gap-4 border-t pt-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <Info class="h-4 w-4 text-muted-foreground" />
+              <h2 class="text-base font-semibold text-foreground">About</h2>
+            </div>
+            <p class="text-sm leading-5 text-muted-foreground">
+              Technical details for this Engram Spira build.
+            </p>
           </div>
-          <div class="border rounded-xl bg-card overflow-hidden divide-y">
-            <div class="px-5 py-4 flex items-center justify-between">
-              <p class="text-sm text-foreground">Version</p>
+          <div class="overflow-hidden rounded-xl border bg-card shadow-xs">
+            <div class="flex items-center justify-between border-b px-5 py-4 sm:px-6">
+              <p class="text-sm font-medium text-foreground">Version</p>
               <span class="text-sm text-muted-foreground font-mono">1.0.0</span>
             </div>
-            <div class="px-5 py-4 flex items-center justify-between">
-              <p class="text-sm text-foreground">Built with</p>
-              <span class="text-sm text-muted-foreground">
+            <div class="flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <p class="text-sm font-medium text-foreground">Built with</p>
+              <span class="text-sm text-muted-foreground sm:text-right">
                 SolidJS + ElysiaJS + Drizzle
               </span>
             </div>

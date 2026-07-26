@@ -16,10 +16,13 @@ export function SheetTrigger(props: SheetTriggerProps) {
 }
 
 const sideClasses = {
-  top: 'inset-x-0 top-0 border-b',
-  bottom: 'inset-x-0 bottom-0 border-t',
-  left: 'inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm',
-  right: 'inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm',
+  top: 'inset-x-0 top-0 max-h-[calc(100dvh-1rem)] border-b motion-safe:animate-slide-in-top',
+  bottom:
+    'inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] border-t motion-safe:animate-slide-in-bottom',
+  left:
+    'inset-y-0 left-0 h-full w-[calc(100%-1rem)] border-r motion-safe:animate-slide-in-left sm:max-w-sm',
+  right:
+    'inset-y-0 right-0 h-full w-[calc(100%-1rem)] border-l motion-safe:animate-slide-in sm:max-w-sm',
 } as const;
 
 type SheetContentProps = JSX.HTMLAttributes<HTMLDivElement> & {
@@ -32,17 +35,17 @@ export function SheetContent(props: SheetContentProps) {
 
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm animate-fade-in" />
+      <DialogPrimitive.Overlay class="fixed inset-0 z-50 bg-overlay motion-safe:animate-fade-in" />
       <DialogPrimitive.Content
         class={cn(
-          'fixed z-50 gap-4 bg-background p-6 shadow-lg animate-slide-in',
+          'fixed z-50 flex flex-col gap-4 overflow-y-auto bg-popover p-5 text-popover-foreground shadow-xl sm:p-6',
           sideClasses[side()],
           local.class,
         )}
         {...others}
       >
         {local.children}
-        <SheetClose class="absolute right-4 top-4" />
+        <SheetClose class="absolute right-3 top-3" />
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );
@@ -68,7 +71,7 @@ export function SheetTitle(props: SheetTitleProps) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
     <DialogPrimitive.Title
-      class={cn('text-lg font-semibold text-foreground', local.class)}
+      class={cn('text-lg font-semibold leading-tight text-foreground', local.class)}
       {...others}
     >
       {local.children}
@@ -97,7 +100,7 @@ export function SheetFooter(props: SheetFooterProps) {
   return (
     <div
       class={cn(
-        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
+        'flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end',
         local.class,
       )}
       {...others}
@@ -114,7 +117,7 @@ export function SheetClose(props: SheetCloseProps) {
   return (
     <DialogPrimitive.CloseButton
       class={cn(
-        'rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none',
+        'inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-150 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 active:translate-y-px disabled:pointer-events-none disabled:opacity-50',
         local.class,
       )}
       {...others}

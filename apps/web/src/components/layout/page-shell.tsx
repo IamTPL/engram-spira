@@ -20,14 +20,16 @@ const PageShell: Component<PageShellProps> = (props) => {
     <div
       class={cn(
         'h-full min-h-0',
-        props.noScroll ? 'flex flex-col overflow-hidden' : 'overflow-y-auto',
+        props.noScroll
+          ? 'flex flex-col overflow-hidden'
+          : 'overflow-y-auto overscroll-contain',
       )}
     >
       <div
         class={cn(
           props.noScroll
-            ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
-            : 'mx-auto p-4 md:p-6',
+            ? 'flex min-h-0 w-full flex-1 flex-col overflow-hidden'
+            : 'mx-auto w-full px-4 py-5 sm:px-5 sm:py-6 md:px-6 md:py-7 lg:px-8 lg:py-8',
           !props.noScroll && maxWidthClass(),
           props.class,
         )}

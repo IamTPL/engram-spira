@@ -1,20 +1,22 @@
-import type { Component } from 'solid-js';
+import { type Component, For, Show } from 'solid-js';
 import { useLocation, useNavigate } from '@solidjs/router';
 import {
-  BarChart3,
   BookOpenCheck,
   Home,
   Library,
-  Plus,
   Settings,
+  Target,
 } from 'lucide-solid';
-import { openSearch } from '@/stores/search.store';
+import {
+  isDrawerOpen,
+  isRunning,
+  openFocusDrawer,
+} from '@/stores/focus.store';
 import { cn } from '@/lib/utils';
 
 type MobileBottomNavProps = {
   class?: string;
   onOpenExplorer: () => void;
-  onOpenContext: () => void;
 };
 
 export const MobileBottomNav: Component<MobileBottomNavProps> = (props) => {
@@ -26,7 +28,14 @@ export const MobileBottomNav: Component<MobileBottomNavProps> = (props) => {
       path === '/' ? location.pathname === '/' : location.pathname.startsWith(path),
     );
 
-  const items = () => [
+  const items = (): Array<{
+    label: string;
+    icon: Component<{ class?: string }>;
+    active: boolean;
+    running?: boolean;
+    pressable?: boolean;
+    onClick: () => void;
+  }> => [
     {
       label: 'Home',
       icon: Home,
@@ -46,16 +55,12 @@ export const MobileBottomNav: Component<MobileBottomNavProps> = (props) => {
       onClick: props.onOpenExplorer,
     },
     {
-      label: 'Create',
-      icon: Plus,
-      active: false,
-      onClick: openSearch,
-    },
-    {
-      label: 'Insights',
-      icon: BarChart3,
-      active: isActive(['/insights']),
-      onClick: props.onOpenContext,
+      label: 'Focus',
+      icon: Target,
+      active: isDrawerOpen(),
+      running: isRunning(),
+      pressable: true,
+      onClick: openFocusDrawer,
     },
     {
       label: 'Settings',
@@ -73,18 +78,22 @@ export const MobileBottomNav: Component<MobileBottomNavProps> = (props) => {
         props.class,
       )}
     >
-      <div class="grid h-16 grid-cols-6">
-        {items().map((item) => {
-          const Icon = item.icon;
-          return (
+      <div class="grid h-16 grid-cols-5">
+        <For each={items()}>
+          {(item) => {
+            const Icon = item.icon;
+            return (
             <button
               type="button"
               class={cn(
-                'flex min-w-0 flex-col items-center justify-center gap-1 rounded-md px-0.5 text-[10px] font-medium text-muted-foreground',
+                'relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-md px-0.5 text-[10px] font-medium text-muted-foreground',
                 item.active && 'text-foreground',
               )}
               aria-label={item.label}
-              aria-current={item.active ? 'page' : undefined}
+              aria-current={
+                item.active && !item.pressable ? 'page' : undefined
+              }
+              aria-pressed={item.pressable ? item.active : undefined}
               onClick={item.onClick}
             >
               <span
@@ -94,11 +103,18 @@ export const MobileBottomNav: Component<MobileBottomNavProps> = (props) => {
                 )}
               >
                 <Icon class="h-4 w-4" />
+                <Show when={item.running}>
+                  <span
+                    class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-success"
+                    aria-hidden="true"
+                  />
+                </Show>
               </span>
               <span class="w-full truncate leading-none">{item.label}</span>
             </button>
           );
-        })}
+          }}
+        </For>
       </div>
     </nav>
   );

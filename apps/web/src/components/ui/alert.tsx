@@ -5,18 +5,19 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-solid';
 import { cva, type VariantProps } from 'class-variance-authority';
 
 const alertVariants = cva(
-  'relative w-full rounded-lg border px-4 py-3 text-sm',
+  'relative w-full rounded-xl border px-4 py-3.5 text-sm shadow-xs',
   {
     variants: {
       variant: {
-        default: 'bg-background text-foreground',
+        default: 'border-border bg-card text-card-foreground',
         destructive:
-          'border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive',
+          'border-destructive/25 bg-destructive-surface text-destructive [&>svg]:text-destructive',
         success:
-          'border-success/50 text-success dark:border-success [&>svg]:text-success',
+          'border-success/25 bg-success-surface text-success [&>svg]:text-success',
         warning:
-          'border-warning/50 text-warning dark:border-warning [&>svg]:text-warning',
-        info: 'border-info/50 text-info dark:border-info [&>svg]:text-info',
+          'border-warning/25 bg-warning-surface text-warning [&>svg]:text-warning',
+        info:
+          'border-info/25 bg-info-surface text-info [&>svg]:text-info',
       },
     },
     defaultVariants: {
@@ -56,7 +57,8 @@ export function Alert(props: AlertProps) {
       role="alert"
       class={cn(
         alertVariants({ variant: local.variant }),
-        showIcon() && '[&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-7',
+        showIcon() &&
+          '[&>svg]:absolute [&>svg]:left-4 [&>svg]:top-[1.125rem] [&>svg~*]:pl-7',
         local.class,
       )}
       {...others}
@@ -79,7 +81,10 @@ type AlertTitleProps = JSX.HTMLAttributes<HTMLHeadingElement>;
 export function AlertTitle(props: AlertTitleProps) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
-    <h5 class={cn('mb-1 font-medium leading-none tracking-tight', local.class)} {...others}>
+    <h5
+      class={cn('mb-1 font-semibold leading-tight tracking-tight', local.class)}
+      {...others}
+    >
       {local.children}
     </h5>
   );
@@ -90,7 +95,10 @@ type AlertDescriptionProps = JSX.HTMLAttributes<HTMLParagraphElement>;
 export function AlertDescription(props: AlertDescriptionProps) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
-    <div class={cn('text-sm [&_p]:leading-relaxed', local.class)} {...others}>
+    <div
+      class={cn('text-sm leading-relaxed [&_p]:leading-relaxed', local.class)}
+      {...others}
+    >
       {local.children}
     </div>
   );

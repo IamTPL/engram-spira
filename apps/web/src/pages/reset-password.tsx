@@ -1,16 +1,17 @@
-import { type Component, Show, createMemo, createSignal } from 'solid-js';
+import {
+  type Component,
+  Show,
+  createMemo,
+  createSignal,
+  onCleanup,
+} from 'solid-js';
 import { A, useNavigate, useSearchParams } from '@solidjs/router';
 import { api, getApiError } from '@/api/client';
+import AuthFrame from '@/components/auth/auth-frame';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Lock, Mail, ShieldCheck } from 'lucide-solid';
 
 const ResetPasswordPage: Component = () => {
   const navigate = useNavigate();
@@ -29,6 +30,11 @@ const ResetPasswordPage: Component = () => {
   const [error, setError] = createSignal('');
   const [success, setSuccess] = createSignal('');
   const [loading, setLoading] = createSignal(false);
+  let redirectTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onCleanup(() => {
+    if (redirectTimer) clearTimeout(redirectTimer);
+  });
 
   const handleRequestReset = async (e: Event) => {
     e.preventDefault();
@@ -72,7 +78,10 @@ const ResetPasswordPage: Component = () => {
       setSuccess(
         'Password has been reset successfully. Redirecting to login...',
       );
-      setTimeout(() => navigate('/login', { replace: true }), 1200);
+      redirectTimer = setTimeout(
+        () => navigate('/login', { replace: true }),
+        1200,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset password');
     } finally {
@@ -81,127 +90,105 @@ const ResetPasswordPage: Component = () => {
   };
 
   return (
-    <div class="min-h-screen flex items-center justify-center px-4">
-      <Card class="w-full max-w-sm">
-        <CardHeader class="text-center items-center">
-          <img
-            src="/logo-engram-full.webp"
-            alt="Engram Spira"
-            class="h-20 w-auto mb-2"
-          />
-          <CardTitle>
-            {hasToken() ? 'Set New Password' : 'Forgot Password'}
-          </CardTitle>
-          <CardDescription>
-            {hasToken()
-              ? 'Enter your new password to finish resetting your account.'
-              : 'Enter your email to receive a password reset link.'}
-          </CardDescription>
-        </CardHeader>
+    <AuthFrame
+      title={hasToken() ? 'Set a new password' : 'Reset your password'}
+      description={
+        hasToken()
+          ? 'Choose a new password to finish recovering your account.'
+          : 'Enter your email and we will send a secure reset link.'
+      }
+    >
+      <Show
+        when={hasToken()}
+        fallback={
+          <form onSubmit={handleRequestReset} class="space-y-5">
+            <Show when={error()}>
+              <Alert variant="destructive">{error()}</Alert>
+            </Show>
+            <Show when={success()}>
+              <Alert variant="success">{success()}</Alert>
+            </Show>
 
-        <Show
-          when={hasToken()}
-          fallback={
-            <form onSubmit={handleRequestReset}>
-              <CardContent class="space-y-4">
-                <Show when={error()}>
-                  <div
-                    role="alert"
-                    class="text-sm text-destructive text-center"
-                  >
-                    {error()}
-                  </div>
-                </Show>
-                <Show when={success()}>
-                  <div role="status" class="text-sm text-green-600 text-center">
-                    {success()}
-                  </div>
-                </Show>
-                <div class="space-y-2">
-                  <label class="text-sm font-medium" for="email">
-                    Email
-                  </label>
-                  <Input
-                    id="email"
-                    type="email"
-                    autocomplete="email"
-                    placeholder="you@example.com"
-                    value={email()}
-                    onInput={(e) => setEmail(e.currentTarget.value)}
-                    required
-                  />
-                </div>
-              </CardContent>
-              <CardFooter class="flex-col gap-2">
-                <Button type="submit" class="w-full" disabled={loading()}>
-                  {loading() ? 'Sending...' : 'Send Reset Link'}
-                </Button>
-                <p class="text-sm text-muted-foreground">
-                  Back to{' '}
-                  <A href="/login" class="text-palette-5 underline">
-                    Sign in
-                  </A>
-                </p>
-              </CardFooter>
-            </form>
-          }
-        >
-          <form onSubmit={handleResetPassword}>
-            <CardContent class="space-y-4">
-              <Show when={error()}>
-                <div role="alert" class="text-sm text-destructive text-center">
-                  {error()}
-                </div>
-              </Show>
-              <Show when={success()}>
-                <div role="status" class="text-sm text-green-600 text-center">
-                  {success()}
-                </div>
-              </Show>
-              <div class="space-y-2">
-                <label class="text-sm font-medium" for="new-password">
-                  New Password
-                </label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  autocomplete="new-password"
-                  placeholder="At least 8 characters"
-                  value={newPassword()}
-                  onInput={(e) => setNewPassword(e.currentTarget.value)}
-                  required
-                />
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium" for="confirm-password">
-                  Confirm Password
-                </label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  autocomplete="new-password"
-                  placeholder="Re-enter password"
-                  value={confirmPassword()}
-                  onInput={(e) => setConfirmPassword(e.currentTarget.value)}
-                  required
-                />
-              </div>
-            </CardContent>
-            <CardFooter class="flex-col gap-2">
-              <Button type="submit" class="w-full" disabled={loading()}>
-                {loading() ? 'Updating...' : 'Reset Password'}
-              </Button>
-              <p class="text-sm text-muted-foreground">
-                Back to{' '}
-                <A href="/login" class="text-palette-5 underline">
-                  Sign in
-                </A>
-              </p>
-            </CardFooter>
+            <div class="space-y-2">
+              <label class="text-sm font-medium" for="email">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                autocomplete="email"
+                placeholder="you@example.com"
+                value={email()}
+                onInput={(e) => setEmail(e.currentTarget.value)}
+                required
+                iconLeft={<Mail class="h-4 w-4" />}
+              />
+            </div>
+
+            <Button type="submit" class="w-full" loading={loading()}>
+              Send reset link
+            </Button>
+            <p class="text-center text-sm text-muted-foreground">
+              Remembered it?{' '}
+              <A href="/login" class="font-medium text-foreground hover:underline">
+                Sign in
+              </A>
+            </p>
           </form>
-        </Show>
-      </Card>
-    </div>
+        }
+      >
+        <form onSubmit={handleResetPassword} class="space-y-5">
+          <Show when={error()}>
+            <Alert variant="destructive">{error()}</Alert>
+          </Show>
+          <Show when={success()}>
+            <Alert variant="success">{success()}</Alert>
+          </Show>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium" for="new-password">
+              New password
+            </label>
+            <Input
+              id="new-password"
+              type="password"
+              autocomplete="new-password"
+              placeholder="At least 8 characters"
+              value={newPassword()}
+              onInput={(e) => setNewPassword(e.currentTarget.value)}
+              required
+              iconLeft={<Lock class="h-4 w-4" />}
+            />
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium" for="confirm-password">
+              Confirm password
+            </label>
+            <Input
+              id="confirm-password"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Re-enter password"
+              value={confirmPassword()}
+              onInput={(e) => setConfirmPassword(e.currentTarget.value)}
+              required
+              iconLeft={<ShieldCheck class="h-4 w-4" />}
+            />
+          </div>
+
+          <Button type="submit" class="w-full" loading={loading()}>
+            Reset password
+          </Button>
+          <p class="text-center text-sm text-muted-foreground">
+            Back to{' '}
+            <A href="/login" class="font-medium text-foreground hover:underline">
+              Sign in
+            </A>
+          </p>
+        </form>
+      </Show>
+    </AuthFrame>
   );
 };
 

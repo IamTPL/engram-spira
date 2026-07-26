@@ -21,24 +21,26 @@ export function EmptyState(props: EmptyStateProps) {
   return (
     <div
       class={cn(
-        'flex flex-col items-center justify-center px-6 py-12 text-center',
+        'flex flex-col items-center justify-center px-5 py-10 text-center sm:px-6 sm:py-12',
         local.class,
       )}
       {...others}
     >
       <Show when={local.icon}>
         {(Icon) => (
-          <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border bg-muted text-muted-foreground shadow-xs">
             <Dynamic
               component={Icon()}
-              class="h-7 w-7 text-muted-foreground"
+              class="h-5 w-5"
             />
           </div>
         )}
       </Show>
-      <h3 class="text-lg font-semibold tracking-tight">{local.title}</h3>
+      <h3 class="text-base font-semibold tracking-tight text-foreground">
+        {local.title}
+      </h3>
       <Show when={local.description}>
-        <p class="mt-1.5 text-sm text-muted-foreground max-w-sm">
+        <p class="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
           {local.description}
         </p>
       </Show>

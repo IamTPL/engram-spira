@@ -7,8 +7,9 @@ import {
   X,
   CheckSquare,
   Square,
+  GripVertical,
 } from 'lucide-solid';
-import type { CardItem, CardField, TemplateField } from './types';
+import type { CardItem, CardField } from './types';
 
 // ── Helper functions (defined once, not per-item) ────────────────────────
 function getFieldByName(fields: CardField[], name: string): CardField | undefined {
@@ -52,18 +53,15 @@ interface CardItemRowProps {
   isSelected: boolean;
   isEditing: boolean;
   isDragSource: boolean;
-  isDropTarget: boolean;
   isDragging: boolean;
+  dragDisabledReason: string | null;
   confirmDeleteId: string | null;
   onToggleSelection: (cardId: string) => void;
   onStartEdit: (card: CardItem) => void;
   onDelete: (cardId: string) => void;
   onConfirmDelete: (cardId: string | null) => void;
-  onDragStart: (index: number, e: DragEvent) => void;
-  onDragOver: (index: number, e: DragEvent) => void;
-  onDrop: (index: number, e: DragEvent) => void;
+  onDragStart: (cardId: string, e: DragEvent) => void;
   onDragEnd: () => void;
-  onDragLeave: () => void;
 }
 
 const CardItemRow: Component<CardItemRowProps> = (props) => {
@@ -84,89 +82,104 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
   );
 
   return (
-    <div
-      class={`group border rounded-xl bg-card overflow-hidden transition-shadow duration-200 ease-out cursor-grab active:cursor-grabbing ${
+    <article
+      class={`group overflow-hidden rounded-lg border bg-card transition-[border-color,box-shadow,opacity] motion-safe:duration-150 ${
         props.isDragSource
-          ? 'opacity-50 scale-95 shadow-lg rotate-1'
-          : props.isDropTarget
-            ? 'border-palette-5 shadow-lg scale-[1.02] -translate-y-1'
-            : props.isDragging
-              ? 'transition-transform duration-300'
-              : 'hover:shadow-sm'
-      }`}
-      draggable={!props.selectMode && !props.isEditing}
-      style={{
-        'touch-action':
-          !props.selectMode && !props.isEditing ? 'none' : undefined,
-        'will-change': props.isDragging ? 'transform, opacity' : 'auto',
-      }}
-      onDragStart={(e) => props.onDragStart(props.index, e)}
-      onDragOver={(e) => props.onDragOver(props.index, e)}
-      onDrop={(e) => props.onDrop(props.index, e)}
-      onDragEnd={props.onDragEnd}
-      onDragLeave={props.onDragLeave}
+          ? 'border-primary/35 opacity-45 shadow-none'
+          : props.isDragging
+            ? 'border-border'
+            : 'hover:border-muted-foreground/35 hover:shadow-xs'
+      } ${props.isSelected ? 'border-primary/50 bg-accent/35' : ''}`}
+      aria-label={`Card ${props.index + 1}`}
     >
       {/* Normal view */}
       <Show when={!props.isEditing}>
-        <div class="p-4 flex items-start gap-3">
-
-
-          {/* Checkbox for bulk select */}
-          <Show when={props.selectMode}>
-            <button
-              class="mt-1 shrink-0"
-              aria-label={props.isSelected ? 'Deselect card' : 'Select card'}
-              onClick={() => props.onToggleSelection(props.card.id)}
+        <div class="flex items-start gap-2.5 p-3 sm:gap-3 sm:p-4">
+          <div class="flex w-7 shrink-0 flex-col items-center gap-2 pt-0.5">
+            <Show
+              when={props.selectMode}
+              fallback={
+                <button
+                  type="button"
+                  draggable={!props.dragDisabledReason && !props.isEditing}
+                  aria-disabled={!!props.dragDisabledReason}
+                  aria-label={`Drag card ${props.index + 1} to reorder`}
+                  title={props.dragDisabledReason ?? 'Drag to reorder'}
+                  class={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                    props.dragDisabledReason
+                      ? 'cursor-not-allowed text-muted-foreground/30'
+                      : 'cursor-grab text-muted-foreground/55 hover:bg-accent hover:text-foreground active:cursor-grabbing'
+                  }`}
+                  style={{ 'touch-action': 'pan-y' }}
+                  onDragStart={(event) => {
+                    if (props.dragDisabledReason || props.isEditing) {
+                      event.preventDefault();
+                      return;
+                    }
+                    const preview = event.currentTarget.closest('article');
+                    if (preview && event.dataTransfer) {
+                      event.dataTransfer.setDragImage(preview, 24, 24);
+                    }
+                    props.onDragStart(props.card.id, event);
+                  }}
+                  onDragEnd={props.onDragEnd}
+                >
+                  <GripVertical class="h-4 w-4" aria-hidden="true" />
+                </button>
+              }
             >
-              <Show
-                when={props.isSelected}
-                fallback={
-                  <Square class="h-4.5 w-4.5 text-muted-foreground hover:text-foreground" />
+              <button
+                type="button"
+                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label={
+                  props.isSelected ? 'Deselect card' : 'Select card'
                 }
+                aria-pressed={props.isSelected}
+                onClick={() => props.onToggleSelection(props.card.id)}
               >
-                <CheckSquare class="h-4.5 w-4.5 text-palette-5" />
-              </Show>
-            </button>
-          </Show>
-
-          {/* Card number */}
-          <span class="text-xs font-mono text-muted-foreground/60 mt-1 shrink-0 w-6 text-right">
-            {props.index + 1}
-          </span>
+                <Show
+                  when={props.isSelected}
+                  fallback={<Square class="h-4 w-4" />}
+                >
+                  <CheckSquare class="h-4 w-4 text-primary" />
+                </Show>
+              </button>
+            </Show>
+            <span class="font-mono text-[11px] tabular-nums text-muted-foreground/70">
+              {props.index + 1}
+            </span>
+          </div>
 
           <div class="flex-1 min-w-0">
             {/* Vocabulary two-column layout */}
             <Show when={isVocabLayout()}>
-              <div class="grid grid-cols-[1fr_1fr] gap-0">
-                <div class="pr-4">
-                  <p class="font-semibold text-foreground leading-snug">
+              <div class="grid grid-cols-1 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                <div class="min-w-0 md:pr-5">
+                  <p class="text-base font-semibold leading-snug text-foreground">
                     {String(wordField()!.value)}
                     <Show when={hasFieldValue(typeField())}>
-                      <span class="ml-1.5 text-xs font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                      <span class="ml-2 inline-flex rounded-sm border bg-muted px-1.5 py-0.5 align-middle text-[11px] font-medium text-muted-foreground">
                         {String(typeField()!.value)}
                       </span>
                     </Show>
                   </p>
                   <Show when={hasFieldValue(ipaField())}>
-                    <p class="text-sm text-muted-foreground/70 mt-0.5 font-mono">
+                    <p class="mt-1 font-mono text-xs text-muted-foreground">
                       {String(ipaField()!.value)}
                     </p>
                   </Show>
                 </div>
 
-                <div class="border-l pl-4">
-                  <p class="text-sm text-foreground leading-relaxed">
+                <div class="mt-3 min-w-0 border-t pt-3 md:mt-0 md:border-l md:border-t-0 md:pl-5 md:pt-0">
+                  <p class="text-sm leading-relaxed text-foreground">
                     {String(defField()!.value)}
                   </p>
                   <Show when={examples().length > 0}>
-                    <ul class="mt-2 space-y-1">
+                    <ul class="mt-2 list-disc space-y-1 pl-4">
                       <For each={examples()}>
                         {(ex) => (
-                          <li class="text-xs text-muted-foreground flex gap-1.5 items-start">
-                            <span class="text-palette-3/50 shrink-0 mt-0.5">
-                              &bull;
-                            </span>
-                            <span class="italic">{ex}</span>
+                          <li class="text-xs leading-relaxed text-muted-foreground">
+                            <span>{ex}</span>
                           </li>
                         )}
                       </For>
@@ -176,16 +189,16 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
               </div>
 
               <Show when={otherFields().length > 0}>
-                <div class="mt-2 pt-2 border-t space-y-1">
+                <div class="mt-3 space-y-2 border-t pt-3">
                   <For each={otherFields()}>
                     {(f) => (
-                      <div class="text-sm">
-                        <span class="text-muted-foreground capitalize font-extrabold">
+                      <div class="grid gap-0.5 text-sm sm:grid-cols-[minmax(7rem,0.3fr)_minmax(0,1fr)] sm:gap-3">
+                        <span class="capitalize text-muted-foreground">
                           {f.fieldName}:{' '}
                         </span>
-                        <span>
+                        <span class="min-w-0 text-foreground">
                           {Array.isArray(f.value)
-                            ? (f.value as string[]).join(' · ')
+                            ? (f.value as string[]).join(', ')
                             : String(f.value)}
                         </span>
                       </div>
@@ -197,16 +210,16 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
 
             {/* Fallback: linear layout */}
             <Show when={!isVocabLayout()}>
-              <div class="space-y-1">
+              <div class="space-y-2">
                 <For each={props.card.fields.filter((f) => hasFieldValue(f))}>
                   {(field) => (
-                    <div class="text-sm">
-                      <span class="text-muted-foreground capitalize font-extrabold">
+                    <div class="grid gap-0.5 text-sm sm:grid-cols-[minmax(7rem,0.3fr)_minmax(0,1fr)] sm:gap-3">
+                      <span class="capitalize text-muted-foreground">
                         {field.fieldName}:{' '}
                       </span>
-                      <span>
+                      <span class="min-w-0 text-foreground">
                         {Array.isArray(field.value)
-                          ? (field.value as string[]).join(' · ')
+                          ? (field.value as string[]).join(', ')
                           : String(field.value)}
                       </span>
                     </div>
@@ -217,7 +230,7 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
           </div>
 
           {/* Action buttons (visible on hover or focus-within) */}
-          <div class="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+          <div class="flex shrink-0 gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
             <Button
               variant="ghost"
               size="icon"
@@ -243,8 +256,12 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
                 </Button>
               }
             >
-              <div class="flex items-center gap-1">
-                <span class="text-xs text-destructive whitespace-nowrap font-medium">
+              <div
+                class="flex items-center gap-1"
+                role="group"
+                aria-label="Confirm card deletion"
+              >
+                <span class="hidden whitespace-nowrap text-xs font-medium text-destructive sm:inline">
                   Delete?
                 </span>
                 <Button
@@ -252,6 +269,8 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
                   size="icon"
                   class="h-8 w-8 text-destructive hover:bg-destructive/10"
                   onClick={() => props.onDelete(props.card.id)}
+                  aria-label="Confirm delete card"
+                  title="Confirm delete card"
                 >
                   <Check class="h-3.5 w-3.5" />
                 </Button>
@@ -260,6 +279,8 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
                   size="icon"
                   class="h-8 w-8"
                   onClick={() => props.onConfirmDelete(null)}
+                  aria-label="Cancel delete card"
+                  title="Cancel delete card"
                 >
                   <X class="h-3.5 w-3.5" />
                 </Button>
@@ -268,7 +289,7 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
           </div>
         </div>
       </Show>
-    </div>
+    </article>
   );
 };
 

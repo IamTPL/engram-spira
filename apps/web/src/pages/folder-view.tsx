@@ -5,44 +5,30 @@ import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import PageShell from '@/components/layout/page-shell';
 import { toast } from '@/stores/toast.store';
 import { ROUTES } from '@/constants';
-import { resolvedTheme } from '@/stores/theme.store';
 import {
   ArrowLeft,
+  ArrowRight,
   BookOpen,
   Plus,
   X,
   Layers,
-  ChevronRight,
   Search,
   Trash2,
+  RotateCcw,
 } from 'lucide-solid';
-
-// ── Pastel gradient presets for deck cards (palette priority order) ──────────
-const DECK_CARD_COLORS = [
-  'linear-gradient(135deg, #B2D8F1 0%, #AFE5E3 100%)', // sky → teal
-  'linear-gradient(135deg, #F0CBF1 0%, #E2CFFC 100%)', // lavender → purple
-  'linear-gradient(135deg, #B5CCFF 0%, #B2D8F1 100%)', // periwinkle → sky
-  'linear-gradient(135deg, #AFE5E3 0%, #ABF6D0 100%)', // teal → mint
-  'linear-gradient(135deg, #E2CFFC 0%, #FEC7E7 100%)', // purple → pink
-  'linear-gradient(135deg, #FEC7E7 0%, #F0CBF1 100%)', // pink → lavender
-  'linear-gradient(135deg, #ABF6D0 0%, #AFE5E3 100%)', // mint → teal
-  'linear-gradient(135deg, #B5CCFF 0%, #ABF6D0 100%)', // periwinkle → mint
-] as const;
-
-// Dark mode: deeply muted (~40%) versions — lower saturation & brightness to reduce glare
-const DECK_CARD_COLORS_DARK = [
-  'linear-gradient(135deg, #4A7A8F 0%, #4A8A88 100%)', // deep sky → teal
-  'linear-gradient(135deg, #8A6A8B 0%, #7A6A9A 100%)', // deep lavender → purple
-  'linear-gradient(135deg, #5A6A9F 0%, #4A7A8F 100%)', // deep periwinkle → sky
-  'linear-gradient(135deg, #4A8A88 0%, #4A9A7A 100%)', // deep teal → mint
-  'linear-gradient(135deg, #7A6A9A 0%, #9A5A7A 100%)', // deep purple → pink
-  'linear-gradient(135deg, #9A5A7A 0%, #8A6A8B 100%)', // deep pink → lavender
-  'linear-gradient(135deg, #4A9A7A 0%, #4A8A88 100%)', // deep mint → teal
-  'linear-gradient(135deg, #5A6A9F 0%, #4A9A7A 100%)', // deep periwinkle → mint
-] as const;
 
 interface DeckItem {
   id: string;
@@ -61,21 +47,14 @@ interface TemplateItem {
 const FolderViewPage: Component = () => {
   const params = useParams<{ folderId: string }>();
   const navigate = useNavigate();
-
-  // ── Search ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = createSignal('');
-
-  // ── Create Deck state ───────────────────────────────────────────────
   const [showNewDeck, setShowNewDeck] = createSignal(false);
   const [newDeckName, setNewDeckName] = createSignal('');
   const [newDeckTemplateId, setNewDeckTemplateId] = createSignal('');
   const [creating, setCreating] = createSignal(false);
-
-  // ── Delete Deck state ───────────────────────────────────────────────
-  const [confirmDeleteDeckId, setConfirmDeleteDeckId] = createSignal<string | null>(null);
+  const [deckToDelete, setDeckToDelete] = createSignal<DeckItem | null>(null);
   const [deletingDeck, setDeletingDeck] = createSignal(false);
 
-  // ── Data ────────────────────────────────────────────────────────────
   const folderQuery = createQuery(() => ({
     queryKey: ['folder', params.folderId],
     queryFn: async () => {
@@ -109,341 +88,327 @@ const FolderViewPage: Component = () => {
   }));
   const templates = () => templatesQuery.data ?? [];
 
-  // ── Filtered decks ──────────────────────────────────────────────────
   const filteredDecks = () => {
-    const q = searchQuery().toLowerCase().trim();
-    const all = decks() ?? [];
-    if (!q) return all;
-    return all.filter((d) => d.name.toLowerCase().includes(q));
+    const query = searchQuery().toLowerCase().trim();
+    if (!query) return decks();
+    return decks().filter((deck) => deck.name.toLowerCase().includes(query));
   };
 
-  const deckCount = () => decks()?.length ?? 0;
+  const openNewDeck = () => {
+    setNewDeckName('');
+    setNewDeckTemplateId(templates()[0]?.id ?? '');
+    setShowNewDeck(true);
+  };
 
-  // ── Delete deck handler ─────────────────────────────────────────────
   const handleDeleteDeck = async (deckId: string) => {
     setDeletingDeck(true);
     try {
       const { error } = await (api.decks as any)[deckId].delete();
       if (error) throw new Error(getApiError(error));
-      setConfirmDeleteDeckId(null);
-      refetchDecks();
+      setDeckToDelete(null);
+      await refetchDecks();
       queryClient.invalidateQueries({ queryKey: ['sidebar-folders'] });
       toast.success('Deck deleted');
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Failed to delete deck');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Failed to delete deck');
     } finally {
       setDeletingDeck(false);
     }
   };
 
-  // ── Create deck handler ─────────────────────────────────────────────
-  const handleCreateDeck = async (e: Event) => {
-    e.preventDefault();
+  const handleCreateDeck = async (event: Event) => {
+    event.preventDefault();
     const name = newDeckName().trim();
     const templateId = newDeckTemplateId();
     if (!name || !templateId) return;
+
     setCreating(true);
     try {
-      const { error: createError } = await api.decks['by-folder']({
+      const { error } = await api.decks['by-folder']({
         folderId: params.folderId,
       }).post({
         name,
         cardTemplateId: templateId,
       });
-      if (createError) throw new Error(getApiError(createError));
-      setNewDeckName('');
-      setNewDeckTemplateId('');
+      if (error) throw new Error(getApiError(error));
       setShowNewDeck(false);
-      refetchDecks();
-      toast.success('Deck created successfully');
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Failed to create deck');
+      await refetchDecks();
+      toast.success('Deck created');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Failed to create deck');
     } finally {
       setCreating(false);
     }
   };
 
-  const getGradient = (index: number) =>
-    resolvedTheme() === 'dark'
-      ? DECK_CARD_COLORS_DARK[index % DECK_CARD_COLORS_DARK.length]!
-      : DECK_CARD_COLORS[index % DECK_CARD_COLORS.length]!;
-
-  // ── Render ──────────────────────────────────────────────────────────
   return (
-    <PageShell maxWidth={false} class="p-0">
-      {/* ── Hero header ── */}
-      <div class="border-b px-6 pb-4">
-        <div class="max-w-5xl mx-auto">
-          <div class="flex items-center gap-3 mb-3">
+    <PageShell maxWidth="max-w-6xl" class="space-y-6">
+      <header class="flex flex-col gap-5 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div class="min-w-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            class="-ml-3 mb-3 text-muted-foreground"
+            onClick={() => navigate(ROUTES.DASHBOARD)}
+          >
+            <ArrowLeft class="mr-2 h-4 w-4" />
+            Library
+          </Button>
+          <p class="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Folder
+          </p>
+          <h1 class="truncate text-3xl font-semibold tracking-tight sm:text-4xl">
+            {folder()?.name ?? 'Loading folder'}
+          </h1>
+          <p class="mt-2 text-sm text-muted-foreground">
+            {decks().length} {decks().length === 1 ? 'deck' : 'decks'} in this
+            collection
+          </p>
+        </div>
+
+        <Button onClick={openNewDeck} disabled={showNewDeck()}>
+          <Plus class="mr-2 h-4 w-4" />
+          New deck
+        </Button>
+      </header>
+
+      <Show when={showNewDeck()}>
+        <form
+          onSubmit={handleCreateDeck}
+          class="rounded-xl border bg-card p-4 shadow-sm motion-safe:animate-fade-in sm:p-5"
+        >
+          <div class="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h2 class="font-semibold">Create a deck</h2>
+              <p class="mt-1 text-sm text-muted-foreground">
+                Choose a template now. You can add or generate cards next.
+              </p>
+            </div>
             <Button
+              type="button"
               variant="ghost"
               size="icon"
-              class="h-8 w-8 shrink-0"
-              onClick={() => navigate(ROUTES.DASHBOARD)}
+              class="shrink-0"
+              aria-label="Close new deck form"
+              onClick={() => setShowNewDeck(false)}
             >
-              <ArrowLeft class="h-4 w-4" />
+              <X class="h-4 w-4" />
             </Button>
-            <div class="flex-1 min-w-0">
-              <h1 class="text-xl font-bold truncate leading-tight">
-                {folder()?.name ?? 'Loading...'}
-              </h1>
-              <span class="text-sm text-muted-foreground">
-                {deckCount()} deck{deckCount() !== 1 ? 's' : ''}
-              </span>
-            </div>
           </div>
 
-          {/* Actions row */}
-          <div class="flex items-center gap-3">
-            <Button
-              onClick={() => {
-                setNewDeckName('');
-                setNewDeckTemplateId(templates()?.[0]?.id ?? '');
-                setShowNewDeck(true);
-              }}
-              disabled={showNewDeck()}
-            >
-              <Plus class="h-4 w-4 mr-2" />
-              New Deck
-            </Button>
-
-            {/* Search */}
-            <Show when={deckCount() > 0}>
-              <div class="ml-auto relative max-w-xs w-full">
-                <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                <Input
-                  placeholder="Search decks..."
-                  class="pl-9 h-9 text-sm"
-                  value={searchQuery()}
-                  onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                />
-              </div>
-            </Show>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Content ── */}
-      <div class="p-6">
-        <div class="max-w-5xl mx-auto">
-          {/* Create deck form */}
-          <Show when={showNewDeck()}>
-            <form
-              onSubmit={handleCreateDeck}
-              class="border rounded-xl p-5 bg-card shadow-sm mb-6 animate-fade-in space-y-3"
-            >
-              <div class="flex items-center justify-between">
-                <h3 class="font-semibold text-foreground">New Deck</h3>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  class="h-8 w-8"
-                  onClick={() => setShowNewDeck(false)}
-                >
-                  <X class="h-4 w-4" />
-                </Button>
-              </div>
+          <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+            <label class="grid gap-2 text-sm font-medium">
+              Deck name
               <Input
-                placeholder="Deck name..."
+                placeholder="e.g. Product vocabulary"
                 value={newDeckName()}
-                onInput={(e) => setNewDeckName(e.currentTarget.value)}
+                onInput={(event) => setNewDeckName(event.currentTarget.value)}
                 autofocus
               />
+            </label>
+            <label class="grid gap-2 text-sm font-medium">
+              Card template
               <select
-                class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
                 value={newDeckTemplateId()}
-                onChange={(e) => setNewDeckTemplateId(e.currentTarget.value)}
+                onChange={(event) =>
+                  setNewDeckTemplateId(event.currentTarget.value)
+                }
               >
                 <option value="" disabled>
-                  Select template...
+                  Select a template
                 </option>
-                <For each={templates() ?? []}>
-                  {(t) => <option value={t.id}>{t.name}</option>}
-                </For>
-              </select>
-              <div class="flex gap-2">
-                <Button
-                  type="submit"
-                  disabled={
-                    creating() || !newDeckName().trim() || !newDeckTemplateId()
-                  }
-                >
-                  {creating() ? 'Creating...' : 'Create Deck'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowNewDeck(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </Show>
-
-          {/* Loading */}
-          <Show when={decksQuery.isLoading}>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <For each={[1, 2, 3]}>
-                {() => <div class="h-40 rounded-2xl bg-muted animate-pulse" />}
-              </For>
-            </div>
-          </Show>
-
-          {/* Deck grid */}
-          <Show when={!decksQuery.isLoading}>
-            <Show
-              when={filteredDecks().length > 0}
-              fallback={
-                <div class="text-center py-20">
-                  <Show
-                    when={deckCount() === 0}
-                    fallback={
-                      <p class="text-muted-foreground text-sm">
-                        No results for &ldquo;{searchQuery()}&rdquo;
-                      </p>
-                    }
-                  >
-                    <div
-                      class="inline-flex h-16 w-16 rounded-full items-center justify-center mb-4"
-                      style={{ background: '#B2D8F1' }}
-                    >
-                      <BookOpen class="h-7 w-7 text-slate-700" />
-                    </div>
-                    <p class="text-foreground font-medium mb-1">No decks yet</p>
-                    <p class="text-muted-foreground text-sm mb-4">
-                      Create your first deck to start studying!
-                    </p>
-                    <Button
-                      onClick={() => {
-                        setNewDeckName('');
-                        setNewDeckTemplateId(templates()?.[0]?.id ?? '');
-                        setShowNewDeck(true);
-                      }}
-                    >
-                      <Plus class="h-4 w-4 mr-2" />
-                      Create Deck
-                    </Button>
-                  </Show>
-                </div>
-              }
-            >
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <For each={filteredDecks()}>
-                  {(deck, index) => (
-                    <div class="relative group">
-                      <button
-                        class="relative overflow-hidden rounded-2xl p-5 text-left transition-[transform,box-shadow] duration-200 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none w-full"
-                        style={{ background: getGradient(index()) }}
-                        onClick={() => navigate(`/deck/${deck.id}`)}
-                      >
-                        {/* Decorative shapes */}
-                        <div class="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-white/25 dark:bg-white/10" />
-                        <div class="absolute -top-4 -right-10 h-20 w-20 rounded-full bg-white/15 dark:bg-white/5" />
-
-                        {/* Content */}
-                        <div class="relative z-10 flex flex-col h-full min-h-30">
-                          {/* Deck name */}
-                          <h3 class="text-lg font-bold text-slate-800 dark:text-white leading-tight mb-1 line-clamp-2">
-                            {deck.name}
-                          </h3>
-
-                          {/* Card count */}
-                          <p class="text-slate-600 dark:text-white/80 text-sm mb-auto">
-                            {deck.cardCount}{' '}
-                            {deck.cardCount === 1 ? 'card' : 'cards'}
-                          </p>
-
-                          {/* Bottom row */}
-                          <div class="flex items-center justify-between mt-4">
-                            {/* Template badge */}
-                            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white/40 dark:bg-white/20 text-slate-700 dark:text-white/90 font-medium">
-                              <Layers class="h-3 w-3" />
-                              <TemplateName
-                                templateId={deck.cardTemplateId}
-                                templates={templates() ?? []}
-                              />
-                            </span>
-
-                            {/* Arrow */}
-                            <ChevronRight class="h-5 w-5 text-slate-500 dark:text-white/70 group-hover:text-slate-800 dark:group-hover:text-white group-hover:translate-x-0.5 transition-[color,transform]" />
-                          </div>
-                        </div>
-                      </button>
-
-                      {/* Delete button (top-right corner) */}
-                      <button
-                        class="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-white/60 dark:bg-black/40 text-slate-500 dark:text-white/60 opacity-0 group-hover:opacity-100 hover:bg-destructive/90! hover:text-white! transition-all backdrop-blur-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDeleteDeckId(deck.id);
-                        }}
-                        title="Delete deck"
-                      >
-                        <Trash2 class="h-3.5 w-3.5" />
-                      </button>
-
-                      {/* Delete confirmation overlay */}
-                      <Show when={confirmDeleteDeckId() === deck.id}>
-                        <div
-                          class="absolute inset-0 z-30 flex items-center justify-center bg-black/60 rounded-2xl backdrop-blur-sm animate-fade-in"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div class="text-center space-y-3 px-4">
-                            <p class="text-sm font-medium text-white">
-                              Delete <strong>{deck.name}</strong>?
-                            </p>
-                            <p class="text-xs text-white/70">
-                              All {deck.cardCount} cards will be permanently deleted.
-                            </p>
-                            <div class="flex items-center justify-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                class="h-7 text-xs bg-white/10 border-white/20 text-white hover:bg-white/20"
-                                onClick={(e: MouseEvent) => {
-                                  e.stopPropagation();
-                                  setConfirmDeleteDeckId(null);
-                                }}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                class="h-7 text-xs"
-                                disabled={deletingDeck()}
-                                onClick={(e: MouseEvent) => {
-                                  e.stopPropagation();
-                                  handleDeleteDeck(deck.id);
-                                }}
-                              >
-                                {deletingDeck() ? 'Deleting...' : 'Delete'}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </Show>
-                    </div>
+                <For each={templates()}>
+                  {(template) => (
+                    <option value={template.id}>{template.name}</option>
                   )}
                 </For>
-              </div>
-            </Show>
-          </Show>
+              </select>
+            </label>
+            <Button
+              type="submit"
+              disabled={
+                creating() || !newDeckName().trim() || !newDeckTemplateId()
+              }
+            >
+              {creating() ? 'Creating...' : 'Create deck'}
+            </Button>
+          </div>
+        </form>
+      </Show>
+
+      <Show when={decks().length > 0}>
+        <div class="relative max-w-md">
+          <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            aria-label="Search decks"
+            placeholder="Search decks"
+            class="pl-9"
+            value={searchQuery()}
+            onInput={(event) => setSearchQuery(event.currentTarget.value)}
+          />
         </div>
-      </div>
+      </Show>
+
+      <Show when={decksQuery.isLoading}>
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <For each={[1, 2, 3]}>
+            {() => (
+              <div class="h-60 animate-pulse rounded-xl border bg-muted/55" />
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <Show when={decksQuery.isError}>
+        <div class="rounded-xl border border-destructive/25 bg-destructive-surface p-5">
+          <p class="font-medium text-destructive">Could not load this folder</p>
+          <p class="mt-1 text-sm text-muted-foreground">
+            Check your connection and try again.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            class="mt-4"
+            onClick={() => decksQuery.refetch()}
+          >
+            <RotateCcw class="mr-2 h-4 w-4" />
+            Try again
+          </Button>
+        </div>
+      </Show>
+
+      <Show when={!decksQuery.isLoading && !decksQuery.isError}>
+        <Show
+          when={filteredDecks().length > 0}
+          fallback={
+            <div class="flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed bg-card px-6 text-center">
+              <div class="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
+                <BookOpen class="h-5 w-5" />
+              </div>
+              <h2 class="font-semibold">
+                {decks().length === 0 ? 'No decks yet' : 'No matching decks'}
+              </h2>
+              <p class="mt-2 max-w-sm text-sm text-muted-foreground">
+                {decks().length === 0
+                  ? 'Create a deck to organize cards and begin a focused study session.'
+                  : `No decks match "${searchQuery()}". Try another search.`}
+              </p>
+              <Show when={decks().length === 0}>
+                <Button class="mt-5" onClick={openNewDeck}>
+                  <Plus class="mr-2 h-4 w-4" />
+                  Create your first deck
+                </Button>
+              </Show>
+            </div>
+          }
+        >
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <For each={filteredDecks()}>
+              {(deck) => (
+                <article class="group relative isolate min-h-60 overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-[border-color,box-shadow,transform] motion-safe:duration-200 hover:border-foreground/25 hover:shadow-md focus-within:border-ring/60 focus-within:shadow-md motion-safe:hover:-translate-y-0.5">
+                  <button
+                    type="button"
+                    aria-label={`Open ${deck.name}, ${deck.cardCount} ${
+                      deck.cardCount === 1 ? 'card' : 'cards'
+                    }`}
+                    class="absolute inset-0 z-0 flex h-full w-full appearance-none flex-col p-5 text-left text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    onClick={() => navigate(`/deck/${deck.id}`)}
+                  >
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-hero-border bg-hero text-hero-foreground shadow-xs">
+                      <Layers class="h-4 w-4" />
+                    </div>
+
+                    <div class="mt-5 min-w-0">
+                      <h2 class="line-clamp-2 text-lg font-semibold leading-snug tracking-tight">
+                        {deck.name}
+                      </h2>
+                      <p class="mt-2 text-sm text-muted-foreground">
+                        <span class="font-medium tabular-nums text-foreground">
+                          {deck.cardCount}
+                        </span>{' '}
+                        {deck.cardCount === 1 ? 'card' : 'cards'}
+                      </p>
+                    </div>
+
+                    <div class="mt-auto flex min-w-0 items-end justify-between gap-4 border-t border-border/80 pt-4">
+                      <div class="min-w-0">
+                        <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Template
+                        </p>
+                        <p class="mt-1 truncate text-sm font-medium text-foreground">
+                          <TemplateName
+                            templateId={deck.cardTemplateId}
+                            templates={templates()}
+                          />
+                        </p>
+                      </div>
+                      <span class="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+                        Open deck
+                        <ArrowRight class="h-3.5 w-3.5 transition-transform motion-safe:group-hover:translate-x-0.5" />
+                      </span>
+                    </div>
+                  </button>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="absolute right-3 top-3 z-10 h-10 w-10 text-muted-foreground hover:bg-destructive-surface hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                    aria-label={`Delete ${deck.name}`}
+                    title={`Delete ${deck.name}`}
+                    onClick={() => setDeckToDelete(deck)}
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                </article>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
+
+      <AlertDialog
+        open={!!deckToDelete()}
+        onOpenChange={(open) => {
+          if (!open && !deletingDeck()) setDeckToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this deck?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{deckToDelete()?.name}” and all {deckToDelete()?.cardCount ?? 0}{' '}
+              cards in it will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingDeck()}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletingDeck()}
+              onClick={() => {
+                const deck = deckToDelete();
+                if (deck) void handleDeleteDeck(deck.id);
+              }}
+            >
+              {deletingDeck() ? 'Deleting...' : 'Delete deck'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 };
 
-// ── Helper to resolve template name by ID ────────────────────────────
 const TemplateName: Component<{
   templateId: string;
   templates: TemplateItem[];
 }> = (props) => {
   const name = () =>
-    props.templates.find((t) => t.id === props.templateId)?.name ?? 'Template';
+    props.templates.find((template) => template.id === props.templateId)
+      ?.name ?? 'Template';
   return <span>{name()}</span>;
 };
 

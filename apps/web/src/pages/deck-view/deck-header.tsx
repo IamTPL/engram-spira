@@ -2,12 +2,16 @@ import {
   type Component,
   Show,
   createSignal,
-  onMount,
-  onCleanup,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
@@ -23,6 +27,7 @@ import {
   CheckSquare,
   BarChart3,
   Pencil,
+  ChevronDown,
 } from 'lucide-solid';
 import type { DeckData, TemplateData } from './use-deck-data';
 
@@ -47,8 +52,6 @@ interface DeckHeaderProps {
 
 const DeckHeader: Component<DeckHeaderProps> = (props) => {
   const navigate = useNavigate();
-  const [isVisible, setIsVisible] = createSignal(true);
-  const [isScrolled, setIsScrolled] = createSignal(false);
   const [isEditingName, setIsEditingName] = createSignal(false);
   const [editName, setEditName] = createSignal('');
   const [savingName, setSavingName] = createSignal(false);
@@ -98,162 +101,206 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
     }
   };
 
-  onMount(() => {
-    const scrollContainer = document.getElementById('main-content');
-    if (!scrollContainer) return;
-
-    let lastScrollY = scrollContainer.scrollTop;
-
-    // We only want it to hide if we've scrolled past the header height.
-    const HEADER_HEIGHT = 100;
-
-    const handleScroll = () => {
-      const currentScrollY = scrollContainer.scrollTop;
-
-      // Update basic scrolled state (for adding shadow when not at top)
-      setIsScrolled(currentScrollY > 10);
-
-      // Only hide if we scroll down significantly.
-      if (currentScrollY > lastScrollY && currentScrollY > HEADER_HEIGHT) {
-        setIsVisible(false);
-      } else if (currentScrollY < lastScrollY) {
-        setIsVisible(true);
-      }
-
-      // Allow it to bounce back to visible at the very top.
-      if (currentScrollY <= 0) {
-        setIsVisible(true);
-      }
-
-      lastScrollY = currentScrollY;
-    };
-
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-
-    onCleanup(() => {
-      scrollContainer.removeEventListener('scroll', handleScroll);
-    });
-  });
-
   return (
-    <div
-      class={cn(
-        'sticky top-0 z-20 bg-background transition-all duration-300 ease-in-out border-b px-6 pb-4 pt-4 -mt-4',
-        !isVisible() ? '-translate-y-full border-transparent' : 'translate-y-0',
-        isScrolled() && isVisible() && 'shadow-sm border-border',
-      )}
-    >
-      <div class="max-w-5xl mx-auto">
-        <div class="flex items-center gap-3 mb-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            class="h-8 w-8 shrink-0"
-            onClick={() => {
-              const folderId = props.deck()?.folderId;
-              navigate(folderId ? `/folder/${folderId}` : '/');
-            }}
-          >
-            <ArrowLeft class="h-4 w-4" />
-          </Button>
-          <div class="flex-1 min-w-0">
-            <Show
-              when={!isEditingName()}
-              fallback={
-                <input
-                  ref={nameInputRef}
-                  type="text"
-                  value={editName()}
-                  onInput={(e) => setEditName(e.currentTarget.value)}
-                  onKeyDown={handleNameKeyDown}
-                  onBlur={() => saveEditName()}
-                  disabled={savingName()}
-                  class="text-xl font-bold leading-tight bg-transparent border-b-2 border-primary outline-none w-full min-w-0 py-0 px-0"
-                />
-              }
-            >
-              <h1
-                class="text-xl font-bold truncate leading-tight cursor-pointer hover:text-primary transition-colors group flex items-center gap-1.5"
-                onClick={startEditName}
-                title="Click to rename"
+    <header class="z-20 shrink-0 border-b bg-background px-4 py-2 sm:px-6">
+      <div class="mx-auto max-w-6xl">
+        <div class="flex flex-col gap-2.5 lg:grid lg:grid-cols-[minmax(11rem,1fr)_minmax(13rem,18rem)_auto_auto] lg:items-center lg:gap-3">
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 lg:contents">
+            <div class="flex min-w-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label="Back to folder"
+                title="Back to folder"
+                onClick={() => {
+                  const folderId = props.deck()?.folderId;
+                  navigate(folderId ? `/folder/${folderId}` : '/');
+                }}
               >
-                {props.deck()?.name ?? 'Loading...'}
-                <Pencil class="h-3.5 w-3.5 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
-              </h1>
-            </Show>
-            <div class="flex items-center gap-3 mt-1">
-              <Show when={props.template()}>
-                <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-palette-5/15 text-palette-5 font-medium">
-                  <Layers class="h-3 w-3" />
-                  {props.template()!.name}
-                </span>
-              </Show>
-              <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <Hash class="h-3 w-3" />
-                {props.cardCount()} card{props.cardCount() !== 1 ? 's' : ''}
-              </span>
+                <ArrowLeft class="h-4 w-4" />
+              </Button>
+
+              <div class="min-w-0 flex-1">
+                <Show
+                  when={!isEditingName()}
+                  fallback={
+                    <input
+                      ref={nameInputRef}
+                      type="text"
+                      value={editName()}
+                      onInput={(e) => setEditName(e.currentTarget.value)}
+                      onKeyDown={handleNameKeyDown}
+                      onBlur={() => saveEditName()}
+                      disabled={savingName()}
+                      aria-label="Deck name"
+                      class="h-7 w-full min-w-0 border-0 border-b-2 border-primary bg-transparent px-0 text-lg font-semibold leading-6 tracking-tight outline-none sm:text-xl"
+                    />
+                  }
+                >
+                  <div class="group flex min-w-0 items-center gap-0.5">
+                    <h1 class="truncate text-lg font-semibold leading-6 tracking-tight text-foreground sm:text-xl">
+                      {props.deck()?.name ?? 'Loading...'}
+                    </h1>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-7 w-7 shrink-0 text-muted-foreground opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      onClick={startEditName}
+                      aria-label="Rename deck"
+                      title="Rename deck"
+                    >
+                      <Pencil class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </Show>
+
+                <div class="mt-0.5 flex min-w-0 items-center gap-2.5 overflow-hidden text-[11px] leading-4 text-muted-foreground">
+                  <Show when={props.template()}>
+                    <span class="inline-flex min-w-0 items-center gap-1">
+                      <Layers class="h-3 w-3 shrink-0" />
+                      <span class="truncate">{props.template()!.name}</span>
+                    </span>
+                  </Show>
+                  <span class="inline-flex shrink-0 items-center gap-1">
+                    <Hash class="h-3 w-3" />
+                    {props.cardCount()} card
+                    {props.cardCount() !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => navigate(`/study/${props.deck()?.id ?? ''}`)}
+              disabled={!props.deck()?.id}
+              size="sm"
+              class="h-8 shrink-0 justify-self-end px-3 shadow-sm lg:col-start-4 lg:row-start-1"
+              aria-label="Study this deck"
+              title="Study this deck"
+            >
+              <Play class="h-4 w-4" />
+              <span class="hidden sm:inline">Study</span>
+            </Button>
+          </div>
+
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 lg:contents">
+            <div class="relative min-w-0 lg:col-start-2 lg:row-start-1">
+              <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                aria-label="Search cards in this deck"
+                placeholder="Search cards"
+                class="h-8 bg-card pl-8 text-xs"
+                value={props.immediateSearchQuery()}
+                onInput={(e) => props.setSearchQuery(e.currentTarget.value)}
+              />
+            </div>
+
+            <div class="flex min-w-0 items-center justify-end gap-1 lg:col-start-3 lg:row-start-1">
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-8 px-2.5"
+                onClick={() => {
+                  props.setAddInputs({});
+                  props.setShowAddCard(true);
+                }}
+                disabled={props.showAddCard()}
+              >
+                <Plus class="h-4 w-4" />
+                Add card
+              </Button>
+
+              <div class="hidden items-center gap-0.5 2xl:flex">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => props.setShowAiModal(true)}
+                  disabled={props.showAiModal()}
+                  class="text-learning hover:bg-learning-surface hover:text-learning"
+                >
+                  <Sparkles class="h-4 w-4" />
+                  Generate with AI
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={props.toggleAnalytics}
+                  aria-pressed={props.showAnalytics()}
+                  class={cn(
+                    props.showAnalytics() &&
+                      'bg-accent text-accent-foreground',
+                  )}
+                >
+                  <BarChart3 class="h-4 w-4" />
+                  Analytics
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={props.toggleSelectMode}
+                  aria-pressed={props.selectMode()}
+                  class={cn(
+                    props.selectMode() && 'bg-accent text-accent-foreground',
+                  )}
+                >
+                  <CheckSquare class="h-4 w-4" />
+                  {props.selectMode() ? 'Exit selection' : 'Select cards'}
+                </Button>
+              </div>
+
+              <div class="2xl:hidden">
+                <DropdownMenu>
+                  <DropdownMenuTrigger>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class={cn(
+                        'h-8 px-2.5',
+                        (props.showAnalytics() || props.selectMode()) &&
+                          'bg-accent text-accent-foreground',
+                      )}
+                      aria-label="More deck actions"
+                    >
+                      Actions
+                      <ChevronDown class="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" class="w-52">
+                    <DropdownMenuItem
+                      onSelect={() => props.setShowAiModal(true)}
+                      disabled={props.showAiModal()}
+                    >
+                      <Sparkles class="h-4 w-4 text-learning" />
+                      Generate with AI
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={props.toggleAnalytics}
+                      aria-pressed={props.showAnalytics()}
+                    >
+                      <BarChart3 class="h-4 w-4 text-muted-foreground" />
+                      {props.showAnalytics()
+                        ? 'Hide analytics'
+                        : 'Show analytics'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={props.toggleSelectMode}
+                      aria-pressed={props.selectMode()}
+                    >
+                      <CheckSquare class="h-4 w-4 text-muted-foreground" />
+                      {props.selectMode()
+                        ? 'Exit selection'
+                        : 'Select cards'}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
         </div>
-
-        {/* Actions row */}
-        <div class="flex items-center gap-3">
-          <Button
-            onClick={() => navigate(`/study/${props.deck()?.id ?? ''}`)}
-            class="shadow-sm"
-          >
-            <Play class="h-4 w-4 mr-2" />
-            Study Now
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              props.setAddInputs({});
-              props.setShowAddCard(true);
-            }}
-            disabled={props.showAddCard()}
-          >
-            <Plus class="h-4 w-4 mr-2" />
-            Add Card
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => props.setShowAiModal(true)}
-            disabled={props.showAiModal()}
-            class="text-palette-5 border-palette-5/30 hover:bg-palette-5/10 bg-background"
-          >
-            <Sparkles class="h-4 w-4 mr-2" />
-            AI Generate
-          </Button>{' '}
-          <Button
-            variant={props.showAnalytics() ? 'default' : 'outline'}
-            onClick={props.toggleAnalytics}
-            class="bg-background"
-          >
-            <BarChart3 class="h-4 w-4 mr-2" />
-            Analytics
-          </Button>
-          <Button
-            variant={props.selectMode() ? 'default' : 'outline'}
-            onClick={props.toggleSelectMode}
-            class="bg-background"
-          >
-            <CheckSquare class="h-4 w-4 mr-2" />
-            {props.selectMode() ? 'Cancel' : 'Select'}
-          </Button>
-          {/* Search */}
-          <div class="ml-auto relative max-w-xs w-full">
-            <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="Search cards..."
-              class="pl-9 h-8.5 text-sm bg-background"
-              value={props.immediateSearchQuery()}
-              onInput={(e) => props.setSearchQuery(e.currentTarget.value)}
-            />
-          </div>
-        </div>
       </div>
-    </div>
+    </header>
   );
 };
 

@@ -96,71 +96,95 @@ const DuplicateScanner: Component<DuplicateScannerProps> = (props) => {
   };
 
   return (
-    <div>
-      {/* Scan button */}
-      <Show when={!scanned() || dismissed()}>
+    <section
+      class="rounded-lg border bg-card p-4"
+      aria-labelledby="duplicate-check-title"
+    >
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex items-start gap-2.5">
+          <ScanSearch class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div>
+            <h3
+              id="duplicate-check-title"
+              class="text-sm font-semibold text-foreground"
+            >
+              Duplicate check
+            </h3>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              Compare cards that may repeat the same concept.
+            </p>
+          </div>
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={handleScan}
-          disabled={scanning()}
-          class="text-xs"
+          loading={scanning()}
+          class="w-full text-xs sm:w-auto"
         >
-          <Show when={scanning()} fallback={<ScanSearch class="h-3.5 w-3.5 mr-1.5" />}>
-            <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          <Show when={!scanning()}>
+            <ScanSearch class="h-3.5 w-3.5" />
           </Show>
-          {scanning() ? 'Scanning...' : 'Check Duplicates'}
+          {scanned() ? 'Scan again' : 'Scan deck'}
         </Button>
-      </Show>
+      </div>
 
-      {/* Results */}
       <Show when={scanned() && pairs().length > 0 && !dismissed()}>
-        <div class="rounded-xl border border-amber-400/30 bg-amber-500/5 p-4 mt-3 animate-fade-in">
-          <div class="flex items-center justify-between mb-3">
+        <div class="mt-4 rounded-md border border-warning/30 bg-warning-surface p-3 motion-safe:animate-fade-in">
+          <div class="mb-3 flex items-start justify-between gap-3">
             <div class="flex items-center gap-2">
-              <AlertTriangle class="h-4 w-4 text-amber-500" />
-              <span class="text-sm font-semibold">
-                {pairs().length} duplicate{pairs().length !== 1 ? 's' : ''} found
+              <AlertTriangle class="h-4 w-4 shrink-0 text-warning" />
+              <span class="text-sm font-semibold text-foreground">
+                {pairs().length} possible duplicate
+                {pairs().length !== 1 ? 's' : ''}
               </span>
             </div>
-            <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning()} class="text-xs h-7">
-                <Show when={scanning()} fallback="Re-scan">
-                  <Loader2 class="h-3 w-3 mr-1 animate-spin" /> Scanning
-                </Show>
-              </Button>
-              <button
-                class="text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setDismissed(true)}
-              >
-                <X class="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+              onClick={() => setDismissed(true)}
+              aria-label="Dismiss duplicate results"
+              title="Dismiss results"
+            >
+              <X class="h-4 w-4" />
+            </button>
           </div>
 
-          <div class="space-y-2 max-h-[400px] overflow-y-auto">
+          <div class="max-h-[400px] space-y-2 overflow-y-auto">
             <For each={pairs()}>
               {(pair, idx) => (
-                <div class="rounded-lg bg-card border overflow-hidden">
-                  {/* Collapsed header — click to expand */}
+                <div class="overflow-hidden rounded-md border bg-card">
                   <button
-                    class="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-xs transition-colors hover:bg-accent"
                     onClick={() => toggleExpand(idx())}
+                    aria-expanded={expandedIdx() === idx()}
+                    aria-controls={`duplicate-pair-${idx()}`}
                   >
-                    <div class="flex items-center gap-2 min-w-0 flex-1">
-                      <span class="font-medium capitalize">{pair.word}</span>
-                      <span class="text-muted-foreground">— 2 cards with same word</span>
+                    <div class="min-w-0 flex-1">
+                      <span class="font-medium capitalize text-foreground">
+                        {pair.word}
+                      </span>
+                      <span class="ml-2 text-muted-foreground">
+                        2 cards with the same term
+                      </span>
                     </div>
-                    <Show when={expandedIdx() === idx()} fallback={<ChevronDown class="h-3.5 w-3.5 text-muted-foreground shrink-0" />}>
+                    <Show
+                      when={expandedIdx() === idx()}
+                      fallback={
+                        <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      }
+                    >
                       <ChevronUp class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     </Show>
                   </button>
 
-                  {/* Expanded compare view */}
                   <Show when={expandedIdx() === idx()}>
-                    <div class="border-t px-3 py-3">
-                      <div class="grid grid-cols-2 gap-3">
-                        {/* Card A */}
+                    <div
+                      id={`duplicate-pair-${idx()}`}
+                      class="border-t px-3 py-3"
+                    >
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <CompareCard
                           label="Card A"
                           fields={pair.fieldsA}
@@ -168,7 +192,6 @@ const DuplicateScanner: Component<DuplicateScannerProps> = (props) => {
                           deleting={deleting()}
                           onDelete={() => handleDelete(pair.cardA, idx())}
                         />
-                        {/* Card B */}
                         <CompareCard
                           label="Card B"
                           fields={pair.fieldsB}
@@ -185,7 +208,13 @@ const DuplicateScanner: Component<DuplicateScannerProps> = (props) => {
           </div>
         </div>
       </Show>
-    </div>
+
+      <Show when={scanned() && pairs().length === 0}>
+        <p class="mt-4 rounded-md bg-success-surface px-3 py-2 text-xs text-success">
+          No duplicate cards were found.
+        </p>
+      </Show>
+    </section>
   );
 };
 
@@ -205,14 +234,16 @@ const CompareCard: Component<{
   const isDeleting = () => props.deleting === props.cardId;
 
   return (
-    <div class="rounded-lg border bg-muted/30 p-3 text-xs space-y-2">
+    <div class="space-y-2 rounded-md border bg-card p-3 text-xs">
       <div class="flex items-center justify-between">
-        <span class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{props.label}</span>
+        <span class="text-xs font-medium text-muted-foreground">
+          {props.label}
+        </span>
       </div>
       <div>
-        <span class="font-semibold text-sm">{word()}</span>
+        <span class="text-sm font-semibold text-foreground">{word()}</span>
         <Show when={ipa()}>
-          <span class="text-muted-foreground ml-2">/{ipa()}/</span>
+          <span class="ml-2 font-mono text-muted-foreground">/{ipa()}/</span>
         </Show>
       </div>
       <Show when={definition()}>
@@ -224,12 +255,21 @@ const CompareCard: Component<{
       <Button
         variant="destructive"
         size="sm"
-        class="w-full h-7 text-xs mt-2"
+        class="mt-2 h-8 w-full text-xs"
         onClick={props.onDelete}
         disabled={!!props.deleting}
       >
-        <Show when={isDeleting()} fallback={<><Trash2 class="h-3 w-3 mr-1" /> Delete this card</>}>
-          <Loader2 class="h-3 w-3 mr-1 animate-spin" /> Deleting...
+        <Show
+          when={isDeleting()}
+          fallback={
+            <>
+              <Trash2 class="h-3 w-3" />
+              Delete this card
+            </>
+          }
+        >
+          <Loader2 class="h-3 w-3 motion-safe:animate-spin" />
+          Deleting...
         </Show>
       </Button>
     </div>

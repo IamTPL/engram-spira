@@ -16,7 +16,13 @@ import { queryClient } from '@/lib/query-client';
 import type { ReviewAction } from '@/../../api/src/shared/constants';
 import Flashcard from '@/components/flashcard/flashcard';
 import StudyControls from '@/components/flashcard/study-controls';
+import {
+  isInteractiveStudyTarget,
+  shouldIgnoreStudyShortcut,
+} from '@/components/flashcard/study-keyboard';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import Skeleton from '@/components/ui/skeleton';
 import { REVIEW_ACTIONS, KEYBOARD_SHORTCUTS } from '@/constants';
 import {
   ArrowLeft,
@@ -255,17 +261,24 @@ const StudyModePage: Component = () => {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (shouldIgnoreStudyShortcut(e)) return;
+
     if (e.key === KEYBOARD_SHORTCUTS.FLIP) {
+      if (isInteractiveStudyTarget(e.target)) return;
       e.preventDefault();
       setIsFlipped((f) => !f);
     } else if (e.key === KEYBOARD_SHORTCUTS.AGAIN && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.AGAIN);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.AGAIN);
     } else if (e.key === KEYBOARD_SHORTCUTS.HARD && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.HARD);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.HARD);
     } else if (e.key === KEYBOARD_SHORTCUTS.GOOD && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.GOOD);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.GOOD);
     } else if (e.key === KEYBOARD_SHORTCUTS.EASY && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.EASY);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.EASY);
     }
   };
 
@@ -308,85 +321,111 @@ const StudyModePage: Component = () => {
   });
 
   return (
-    <div class="min-h-screen flex flex-col bg-background">
-      {/* Top bar */}
-      <div class="border-b bg-card px-4 sm:px-6 py-3 flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate(`/deck/${params.deckId}`)}
-        >
-          <ArrowLeft class="h-4 w-4 mr-2" />
-          Back
-        </Button>
-        <div class="text-center">
-          <Show when={deckQuery.data}>
-            <p class="text-sm font-medium truncate max-w-48 sm:max-w-xs">
-              {deckQuery.data!.name}
-            </p>
-          </Show>
-          <Show when={studyData()}>
-            <p class="text-xs text-muted-foreground tabular-nums">
-              {Math.min(currentIndex(), studyData()!.cards.length)} /{' '}
-              {studyData()!.cards.length} cards
-              <span class="ml-2 font-medium text-primary">{progress()}%</span>
-            </p>
-          </Show>
+    <div class="flex h-full min-h-0 flex-col bg-background">
+      <header class="shrink-0 border-b bg-surface">
+        <div class="grid h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:px-5">
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-10 px-2 sm:px-3"
+            onClick={() => navigate(`/deck/${params.deckId}`)}
+            aria-label="Back to deck"
+          >
+            <ArrowLeft class="h-4 w-4 sm:mr-1.5" />
+            <span class="hidden sm:inline">Deck</span>
+          </Button>
+
+          <div class="min-w-0 text-center">
+            <Show
+              when={deckQuery.data}
+              fallback={<div class="mx-auto h-4 w-28 rounded-sm bg-muted" />}
+            >
+              <p class="truncate text-sm font-semibold text-foreground">
+                {deckQuery.data!.name}
+              </p>
+            </Show>
+            <Show when={studyData()}>
+              <p class="mt-0.5 truncate text-[11px] font-medium tabular-nums text-muted-foreground">
+                {Math.min(currentIndex(), studyData()!.cards.length)} of{' '}
+                {studyData()!.cards.length}
+                <span class="hidden sm:inline">
+                  {' '}
+                  {studyMode() === 'all' ? 'all cards' : 'due cards'}
+                </span>
+                <span class="ml-2 text-foreground">{progress()}%</span>
+              </p>
+            </Show>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRestart}
+            title="Restart session"
+            aria-label="Restart session"
+          >
+            <RotateCcw class="h-4 w-4" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleRestart}
-          title="Restart session"
-        >
-          <RotateCcw class="h-4 w-4" />
-        </Button>
-      </div>
 
-      {/* Progress bar */}
-      <div class="h-1 bg-muted">
         <div
-          class="h-full btn-gradient transition-[width] duration-500 ease-out rounded-r-full"
-          style={{ width: `${progress()}%` }}
-        />
-      </div>
+          class="h-1 bg-muted"
+          role="progressbar"
+          aria-label="Study session progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={studyData() ? progress() : 0}
+        >
+          <div
+            class="h-full rounded-r-full bg-foreground transition-[width] duration-500 ease-out motion-reduce:transition-none"
+            style={{ width: studyData() ? `${progress()}%` : '0%' }}
+          />
+        </div>
+      </header>
 
-      {/* Main content */}
-      <div class="flex-1 flex flex-col items-center justify-center p-8">
+      <main class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div class="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center px-4 py-6 sm:px-6 sm:py-8 lg:py-10">
         <Show when={studyError()}>
-          <div class="text-center space-y-4 max-w-sm">
-            <p class="text-destructive font-medium">{studyError()}</p>
+          <section
+            class="w-full max-w-md space-y-4"
+            aria-label="Study error"
+          >
+            <Alert variant="destructive" title="Unable to load study cards">
+              {studyError()}
+            </Alert>
             <Button
               variant="outline"
+              class="w-full"
               onClick={() => navigate(`/deck/${params.deckId}`)}
             >
-              <ArrowLeft class="h-4 w-4 mr-2" />
-              Back to Deck
+              <ArrowLeft class="h-4 w-4" />
+              Back to deck
             </Button>
-          </div>
+          </section>
         </Show>
+
         <Show when={!studyError()}>
           <Show
             when={!studyQuery.isLoading && !checkingMore()}
             fallback={
-              <div class="w-full max-w-lg space-y-6 px-4">
-                <div class="animate-pulse space-y-4">
-                  <div class="h-48 rounded-2xl bg-muted" />
-                  <div class="space-y-2 px-2">
-                    <div class="h-4 w-3/4 rounded bg-muted" />
-                    <div class="h-4 w-1/2 rounded bg-muted" />
-                  </div>
-                  <div class="flex justify-center gap-3 pt-4">
-                    <div class="h-10 w-20 rounded-lg bg-muted" />
-                    <div class="h-10 w-20 rounded-lg bg-muted" />
-                    <div class="h-10 w-20 rounded-lg bg-muted" />
-                    <div class="h-10 w-20 rounded-lg bg-muted" />
-                  </div>
+              <div
+                class="w-full max-w-2xl space-y-5"
+                role="status"
+                aria-live="polite"
+              >
+                <Skeleton
+                  shape="card"
+                  class="h-[21rem] rounded-2xl sm:h-[24rem]"
+                />
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <For each={[0, 1, 2, 3]}>
+                    {() => <Skeleton class="h-14 rounded-lg" />}
+                  </For>
                 </div>
-                <p class="text-center text-sm text-muted-foreground">
+                <p class="text-center text-sm font-medium text-muted-foreground">
                   {checkingMore()
-                    ? 'Checking for more cards...'
-                    : 'Loading cards...'}
+                    ? 'Checking for more cards'
+                    : 'Loading study cards'}
                 </p>
               </div>
             }
@@ -394,99 +433,128 @@ const StudyModePage: Component = () => {
             <Show
               when={currentCard()}
               fallback={
-                <div class="text-center space-y-6 max-w-sm w-full">
-                  <CheckCircle class="h-16 w-16 text-green-500 mx-auto" />
-
-                  {/* Title changes based on whether a session was just completed */}
-                  <Show
-                    when={hasReviewedCards()}
-                    fallback={
-                      <div>
-                        <h2 class="text-2xl font-bold">All caught up!</h2>
-                        <p class="text-muted-foreground mt-1">
-                          No cards are due right now.
-                        </p>
-                      </div>
-                    }
-                  >
-                    <div>
-                      <h2 class="text-2xl font-bold">Session Complete!</h2>
-                      <p class="text-muted-foreground mt-1">
-                        You've reviewed all due cards.
-                      </p>
+                <section
+                  class="w-full max-w-2xl space-y-6 py-2"
+                  aria-live="polite"
+                  aria-label="Study session summary"
+                >
+                  <div class="text-center">
+                    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-new/25 bg-new-surface text-new">
+                      <CheckCircle class="h-5 w-5" />
                     </div>
-                  </Show>
 
-                  {/* Session stats — only shown when a session was completed */}
+                    <Show
+                      when={hasReviewedCards()}
+                      fallback={
+                        <>
+                          <h1 class="text-2xl font-semibold tracking-tight">
+                            All caught up
+                          </h1>
+                          <p class="mt-2 text-sm text-muted-foreground">
+                            No cards are due right now.
+                          </p>
+                        </>
+                      }
+                    >
+                      <h1 class="text-2xl font-semibold tracking-tight">
+                        Session complete
+                      </h1>
+                      <p class="mt-2 text-sm text-muted-foreground">
+                        You reviewed every card in this queue.
+                      </p>
+                    </Show>
+                  </div>
+
                   <Show when={hasReviewedCards()}>
-                    <div class="grid grid-cols-4 gap-3 text-center">
-                      <div class="rounded-lg border p-3 bg-card">
-                        <p class="text-2xl font-bold text-destructive">
+                    <div class="grid grid-cols-2 overflow-hidden rounded-xl border bg-card shadow-xs sm:grid-cols-4">
+                      <div class="border-b border-r p-4 sm:border-b-0">
+                        <p class="text-xl font-semibold tabular-nums text-destructive">
                           {stats().again}
                         </p>
-                        <p class="text-xs text-muted-foreground mt-0.5">
+                        <p class="mt-1 text-xs font-medium text-muted-foreground">
                           Again
                         </p>
                       </div>
-                      <div class="rounded-lg border p-3 bg-card">
-                        <p class="text-2xl font-bold text-amber-500">
+                      <div class="border-b p-4 sm:border-b-0 sm:border-r">
+                        <p class="text-xl font-semibold tabular-nums text-risk">
                           {stats().hard}
                         </p>
-                        <p class="text-xs text-muted-foreground mt-0.5">Hard</p>
+                        <p class="mt-1 text-xs font-medium text-muted-foreground">
+                          Hard
+                        </p>
                       </div>
-                      <div class="rounded-lg border p-3 bg-card">
-                        <p class="text-2xl font-bold text-green-500">
+                      <div class="border-r p-4">
+                        <p class="text-xl font-semibold tabular-nums text-due">
                           {stats().good}
                         </p>
-                        <p class="text-xs text-muted-foreground mt-0.5">Good</p>
+                        <p class="mt-1 text-xs font-medium text-muted-foreground">
+                          Good
+                        </p>
                       </div>
-                      <div class="rounded-lg border p-3 bg-card">
-                        <p class="text-2xl font-bold text-palette-5">
+                      <div class="p-4">
+                        <p class="text-xl font-semibold tabular-nums text-new">
                           {stats().easy}
                         </p>
-                        <p class="text-xs text-muted-foreground mt-0.5">Easy</p>
+                        <p class="mt-1 text-xs font-medium text-muted-foreground">
+                          Easy
+                        </p>
                       </div>
                     </div>
                   </Show>
 
-                  {/* Deck progress */}
                   <Show when={scheduleQuery.data}>
-                    <div class="rounded-lg border bg-card p-3 flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-2 text-muted-foreground">
-                        <BookOpen class="h-4 w-4" />
-                        <span class="text-sm">Cards learned</span>
+                    <div class="flex items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-xs">
+                      <div class="flex min-w-0 items-center gap-3">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-due-surface text-due">
+                          <BookOpen class="h-4 w-4" />
+                        </span>
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-semibold">
+                            Deck progress
+                          </p>
+                          <p class="text-xs text-muted-foreground">
+                            Cards learned
+                          </p>
+                        </div>
                       </div>
-                      <span class="text-sm font-semibold">
+                      <span class="shrink-0 text-sm font-semibold tabular-nums">
                         {scheduleQuery.data!.learnedCards} /{' '}
                         {scheduleQuery.data!.totalCards}
                       </span>
                     </div>
                   </Show>
 
-                  {/* Upcoming review schedule */}
+                  <Show
+                    when={
+                      scheduleQuery.isLoading && studyMode() === 'due'
+                    }
+                  >
+                    <Skeleton class="h-20 w-full rounded-xl" />
+                  </Show>
+
                   <Show
                     when={
                       scheduleQuery.data &&
                       scheduleQuery.data!.upcoming.length > 0
                     }
                   >
-                    <div class="space-y-2 w-full text-left">
-                      <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                        <Calendar class="h-4 w-4" />
+                    <div class="space-y-2 text-left">
+                      <div class="flex items-center gap-2 text-sm font-semibold">
+                        <Calendar class="h-4 w-4 text-due" />
                         <span>Upcoming reviews</span>
                       </div>
-                      <div class="space-y-1.5">
+                      <div class="overflow-hidden rounded-xl border bg-card shadow-xs">
                         <For each={scheduleQuery.data!.upcoming.slice(0, 5)}>
                           {(item) => (
-                            <div class="flex items-center justify-between rounded-lg border px-3 py-2 bg-card">
+                            <div class="flex items-center justify-between gap-4 border-b px-4 py-3 last:border-b-0">
                               <span class="text-sm text-muted-foreground">
                                 {item.daysFromNow === 1
                                   ? 'Tomorrow'
                                   : `In ${item.daysFromNow} days`}
                               </span>
-                              <span class="text-sm font-semibold">
+                              <span class="text-sm font-semibold tabular-nums">
                                 {item.count}{' '}
-                                {item.count === 1 ? 'word' : 'words'}
+                                {item.count === 1 ? 'card' : 'cards'}
                               </span>
                             </div>
                           )}
@@ -495,14 +563,13 @@ const StudyModePage: Component = () => {
                     </div>
                   </Show>
 
-                  {/* Cards due soon (within ~1 hour) — with countdown */}
                   <Show
                     when={scheduleQuery.data && scheduleQuery.data!.dueSoon > 0}
                   >
-                    <div class="rounded-lg border bg-amber-500/10 border-amber-500/30 p-3 space-y-2">
+                    <div class="space-y-2 rounded-xl border border-risk/25 bg-risk-surface p-4">
                       <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-2 text-warning">
-                          <Timer class="h-4 w-4" />
+                        <div class="flex min-w-0 items-center gap-2 text-risk">
+                          <Timer class="h-4 w-4 shrink-0" />
                           <span class="text-sm font-medium">
                             {scheduleQuery.data!.dueSoon}{' '}
                             {scheduleQuery.data!.dueSoon === 1
@@ -512,7 +579,7 @@ const StudyModePage: Component = () => {
                           </span>
                         </div>
                         <Show when={countdown()}>
-                          <span class="text-sm font-mono font-semibold tabular-nums text-warning">
+                          <span class="shrink-0 font-mono text-sm font-semibold tabular-nums text-risk">
                             {countdown()}
                           </span>
                         </Show>
@@ -523,7 +590,6 @@ const StudyModePage: Component = () => {
                     </div>
                   </Show>
 
-                  {/* Fully mastered — only when no upcoming AND no due soon */}
                   <Show
                     when={
                       scheduleQuery.data &&
@@ -532,66 +598,72 @@ const StudyModePage: Component = () => {
                       scheduleQuery.data!.learnedCards > 0
                     }
                   >
-                    <p class="text-sm text-muted-foreground">
-                      🎉 All {scheduleQuery.data!.learnedCards} cards are fully
-                      mastered!
-                    </p>
+                    <div class="flex items-center gap-3 rounded-xl border border-new/25 bg-new-surface p-4 text-left">
+                      <CheckCircle class="h-5 w-5 shrink-0 text-new" />
+                      <p class="text-sm font-medium text-new">
+                        All {scheduleQuery.data!.learnedCards} cards are fully
+                        mastered.
+                      </p>
+                    </div>
                   </Show>
 
-                  <div class="flex flex-col gap-2 justify-center w-full">
+                  <div class="flex w-full flex-col gap-2">
                     <Show when={studyData()?.total && studyData()!.total > 0}>
                       <Button class="w-full" onClick={handleReviewAll}>
-                        <RefreshCw class="h-4 w-4 mr-2" />
-                        Review All Cards ({studyData()?.total ?? 0})
+                        <RefreshCw class="h-4 w-4" />
+                        Review all cards ({studyData()?.total ?? 0})
                       </Button>
                     </Show>
                     <Show when={studyData()?.total && studyData()!.total > 0}>
                       <Button
                         variant="outline"
-                        class="w-full text-destructive hover:text-destructive"
+                        class="w-full border-destructive/25 text-destructive hover:bg-destructive-surface hover:text-destructive"
                         onClick={handleResetProgress}
                       >
-                        <RotateCcw class="h-4 w-4 mr-2" />
-                        Reset All Progress
+                        <RotateCcw class="h-4 w-4" />
+                        Reset all progress
                       </Button>
                     </Show>
-                    <div class="flex gap-2 justify-center">
-                      <Button
-                        variant="outline"
-                        onClick={() => navigate(`/deck/${params.deckId}`)}
-                      >
-                        Back to Deck
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      class="w-full"
+                      onClick={() => navigate(`/deck/${params.deckId}`)}
+                    >
+                      Back to deck
+                    </Button>
                   </div>
-                </div>
+                </section>
               }
             >
-              <Flashcard
-                fields={currentCard()!.fields}
-                isFlipped={isFlipped()}
-                onFlip={() => setIsFlipped((f) => !f)}
-              />
+              <section
+                class="w-full max-w-2xl"
+                aria-label="Current study card"
+              >
+                <Flashcard
+                  fields={currentCard()!.fields}
+                  isFlipped={isFlipped()}
+                  onFlip={() => setIsFlipped((f) => !f)}
+                />
 
-              <Show when={isFlipped()}>
                 <StudyControls
                   onAgain={() => handleReview(REVIEW_ACTIONS.AGAIN)}
                   onHard={() => handleReview(REVIEW_ACTIONS.HARD)}
                   onGood={() => handleReview(REVIEW_ACTIONS.GOOD)}
                   onEasy={() => handleReview(REVIEW_ACTIONS.EASY)}
                   disabled={reviewing()}
+                  visible={isFlipped()}
                 />
-              </Show>
 
-              {/* Related cards panel — shown after pressing Again */}
-              <RelatedCardsPanel
-                cardId={currentCard()?.id}
-                show={lastAction() === REVIEW_ACTIONS.AGAIN}
-              />
+                <RelatedCardsPanel
+                  cardId={currentCard()?.id}
+                  show={lastAction() === REVIEW_ACTIONS.AGAIN}
+                />
+              </section>
             </Show>
           </Show>
         </Show>
-      </div>
+        </div>
+      </main>
     </div>
   );
 };

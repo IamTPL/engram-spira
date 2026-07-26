@@ -35,7 +35,7 @@ export function TabsList(props: TabsListProps) {
   return (
     <TabsPrimitive.List
       class={cn(
-        'inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground',
+        'inline-flex h-10 items-center justify-center rounded-lg border border-transparent bg-muted/80 p-1 text-muted-foreground',
         local.class,
       )}
       {...others}
@@ -52,7 +52,7 @@ export function TabsTrigger(props: TabsTriggerProps) {
   return (
     <TabsPrimitive.Trigger
       class={cn(
-        'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow',
+        'inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium transition-[color,background-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 active:translate-y-px disabled:pointer-events-none disabled:translate-y-0 disabled:opacity-50 data-[selected]:bg-card data-[selected]:text-foreground data-[selected]:shadow-xs',
         local.class,
       )}
       {...others}
@@ -69,7 +69,7 @@ export function TabsContent(props: TabsContentProps) {
   return (
     <TabsPrimitive.Content
       class={cn(
-        'mt-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+        'mt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25',
         local.class,
       )}
       {...others}

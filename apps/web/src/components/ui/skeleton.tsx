@@ -2,7 +2,7 @@ import { type Component, type JSX, splitProps } from 'solid-js';
 import { cn } from '@/lib/utils';
 
 const shapeClasses = {
-  text: 'rounded-md h-4 w-full',
+  text: 'rounded-sm h-4 w-full',
   circular: 'rounded-full',
   rectangular: 'rounded-md',
   card: 'rounded-xl h-32 w-full',
@@ -34,11 +34,12 @@ const Skeleton: Component<SkeletonProps> = (props) => {
   return (
     <div
       class={cn(
-        'animate-pulse bg-muted',
+        'skeleton-shimmer bg-muted',
         shapeClasses[local.shape ?? 'rectangular'],
         local.class,
       )}
       style={style()}
+      aria-hidden="true"
       {...others}
     />
   );

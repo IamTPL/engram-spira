@@ -18,31 +18,51 @@ const EditCardForm: Component<EditCardFormProps> = (props) => {
   return (
     <form
       onSubmit={props.onSubmit}
-      class="p-5 space-y-3 bg-white dark:bg-gray-900"
+      class="space-y-5 bg-card p-4 sm:p-5"
+      aria-labelledby="edit-card-title"
     >
-      <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-        Editing card
-      </p>
-      <For each={props.sortedFields()}>
-        {(field) => (
-          <FieldEditor
-            field={field}
-            value={props.editInputs()[field.id]}
-            onChange={(v) =>
-              props.setEditInputs((prev) => ({
-                ...prev,
-                [field.id]: v,
-              }))
-            }
-          />
-        )}
-      </For>
-      <div class="flex gap-2 pt-1">
-        <Button type="submit" disabled={props.editSaving()}>
-          {props.editSaving() ? 'Saving...' : 'Save'}
-        </Button>
-        <Button type="button" variant="outline" onClick={props.onCancel}>
+      <div>
+        <h2
+          id="edit-card-title"
+          class="text-base font-semibold tracking-tight text-foreground"
+        >
+          Edit card
+        </h2>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Update the card content, then save your changes.
+        </p>
+      </div>
+      <div class="space-y-4">
+        <For each={props.sortedFields()}>
+          {(field) => (
+            <FieldEditor
+              field={field}
+              value={props.editInputs()[field.id]}
+              onChange={(v) =>
+                props.setEditInputs((prev) => ({
+                  ...prev,
+                  [field.id]: v,
+                }))
+              }
+            />
+          )}
+        </For>
+      </div>
+      <div class="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={props.onCancel}
+          class="w-full sm:w-auto"
+        >
           Cancel
+        </Button>
+        <Button
+          type="submit"
+          loading={props.editSaving()}
+          class="w-full sm:w-auto"
+        >
+          Save changes
         </Button>
       </div>
     </form>

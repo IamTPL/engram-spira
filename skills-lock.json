@@ -1,10 +1,26 @@
 {
   "version": 1,
   "skills": {
+    "brainstorming": {
+      "source": "brainstorming/skills",
+      "sourceType": "github",
+      "computedHash": "6ec503c15875136004336afbbd7dae7522c50012d7b934a20546a948513c1ebc"
+    },
     "elysiajs": {
       "source": "elysiajs/skills",
       "sourceType": "github",
       "computedHash": "d13212a3759c6cd3c0d1de8b9d44558a1504328b73957392acd1f41250f3ef14"
+    },
+    "executing-plans": {
+      "source": "executing-plans/skills",
+      "sourceType": "github",
+      "computedHash": "cce4f0dfb1d271421262578832787f1b4a3040fd04f57c76f6d54c1673743a71"
+    },
+    "postgresql-optimization": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/postgresql-optimization/SKILL.md",
+      "computedHash": "8022448de70ba9a485e3b5bce34c5bbc644f93eb39b68431c9f7dabcf03aeb09"
     },
     "solid-js-best-practices": {
       "source": "solid-js-best-practices/skills",
@@ -16,11 +32,6 @@
       "sourceType": "github",
       "computedHash": "6108b72558028cd620af0d793a9125fb5b13e4b817f38d61c4c600d7060141c8"
     },
-    "brainstorming": {
-      "source": "brainstorming/skills",
-      "sourceType": "github",
-      "computedHash": "6ec503c15875136004336afbbd7dae7522c50012d7b934a20546a948513c1ebc"
-    },
     "systematic-debugging": {
       "source": "systematic-debugging/skills",
       "sourceType": "github",
@@ -30,11 +41,6 @@
       "source": "writing-plans/skills",
       "sourceType": "github",
       "computedHash": "296f66c1a393913d4d147275041a0b2adc153c53ffccd638574086a0a94d8926"
-    },
-    "executing-plans": {
-      "source": "executing-plans/skills",
-      "sourceType": "github",
-      "computedHash": "cce4f0dfb1d271421262578832787f1b4a3040fd04f57c76f6d54c1673743a71"
     }
   }
 }

@@ -1,14 +1,4 @@
-/**
- * Spinner — on-brand gradient ring loading indicator
- *
- * Uses a conic-gradient border trick so the ring fades from palette-5 (periwinkle)
- * to palette-1 (sky blue) around a transparent arc, giving a clean tail effect.
- *
- * Usage:
- *   <Spinner />                  ← md, default
- *   <Spinner size="lg" />
- *   <Spinner size="sm" label="Loading…" />
- */
+/** Accessible neutral loading indicator. */
 import { type Component, Show } from 'solid-js';
 
 type SpinnerSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -36,28 +26,13 @@ export const Spinner: Component<SpinnerProps> = (props) => {
       class={`flex flex-col items-center gap-3 ${props.class ?? ''}`}
       role="status"
       aria-label={props.label ?? 'Loading'}
+      aria-live="polite"
     >
-      {/*
-        Gradient ring: padding-box fills with card bg so inner looks transparent,
-        border-box receives the conic-gradient arc.
-      */}
       <div
-        class={`rounded-full ${s().ring} ${s().thickness} animate-spin`}
-        style={{
-          'border-color': 'transparent',
-          background: `
-            linear-gradient(var(--color-card, #fff), var(--color-card, #fff)) padding-box,
-            conic-gradient(
-              from 180deg,
-              var(--color-palette-5, #8eb0fb) 0%,
-              var(--color-palette-1, #8dccf5) 40%,
-              color-mix(in srgb, var(--color-palette-5, #8eb0fb) 0%, transparent) 75%
-            ) border-box
-          `,
-        }}
+        class={`rounded-full border-muted-foreground/20 border-t-foreground ${s().ring} ${s().thickness} motion-safe:animate-spin`}
       />
       <Show when={props.label}>
-        <span class="text-sm text-muted-foreground animate-pulse">
+        <span class="text-sm text-muted-foreground">
           {props.label}
         </span>
       </Show>

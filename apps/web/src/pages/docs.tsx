@@ -156,31 +156,31 @@ function sanitizeSvg(svgText: string): string {
 // ── Sub-components ─────────────────────────────────────────────────────────
 
 const PlaceholderCard: Component<{ diagramLabel: string }> = (props) => (
-  <div class="flex flex-col items-center justify-center py-20 px-8 text-center border-2 border-dashed border-border rounded-xl bg-muted/20">
-    <div class="h-16 w-16 rounded-2xl bg-palette-1/15 flex items-center justify-center mb-4">
-      <LayoutTemplate class="h-8 w-8 text-palette-5" />
+  <div class="flex flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 px-6 py-14 text-center">
+    <div class="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border bg-card">
+      <LayoutTemplate class="h-4 w-4 text-foreground" />
     </div>
-    <h3 class="text-base font-semibold text-foreground mb-1">
-      {props.diagramLabel} — Not exported yet
+    <h3 class="text-base font-semibold text-foreground">
+      {props.diagramLabel} is not exported yet
     </h3>
-    <p class="text-sm text-muted-foreground max-w-sm mb-6">
+    <p class="mb-6 mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
       Run the export command to generate SVG diagrams automatically.
     </p>
-    <ol class="text-left text-sm text-muted-foreground space-y-2 max-w-md">
+    <ol class="max-w-md space-y-2 text-left text-sm text-muted-foreground">
       <li class="flex gap-2">
-        <span class="shrink-0 font-mono text-xs bg-muted px-1.5 py-0.5 rounded h-fit mt-0.5">
+        <span class="mt-0.5 h-fit shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
           1
         </span>
         <span>
           Run{' '}
-          <code class="bg-muted px-1 rounded text-xs font-mono">
+          <code class="rounded bg-muted px-1 font-mono text-xs">
             bun run docs:export
           </code>{' '}
           to export all diagrams
         </span>
       </li>
       <li class="flex gap-2">
-        <span class="shrink-0 font-mono text-xs bg-muted px-1.5 py-0.5 rounded h-fit mt-0.5">
+        <span class="mt-0.5 h-fit shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
           2
         </span>
         <span>Refresh this page</span>
@@ -304,54 +304,87 @@ const SvgViewer: Component<{ svgContent: string }> = (props) => {
     containerRef.style.cursor = 'grab';
   };
 
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      zoom(ZOOM_STEP);
+    }
+    if (e.key === '-') {
+      e.preventDefault();
+      zoom(-ZOOM_STEP);
+    }
+    if (e.key === '0') {
+      e.preventDefault();
+      resetView();
+    }
+  };
+
   return (
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-3">
       {/* Toolbar */}
-      <div class="flex items-center gap-1 justify-end">
-        <span class="text-xs text-muted-foreground mr-2">
+      <div
+        class="flex flex-wrap items-center justify-end gap-1"
+        aria-label="Diagram controls"
+      >
+        <span class="mr-2 text-xs tabular-nums text-muted-foreground" aria-live="polite">
           {Math.round(scale() * 100)}%
         </span>
         <button
+          type="button"
           onClick={() => zoom(-ZOOM_STEP)}
           title="Zoom out"
-          class="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-accent transition-colors"
+          aria-label="Zoom out"
+          class="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ZoomOut class="h-3.5 w-3.5" />
         </button>
         <button
+          type="button"
           onClick={() => zoom(ZOOM_STEP)}
           title="Zoom in"
-          class="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-accent transition-colors"
+          aria-label="Zoom in"
+          class="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ZoomIn class="h-3.5 w-3.5" />
         </button>
         <button
+          type="button"
           onClick={resetView}
           title="Fit to screen"
-          class="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-accent transition-colors"
+          aria-label="Fit diagram to screen"
+          class="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Maximize2 class="h-3.5 w-3.5" />
         </button>
-        <div class="w-px h-4 bg-border mx-1" />
+        <div class="mx-1 h-4 w-px bg-border" aria-hidden="true" />
         <button
+          type="button"
           onClick={toggleFullscreen}
           title={isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'}
-          class="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-accent transition-colors"
+          aria-label={isFullscreen() ? 'Exit fullscreen' : 'Open fullscreen'}
+          class="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {isFullscreen() ? (
+          <Show
+            when={isFullscreen()}
+            fallback={<Move class="h-3.5 w-3.5" />}
+          >
             <Minimize2 class="h-3.5 w-3.5" />
-          ) : (
-            <Move class="h-3.5 w-3.5" />
-          )}
+          </Show>
         </button>
       </div>
 
       {/* Canvas */}
       <div
         ref={(el) => (containerRef = el)}
-        class="relative w-full rounded-xl border border-border bg-card overflow-hidden select-none"
-        style={{ height: isFullscreen() ? '100vh' : '600px', cursor: 'grab' }}
+        class="relative w-full select-none overflow-hidden rounded-xl border border-border bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{
+          height: isFullscreen() ? '100dvh' : 'min(64dvh, 600px)',
+          cursor: 'grab',
+        }}
+        tabindex={0}
+        aria-label="Interactive diagram. Use the toolbar or keyboard controls to zoom and fit the view."
         onWheel={onWheel}
+        onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -370,8 +403,8 @@ const SvgViewer: Component<{ svgContent: string }> = (props) => {
           }}
           innerHTML={props.svgContent}
         />
-        <p class="absolute bottom-2 right-3 text-[10px] text-muted-foreground/60 pointer-events-none select-none">
-          Scroll to zoom · Drag to pan
+        <p class="pointer-events-none absolute bottom-2 right-3 select-none rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground">
+          Scroll to zoom · Drag to pan · 0 to reset
         </p>
       </div>
     </div>
@@ -388,9 +421,12 @@ const C4DiagramView: Component<{ diagram: C4Diagram }> = (props) => {
   return (
     <Switch>
       <Match when={svgQuery.isLoading}>
-        <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
+        <div
+          class="flex items-center justify-center gap-2 py-24 text-muted-foreground"
+          aria-live="polite"
+        >
           <Loader2 class="h-5 w-5 animate-spin" />
-          <span class="text-sm">Loading diagram…</span>
+          <span class="text-sm">Loading diagram...</span>
         </div>
       </Match>
       <Match when={svgQuery.isError}>
@@ -410,7 +446,7 @@ const DocsPage: Component = () => {
   const [topTab, setTopTab] = createSignal<TopTab>('srs');
   const [c4Tab, setC4Tab] = createSignal(C4_DIAGRAMS[0].id);
 
-  // SRS markdown — only fetched when SRS tab is active
+  // Fetch SRS markdown only while its tab is active.
   const htmlQuery = createQuery(() => ({
     queryKey: ['srs-markdown'],
     queryFn: fetchMarkdown,
@@ -423,36 +459,52 @@ const DocsPage: Component = () => {
 
   return (
     <PageShell maxWidth="max-w-6xl">
-      <div class="space-y-6 animate-fade-in">
+      <div class="animate-fade-in space-y-7">
         {/* ── Page header ── */}
-        <div class="flex items-center gap-3">
+        <header class="flex items-start gap-4 border-b pb-7">
           <button
+            type="button"
             onClick={() => navigate('/')}
-            class="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            aria-label="Back to dashboard"
+            class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft class="h-4 w-4" />
           </button>
-          <div>
-            <h1 class="text-xl font-bold">Project Documentation</h1>
-            <p class="text-sm text-muted-foreground">
-              Live reference docs — Engram Spira
+          <div class="min-w-0">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Technical reference
+            </p>
+            <h1 class="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              Project documentation
+            </h1>
+            <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              Explore the study model, system architecture, and current database
+              schema behind Engram Spira.
             </p>
           </div>
-        </div>
+        </header>
 
         {/* ── Top tab bar ── */}
-        <div class="flex gap-1 border-b">
+        <div
+          class="grid gap-2 rounded-xl border bg-muted/35 p-1.5 sm:grid-cols-3"
+          role="tablist"
+          aria-label="Documentation sections"
+        >
           <For each={TOP_TABS}>
             {(tab) => {
               const Icon = tab.icon;
               return (
                 <button
+                  type="button"
                   id={`docs-tab-${tab.id}`}
+                  role="tab"
+                  aria-selected={topTab() === tab.id}
+                  aria-controls={`docs-panel-${tab.id}`}
                   onClick={() => setTopTab(tab.id)}
-                  class={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                  class={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     topTab() === tab.id
-                      ? 'border-palette-5 text-palette-5'
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                      ? 'bg-foreground text-background shadow-xs'
+                      : 'text-muted-foreground hover:bg-card hover:text-foreground'
                   }`}
                 >
                   <Icon class="h-4 w-4" />
@@ -465,27 +517,41 @@ const DocsPage: Component = () => {
 
         {/* ── SRS Tab ── */}
         <Show when={topTab() === 'srs'}>
-          <Switch>
-            <Match when={htmlQuery.isLoading}>
-              <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
-                <Loader2 class="h-5 w-5 animate-spin" />
-                <span class="text-sm">Loading SRS document…</span>
-              </div>
-            </Match>
-            <Match when={htmlQuery.isError}>
-              <div class="flex items-center gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/5 text-destructive text-sm">
-                <AlertCircle class="h-4 w-4 shrink-0" />
-                Failed to load SRS document. Run{' '}
-                <code class="bg-destructive/10 px-1 rounded font-mono text-xs">
-                  bun run docs:sync
-                </code>{' '}
-                to sync doc files.
-              </div>
-            </Match>
-            <Match when={html()}>
-              {/* Prose container — scoped markdown styles */}
-              <article
-                class="
+          <section
+            id="docs-panel-srs"
+            role="tabpanel"
+            aria-labelledby="docs-tab-srs"
+          >
+            <Switch>
+              <Match when={htmlQuery.isLoading}>
+                <div
+                  class="flex items-center justify-center gap-2 rounded-xl border bg-card py-24 text-muted-foreground"
+                  aria-live="polite"
+                >
+                  <Loader2 class="h-5 w-5 animate-spin" />
+                  <span class="text-sm">Loading SRS document...</span>
+                </div>
+              </Match>
+              <Match when={htmlQuery.isError}>
+                <div
+                  class="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+                  role="alert"
+                >
+                  <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    Failed to load SRS document. Run{' '}
+                    <code class="rounded bg-destructive/10 px-1 font-mono text-xs">
+                      bun run docs:sync
+                    </code>{' '}
+                    to sync doc files.
+                  </p>
+                </div>
+              </Match>
+              <Match when={html()}>
+                {/* Prose container with scoped markdown styles. */}
+                <article
+                  class="
+                    rounded-xl border bg-card p-5 shadow-xs sm:p-8
                     prose prose-sm max-w-none
                     prose-headings:font-semibold
                     prose-h1:text-2xl prose-h1:border-b prose-h1:pb-3
@@ -497,32 +563,54 @@ const DocsPage: Component = () => {
                     prose-th:border prose-th:border-border prose-th:px-3 prose-th:py-2 prose-th:bg-muted/50 prose-th:text-sm
                     prose-td:border prose-td:border-border prose-td:px-3 prose-td:py-2 prose-td:text-sm
                     prose-strong:text-foreground
-                    prose-a:text-palette-5
+                    prose-a:text-foreground prose-a:decoration-muted-foreground prose-a:underline-offset-4
                     prose-hr:border-border
                   "
-                innerHTML={html()}
-              />
-            </Match>
-          </Switch>
+                  innerHTML={html()}
+                />
+              </Match>
+            </Switch>
+          </section>
         </Show>
 
         {/* ── C4 Architecture Tab ── */}
         <Show when={topTab() === 'c4'}>
-          <div class="space-y-4">
+          <section
+            id="docs-panel-c4"
+            class="space-y-4"
+            role="tabpanel"
+            aria-labelledby="docs-tab-c4"
+          >
             {/* Diagram sub-tab pills */}
-            <div class="flex flex-wrap gap-2">
+            <div
+              class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"
+              role="tablist"
+              aria-label="C4 diagram level"
+            >
               <For each={C4_DIAGRAMS}>
                 {(d) => (
                   <button
+                    type="button"
                     id={`c4-subtab-${d.id}`}
+                    role="tab"
+                    aria-selected={c4Tab() === d.id}
+                    aria-controls="c4-diagram-panel"
                     onClick={() => setC4Tab(d.id)}
-                    class={`flex flex-col items-start px-4 py-2 rounded-xl border text-left transition-colors ${
+                    class={`flex flex-col items-start rounded-lg border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                       c4Tab() === d.id
-                        ? 'border-palette-5 bg-palette-5/5 text-palette-5'
-                        : 'border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                        ? 'border-foreground bg-foreground text-background'
+                        : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
                     }`}
                   >
-                    <span class="text-xs font-medium">{d.level}</span>
+                    <span
+                      class={`text-xs font-medium ${
+                        c4Tab() === d.id
+                          ? 'text-background/70'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      {d.level}
+                    </span>
                     <span class="text-sm font-semibold">{d.label}</span>
                   </button>
                 )}
@@ -530,36 +618,49 @@ const DocsPage: Component = () => {
             </div>
 
             {/* Active diagram */}
-            <div class="rounded-xl border bg-card p-2">
-              <div class="px-3 py-2 mb-2 flex items-center justify-between">
+            <div
+              id="c4-diagram-panel"
+              class="rounded-xl border bg-card p-3 shadow-xs sm:p-4"
+              role="tabpanel"
+              aria-labelledby={`c4-subtab-${activeDiagram().id}`}
+            >
+              <div class="mb-3 flex flex-col gap-2 border-b px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                  <p class="text-xs font-medium text-muted-foreground">
                     {activeDiagram().level}
                   </p>
-                  <h2 class="text-sm font-semibold">{activeDiagram().label}</h2>
+                  <h2 class="mt-1 text-lg font-semibold tracking-tight">
+                    {activeDiagram().label}
+                  </h2>
                 </div>
-                <span class="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+                <span class="w-fit rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
                   C4 Model
                 </span>
               </div>
               <C4DiagramView diagram={activeDiagram()} />
             </div>
-          </div>
+          </section>
         </Show>
 
         {/* ── ERD Tab ── */}
         <Show when={topTab() === 'erd'}>
-          <div class="space-y-4">
-            <div class="rounded-xl border bg-card p-2">
-              <div class="px-3 py-2 mb-2 flex items-center justify-between">
+          <section
+            id="docs-panel-erd"
+            role="tabpanel"
+            aria-labelledby="docs-tab-erd"
+          >
+            <div class="rounded-xl border bg-card p-3 shadow-xs sm:p-4">
+              <div class="mb-3 flex flex-col gap-2 border-b px-1 pb-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                  <p class="text-xs font-medium text-muted-foreground">
                     Database Schema
                   </p>
-                  <h2 class="text-sm font-semibold">Entity Relationship Diagram</h2>
+                  <h2 class="mt-1 text-lg font-semibold tracking-tight">
+                    Entity Relationship Diagram
+                  </h2>
                 </div>
-                <span class="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
-                  16 Tables
+                <span class="w-fit rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+                  18 Tables
                 </span>
               </div>
               {(() => {
@@ -571,9 +672,12 @@ const DocsPage: Component = () => {
                 return (
                   <Switch>
                     <Match when={erdQuery.isLoading}>
-                      <div class="flex items-center justify-center py-24 text-muted-foreground gap-2">
+                      <div
+                        class="flex items-center justify-center gap-2 py-24 text-muted-foreground"
+                        aria-live="polite"
+                      >
                         <Loader2 class="h-5 w-5 animate-spin" />
-                        <span class="text-sm">Loading ERD…</span>
+                        <span class="text-sm">Loading ERD...</span>
                       </div>
                     </Match>
                     <Match when={erdQuery.isError}>
@@ -586,7 +690,7 @@ const DocsPage: Component = () => {
                 );
               })()}
             </div>
-          </div>
+          </section>
         </Show>
       </div>
     </PageShell>

@@ -1,4 +1,12 @@
-import { type Component, onMount, onCleanup, createEffect } from 'solid-js';
+import {
+  type Component,
+  onMount,
+  onCleanup,
+  createEffect,
+  createSignal,
+  Show,
+} from 'solid-js';
+import { Dynamic } from 'solid-js/web';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three-stdlib';
 import { Dice1, Dice2, Dice3, Dice4, Dice5, Dice6 } from 'lucide-solid';
@@ -36,15 +44,16 @@ interface Props {
   onResult: (reward: Reward) => void;
   rolling: boolean;
   onRollingChange: (rolling: boolean) => void;
+  disabled?: boolean;
 }
 
-const FACE_COLORS = [
-  { bg: '#ef4444', text: '#ffffff' }, // 1 Red
-  { bg: '#3b82f6', text: '#ffffff' }, // 2 Blue
-  { bg: '#22c55e', text: '#ffffff' }, // 3 Green
-  { bg: '#f59e0b', text: '#1a1a1a' }, // 4 Amber
-  { bg: '#8b5cf6', text: '#ffffff' }, // 5 Violet
-  { bg: '#ec4899', text: '#ffffff' }, // 6 Pink
+const FACE_COLOR_TOKENS = [
+  { bg: '--color-info', text: '--color-info-foreground' },
+  { bg: '--color-forecast', text: '--color-forecast-foreground' },
+  { bg: '--color-success', text: '--color-success-foreground' },
+  { bg: '--color-learning', text: '--color-learning-foreground' },
+  { bg: '--color-destructive', text: '--color-destructive-foreground' },
+  { bg: '--color-primary', text: '--color-primary-foreground' },
 ];
 
 // Target rotations (Euler) so the respective face points to the camera (+Z axis)
@@ -63,10 +72,52 @@ function easeOutCubic(x: number): number {
 }
 
 const CubeDice: Component<Props> = (props) => {
-  let containerRef!: HTMLDivElement;
+  let containerRef!: HTMLButtonElement;
   let frameId = 0;
+  let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let fallbackRolling = false;
+  const [fallbackMode, setFallbackMode] = createSignal(false);
+  const [fallbackFace, setFallbackFace] = createSignal(0);
+  const fallbackIcon = () => getRewards()[fallbackFace()]?.icon ?? Dice1;
+
+  const rollFallback = () => {
+    if (!fallbackMode() || fallbackRolling) return;
+
+    fallbackRolling = true;
+    const selectedFace = Math.floor(Math.random() * getRewards().length);
+    setFallbackFace(selectedFace);
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+
+    fallbackTimer = setTimeout(
+      () => {
+        fallbackRolling = false;
+        props.onRollingChange(false);
+        props.onResult(getRewards()[selectedFace]);
+      },
+      reduceMotion ? 0 : 1200,
+    );
+  };
+
+  createEffect(() => {
+    if (fallbackMode() && props.rolling) rollFallback();
+  });
+
+  onCleanup(() => {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+  });
 
   onMount(() => {
+    const rootStyles = getComputedStyle(document.documentElement);
+    const faceColors = FACE_COLOR_TOKENS.map((tokens) => ({
+      bg: rootStyles.getPropertyValue(tokens.bg).trim(),
+      text: rootStyles.getPropertyValue(tokens.text).trim(),
+    }));
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+
     // ── Scene ──────────────────────────────────────────────
     const scene = new THREE.Scene();
     scene.background = null;
@@ -76,15 +127,22 @@ const CubeDice: Component<Props> = (props) => {
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     camera.position.set(0, 0, 5.0);
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance',
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        powerPreference: 'high-performance',
+      });
+    } catch {
+      setFallbackMode(true);
+      return;
+    }
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
+    renderer.domElement.setAttribute('aria-hidden', 'true');
     containerRef.appendChild(renderer.domElement);
 
     // ── Lighting ───────────────────────────
@@ -107,7 +165,7 @@ const CubeDice: Component<Props> = (props) => {
       canvas.width = 256;
       canvas.height = 256;
       const ctx = canvas.getContext('2d')!;
-      const color = FACE_COLORS[i];
+      const color = faceColors[i];
 
       // Solid bright background
       ctx.fillStyle = color.bg;
@@ -192,7 +250,7 @@ const CubeDice: Component<Props> = (props) => {
       // Highlight winning face, dim others
       materials.forEach((mat, idx) => {
         if (idx === selectedFaceIdx) {
-          mat.emissive = new THREE.Color(FACE_COLORS[selectedFaceIdx].bg);
+          mat.emissive = new THREE.Color(faceColors[selectedFaceIdx].bg);
           mat.emissiveIntensity = 0.5;
           mat.opacity = 1;
         } else {
@@ -221,6 +279,11 @@ const CubeDice: Component<Props> = (props) => {
       targetFaceQuat = new THREE.Quaternion().setFromEuler(
         TARGET_EULERS[selectedFaceIdx],
       );
+
+      if (reduceMotion) {
+        settleNow();
+        return;
+      }
 
       // Random rotation axis and 6 to 10 full random spins
       spinAxis
@@ -259,7 +322,7 @@ const CubeDice: Component<Props> = (props) => {
         if (t >= 1.0) {
           settleNow();
         }
-      } else {
+      } else if (!reduceMotion) {
         // Idle hover bobbing is applied to the GROUP, so it doesn't destroy the exact computed quaternion state of the mesh!
         idleTime += 0.01;
         diceGroup.rotation.x = Math.sin(idleTime) * 0.04;
@@ -280,7 +343,7 @@ const CubeDice: Component<Props> = (props) => {
     resizeObserver.observe(containerRef);
 
     const handleClick = () => {
-      if (!isRolling) {
+      if (!isRolling && !props.disabled) {
         props.onRollingChange(true);
         roll();
       }
@@ -307,11 +370,56 @@ const CubeDice: Component<Props> = (props) => {
   });
 
   return (
-    <div
+    <button
       ref={containerRef!}
-      class="w-full aspect-square max-w-72 mx-auto cursor-pointer select-none"
-      title="Click to roll"
-    />
+      type="button"
+      class="relative mx-auto block aspect-square w-full max-w-72 select-none overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+      aria-label={
+        props.rolling
+          ? 'Rolling reward dice'
+          : props.disabled
+            ? 'Reward dice result'
+            : 'Roll reward dice'
+      }
+      aria-busy={props.rolling}
+      disabled={props.rolling || props.disabled}
+      onClick={() => {
+        if (fallbackMode() && !props.rolling && !props.disabled) {
+          props.onRollingChange(true);
+        }
+      }}
+    >
+      <Show when={fallbackMode()}>
+        <span
+          class="absolute inset-0 flex flex-col items-center justify-center gap-4"
+          aria-hidden="true"
+        >
+          <span
+            class={`flex h-32 w-32 items-center justify-center rounded-2xl border bg-primary text-primary-foreground shadow-lg ${
+              props.rolling
+                ? 'animate-dice-fallback-roll will-change-transform motion-reduce:animate-none'
+                : ''
+            }`}
+          >
+            <Dynamic component={fallbackIcon()} class="h-16 w-16" />
+          </span>
+          <span class="block text-sm font-medium text-muted-foreground">
+            {props.rolling
+              ? 'Choosing your reward...'
+              : props.disabled
+                ? 'Reward selected'
+                : 'Tap to roll'}
+          </span>
+        </span>
+      </Show>
+      <span class="sr-only">
+        {props.rolling
+          ? 'Rolling reward dice'
+          : props.disabled
+            ? 'Reward dice result'
+            : 'Roll reward dice'}
+      </span>
+    </button>
   );
 };
 

@@ -15,7 +15,6 @@ import { api, getApiError } from '@/api/client';
 import { toast } from '@/stores/toast.store';
 import {
   Sparkles,
-  Loader2,
   Save,
   X,
   Trash2,
@@ -52,6 +51,10 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
   const [aiSaving, setAiSaving] = createSignal(false);
   const [aiConfirmDiscard, setAiConfirmDiscard] = createSignal(false);
 
+  let dialogRef: HTMLDivElement | undefined;
+  let confirmRef: HTMLDivElement | undefined;
+  let closeButtonRef: HTMLButtonElement | undefined;
+  let previousFocus: HTMLElement | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   onCleanup(() => {
@@ -105,7 +108,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
           toast.error(data.errorMessage ?? 'AI generation failed');
         }
       } catch {
-        // network hiccup — keep polling
+        // Network hiccup, keep polling.
       }
     }, 2000);
   };
@@ -148,7 +151,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
         })),
       });
       if (error) throw new Error(getApiError(error));
-      toast.success(`${aiPreviewCards.length} cards saved!`);
+      toast.success(`${aiPreviewCards.length} cards saved.`);
       resetAndClose();
       props.onSaved();
     } catch (err: any) {
@@ -195,39 +198,127 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
     props.onClose();
   };
 
+  createEffect(() => {
+    if (!props.open) return;
+
+    previousFocus = document.activeElement as HTMLElement | null;
+    const focusFrame = requestAnimationFrame(() => closeButtonRef?.focus());
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (aiConfirmDiscard()) {
+          setAiConfirmDiscard(false);
+        } else {
+          closeModal();
+        }
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const scope =
+        aiConfirmDiscard() && confirmRef ? confirmRef : dialogRef;
+      if (!scope) return;
+
+      const focusable = Array.from(
+        scope.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute('aria-hidden'));
+
+      if (focusable.length === 0) {
+        event.preventDefault();
+        scope.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+      previousFocus = null;
+    });
+  });
+
+  createEffect(() => {
+    if (!aiConfirmDiscard()) return;
+    const focusFrame = requestAnimationFrame(() => {
+      confirmRef
+        ?.querySelector<HTMLButtonElement>('button:not([disabled])')
+        ?.focus();
+    });
+    onCleanup(() => cancelAnimationFrame(focusFrame));
+  });
+
   return (
     <Show when={props.open}>
       <Portal>
         <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-overlay sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="ai-modal-title"
+          aria-describedby="ai-modal-description"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeModal();
           }}
         >
           <div
-            class="relative bg-card border rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4 animate-fade-in"
+            ref={dialogRef}
+            class="relative flex h-[100dvh] w-full max-w-2xl flex-col border bg-card shadow-xl outline-none motion-safe:animate-fade-in sm:h-auto sm:max-h-[88dvh] sm:rounded-xl"
             style={{ 'overscroll-behavior': 'contain' }}
+            tabindex="-1"
           >
             {/* Header */}
-            <div class="flex items-center justify-between p-5 border-b">
-              <div class="flex items-center gap-2">
-                <Sparkles class="h-5 w-5 text-palette-4" />
-                <h2 id="ai-modal-title" class="text-lg font-semibold">
-                  AI Card Generator
-                </h2>
-                <Show when={aiGenerating()}>
-                  <span class="text-xs text-muted-foreground">Generating…</span>
-                </Show>
+            <div
+              class="flex items-start justify-between gap-4 border-b p-4 sm:p-5"
+              aria-hidden={aiConfirmDiscard() || undefined}
+            >
+              <div class="flex min-w-0 items-start gap-3">
+                <div class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-learning-surface text-learning">
+                  <Sparkles class="h-4 w-4" />
+                </div>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h2
+                      id="ai-modal-title"
+                      class="text-lg font-semibold tracking-tight text-foreground"
+                    >
+                      Generate cards with AI
+                    </h2>
+                    <Show when={aiGenerating()}>
+                      <span class="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                        Generating
+                      </span>
+                    </Show>
+                  </div>
+                  <p
+                    id="ai-modal-description"
+                    class="mt-1 text-sm text-muted-foreground"
+                  >
+                    Turn notes or a topic into editable card drafts.
+                  </p>
+                </div>
               </div>
               <Button
+                ref={closeButtonRef}
                 variant="ghost"
                 size="icon"
-                class="h-8 w-8"
+                class="h-9 w-9 shrink-0"
                 onClick={closeModal}
-                aria-label="Close"
+                aria-label="Close AI card generator"
                 title="Close"
               >
                 <X class="h-4 w-4" />
@@ -236,28 +327,40 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
 
             {/* Layer 2: Confirm discard overlay */}
             <Show when={aiConfirmDiscard()}>
-              <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/60 rounded-2xl">
-                <div class="bg-card border rounded-xl shadow-xl p-6 mx-6 space-y-4 max-w-sm w-full">
-                  <h3 class="font-semibold text-foreground">
+              <div class="absolute inset-0 z-10 flex items-center justify-center bg-overlay p-4 sm:rounded-xl">
+                <div
+                  ref={confirmRef}
+                  class="w-full max-w-sm space-y-4 rounded-lg border bg-card p-5 shadow-xl outline-none sm:p-6"
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-labelledby="discard-ai-title"
+                  aria-describedby="discard-ai-description"
+                  tabindex="-1"
+                >
+                  <h3
+                    id="discard-ai-title"
+                    class="font-semibold text-foreground"
+                  >
                     Discard unsaved cards?
                   </h3>
-                  <p class="text-sm text-muted-foreground">
+                  <p
+                    id="discard-ai-description"
+                    class="text-sm text-muted-foreground"
+                  >
                     You have{' '}
                     <strong>{aiPreviewCards.length} generated cards</strong>{' '}
                     that haven't been saved yet. The session will be available
-                    for 24 hours — you can resume it later from the deck view.
+                    for 24 hours. You can resume it later from the deck view.
                   </p>
-                  <div class="flex gap-2 justify-end">
+                  <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <Button
                       variant="outline"
-                      size="sm"
                       onClick={() => setAiConfirmDiscard(false)}
                     >
                       Keep editing
                     </Button>
                     <Button
                       variant="destructive"
-                      size="sm"
                       onClick={forceClose}
                     >
                       Close anyway
@@ -268,7 +371,13 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
             </Show>
 
             {/* Body */}
-            <div class="flex-1 overflow-y-auto p-5 space-y-4">
+            <div
+              class="flex-1 space-y-5 overflow-y-auto bg-surface p-4 sm:p-5"
+              aria-hidden={aiConfirmDiscard() || undefined}
+              aria-busy={
+                aiGenerating() || aiFetching() || aiSaving() || undefined
+              }
+            >
               <Show
                 when={aiPreviewOpen()}
                 fallback={
@@ -279,29 +388,35 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                         when={aiGenerating()}
                         fallback={
                           /* ── Input phase ── */
-                          <div class="space-y-4">
+                          <div class="space-y-5">
                             {/* Back language selector */}
-                            <div class="space-y-2">
-                              <label class="text-sm font-medium text-foreground">
+                            <fieldset class="space-y-2">
+                              <legend class="text-sm font-medium text-foreground">
                                 Back (explanation) language
-                              </label>
-                              <div class="flex gap-2">
+                              </legend>
+                              <div
+                                class="grid grid-cols-2 gap-2"
+                                role="radiogroup"
+                                aria-label="Card explanation language"
+                              >
                                 <For
                                   each={
                                     [
-                                      { value: 'vi', label: '🇻🇳 Tiếng Việt' },
-                                      { value: 'en', label: '🇬🇧 English' },
+                                      { value: 'vi', label: 'Vietnamese' },
+                                      { value: 'en', label: 'English' },
                                     ] as const
                                   }
                                 >
                                   {(opt) => (
                                     <button
                                       type="button"
+                                      role="radio"
+                                      aria-checked={aiBackLang() === opt.value}
                                       onClick={() => setAiBackLang(opt.value)}
-                                      class={`flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                                      class={`rounded-md border px-4 py-2.5 text-sm font-medium transition-[background-color,border-color,color] ${
                                         aiBackLang() === opt.value
-                                          ? 'border-palette-4 bg-palette-4/10 text-foreground'
-                                          : 'border-border bg-background text-muted-foreground hover:border-palette-4/50'
+                                          ? 'border-primary bg-primary text-primary-foreground'
+                                          : 'border-input bg-card text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground'
                                       }`}
                                     >
                                       {opt.label}
@@ -309,15 +424,19 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                                   )}
                                 </For>
                               </div>
-                            </div>
+                            </fieldset>
     
                             {/* Source text */}
                             <div class="space-y-2">
-                              <label class="text-sm font-medium text-foreground">
+                              <label
+                                for="ai-source-text"
+                                class="text-sm font-medium text-foreground"
+                              >
                                 Paste your notes, text, or describe a topic
                               </label>
                               <Textarea
-                                placeholder={`Enter or paste text to generate flashcards from... (min ${AI_SOURCE_MIN_CHARS} characters)`}
+                                id="ai-source-text"
+                                placeholder={`Enter or paste at least ${AI_SOURCE_MIN_CHARS} characters`}
                                 value={aiSourceText()}
                                 onInput={(e) => {
                                   const raw = e.currentTarget.value;
@@ -325,25 +444,42 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                                   if (raw !== val) e.currentTarget.value = val;
                                   setAiSourceText(val);
                                 }}
-                                class="min-h-50 resize-y"
+                                class="min-h-52 resize-y bg-card"
+                                aria-invalid={
+                                  (aiSourceText().trim().length > 0 &&
+                                    aiSourceText().trim().length <
+                                      AI_SOURCE_MIN_CHARS) ||
+                                  undefined
+                                }
+                                aria-describedby={
+                                  aiSourceText().trim().length > 0 &&
+                                  aiSourceText().trim().length <
+                                    AI_SOURCE_MIN_CHARS
+                                    ? 'ai-source-help ai-source-count'
+                                    : 'ai-source-count'
+                                }
                               />
-                              <div class="flex justify-between text-xs">
+                              <div class="flex items-start justify-between gap-3 text-xs">
                                 <Show
                                   when={
                                     aiSourceText().trim().length > 0 &&
                                     aiSourceText().trim().length < AI_SOURCE_MIN_CHARS
                                   }
                                 >
-                                  <span class="text-destructive">
+                                  <span
+                                    id="ai-source-help"
+                                    class="text-destructive"
+                                  >
                                     Need at least {AI_SOURCE_MIN_CHARS} characters
                                   </span>
                                 </Show>
                                 <span
+                                  id="ai-source-count"
                                   class="ml-auto"
                                   classList={{
                                     'text-destructive':
                                       aiSourceText().length >= AI_SOURCE_MAX_CHARS,
-                                    'text-amber-500':
+                                    'text-warning':
                                       aiSourceText().length >= AI_SOURCE_MAX_CHARS * 0.9,
                                     'text-muted-foreground':
                                       aiSourceText().length < AI_SOURCE_MAX_CHARS * 0.9,
@@ -358,15 +494,15 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                         }
                       >
                         {/* ── Generating state ── */}
-                        <div class="flex flex-col items-center justify-center py-16 gap-6">
+                        <div class="flex flex-col items-center justify-center gap-5 py-16">
                           <Spinner size="lg" />
                           <div class="text-center space-y-1.5">
                             <p class="text-sm font-medium text-foreground">
                               AI is generating your flashcards…
                             </p>
                             <p class="text-xs text-muted-foreground max-w-xs">
-                              You can close this modal anytime — generation runs in
-                              the background and you can resume when it's done.
+                              You can close this modal at any time. Generation
+                              continues in the background.
                             </p>
                           </div>
                         </div>
@@ -374,7 +510,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                     }
                   >
                     {/* ── Fetching state ── */}
-                    <div class="flex flex-col items-center justify-center py-16 gap-6">
+                    <div class="flex flex-col items-center justify-center gap-5 py-16">
                       <Spinner size="lg" />
                       <div class="text-center space-y-1.5">
                         <p class="text-sm font-medium text-foreground">
@@ -389,33 +525,39 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                 }
               >
                 {/* ── Preview phase ── */}
-                <div class="space-y-1">
-                  <p class="text-sm text-muted-foreground">
-                    Review and edit generated cards before saving.
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {aiPreviewCards.length} cards generated
+                <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 class="text-sm font-semibold text-foreground">
+                      Review generated cards
+                    </h3>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      Edit the front and back before saving.
+                    </p>
+                  </div>
+                  <p class="text-xs tabular-nums text-muted-foreground">
+                    {aiPreviewCards.length} card
+                    {aiPreviewCards.length !== 1 ? 's' : ''}
                   </p>
                 </div>
-                <div class="space-y-3">
+                <div class="space-y-2.5">
                   <For each={aiPreviewCards}>
                     {(card, getIdx) => (
-                      <div class="border rounded-lg p-4 space-y-3 bg-background">
+                      <article class="space-y-4 rounded-lg border bg-card p-4">
                         {/* Card header */}
                         <div class="flex items-center justify-between">
                           <div class="flex items-center gap-2">
-                            <span class="text-xs font-medium text-muted-foreground">
+                            <span class="text-xs font-medium tabular-nums text-muted-foreground">
                               Card {getIdx() + 1}
                             </span>
                             <Show when={card.wordType || card.ipa}>
-                              <div class="flex items-center gap-1">
+                              <div class="flex flex-wrap items-center gap-1.5">
                                 <Show when={card.wordType}>
-                                  <span class="text-xs px-1.5 py-0.5 rounded bg-muted border text-muted-foreground">
+                                  <span class="rounded-sm border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                                     {card.wordType}
                                   </span>
                                 </Show>
                                 <Show when={card.ipa}>
-                                  <span class="text-xs px-1.5 py-0.5 rounded bg-muted border font-mono text-muted-foreground">
+                                  <span class="rounded-sm border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                                     {card.ipa}
                                   </span>
                                 </Show>
@@ -425,7 +567,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            class="h-6 w-6 text-destructive"
+                            class="h-8 w-8 text-muted-foreground hover:bg-destructive-surface hover:text-destructive"
                             onClick={() =>
                               setAiPreviewCards(
                                 produce((c) => {
@@ -433,47 +575,63 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                                 }),
                               )
                             }
+                            aria-label={`Remove generated card ${
+                              getIdx() + 1
+                            }`}
+                            title="Remove card"
                           >
-                            <Trash2 class="h-3 w-3" />
+                            <Trash2 class="h-3.5 w-3.5" />
                           </Button>
                         </div>
 
                         {/* Front */}
-                        <div>
-                          <label class="text-xs text-muted-foreground">Front</label>
+                        <div class="space-y-1.5">
+                          <label
+                            for={`ai-card-${getIdx()}-front`}
+                            class="text-xs font-medium text-foreground"
+                          >
+                            Front
+                          </label>
                           <Textarea
+                            id={`ai-card-${getIdx()}-front`}
                             value={card.front}
                             onInput={(e) =>
                               setAiPreviewCards(getIdx(), 'front', e.currentTarget.value)
                             }
-                            class="mt-1 min-h-15"
+                            class="min-h-20 bg-card"
                           />
                         </div>
 
                         {/* Back */}
-                        <div>
-                          <label class="text-xs text-muted-foreground">Back</label>
+                        <div class="space-y-1.5">
+                          <label
+                            for={`ai-card-${getIdx()}-back`}
+                            class="text-xs font-medium text-foreground"
+                          >
+                            Back
+                          </label>
                           <Textarea
+                            id={`ai-card-${getIdx()}-back`}
                             value={card.back}
                             onInput={(e) =>
                               setAiPreviewCards(getIdx(), 'back', e.currentTarget.value)
                             }
-                            class="mt-1 min-h-15"
+                            class="min-h-20 bg-card"
                           />
                         </div>
 
                         {/* Examples */}
                         <Show when={card.examples}>
-                          <div class="pt-1 border-t">
-                            <p class="text-xs font-medium text-muted-foreground mb-1">
+                          <div class="border-t pt-3">
+                            <p class="mb-1 text-xs font-medium text-foreground">
                               Examples
                             </p>
-                            <p class="text-xs text-muted-foreground italic leading-relaxed whitespace-pre-line">
+                            <p class="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
                               {card.examples}
                             </p>
                           </div>
                         </Show>
-                      </div>
+                      </article>
                     )}
                   </For>
                 </div>
@@ -481,7 +639,10 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
             </div>
 
             {/* Footer */}
-            <div class="flex items-center justify-end gap-2 p-5 border-t">
+            <div
+              class="flex flex-col-reverse gap-2 border-t bg-card p-4 sm:flex-row sm:items-center sm:justify-end sm:p-5"
+              aria-hidden={aiConfirmDiscard() || undefined}
+            >
               <Show
                 when={aiPreviewOpen()}
                 fallback={
@@ -489,30 +650,42 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                     when={aiGenerating() || aiFetching()}
                     fallback={
                       <>
-                        <Button variant="outline" onClick={closeModal}>
+                        <Button
+                          variant="outline"
+                          onClick={closeModal}
+                          class="w-full sm:w-auto"
+                        >
                           Cancel
                         </Button>
                         <Button
                           onClick={handleAiGenerate}
+                          class="w-full sm:w-auto"
                           disabled={
                             aiSourceText().trim().length < AI_SOURCE_MIN_CHARS ||
                             aiSourceText().length > AI_SOURCE_MAX_CHARS
                           }
                         >
-                          <Sparkles class="h-4 w-4 mr-2" />
-                          Generate Cards
+                          <Sparkles class="h-4 w-4" />
+                          Generate cards
                         </Button>
                       </>
                     }
                   >
-                    <Button variant="outline" onClick={closeModal}>
-                      {aiFetching() ? 'Close' : 'Close — run in background'}
+                    <Button
+                      variant="outline"
+                      onClick={closeModal}
+                      class="w-full sm:w-auto"
+                    >
+                      {aiFetching()
+                        ? 'Close'
+                        : 'Close and run in background'}
                     </Button>
                   </Show>
                 }
               >
                 <Button
                   variant="outline"
+                  class="w-full sm:w-auto"
                   onClick={() => {
                     setAiPreviewOpen(false);
                     setAiJobId(null);
@@ -522,17 +695,15 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
                 </Button>
                 <Button
                   onClick={handleAiSave}
-                  disabled={aiSaving() || !aiPreviewCards.length}
+                  loading={aiSaving()}
+                  disabled={!aiPreviewCards.length}
+                  class="w-full sm:w-auto"
                 >
-                  <Show
-                    when={aiSaving()}
-                    fallback={<Save class="h-4 w-4 mr-2" />}
-                  >
-                    <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+                  <Show when={!aiSaving()}>
+                    <Save class="h-4 w-4" />
                   </Show>
-                  {aiSaving()
-                    ? 'Saving...'
-                    : `Save ${aiPreviewCards.length} Cards`}
+                  Save {aiPreviewCards.length} card
+                  {aiPreviewCards.length !== 1 ? 's' : ''}
                 </Button>
               </Show>
             </div>

@@ -14,6 +14,10 @@ import { queryClient } from '@/lib/query-client';
 import type { ReviewAction } from '@/../../api/src/shared/constants';
 import Flashcard from '@/components/flashcard/flashcard';
 import StudyControls from '@/components/flashcard/study-controls';
+import {
+  isInteractiveStudyTarget,
+  shouldIgnoreStudyShortcut,
+} from '@/components/flashcard/study-keyboard';
 import { Button } from '@/components/ui/button';
 import { REVIEW_ACTIONS, KEYBOARD_SHORTCUTS } from '@/constants';
 import { ArrowLeft, CheckCircle, RotateCcw, Shuffle } from 'lucide-solid';
@@ -90,7 +94,7 @@ const InterleavedStudyPage: Component = () => {
   });
 
   const hasReviewedCards = createMemo(
-    () => stats().again + stats().hard + stats().good > 0,
+    () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
   const flushPendingReviews = async (force = false) => {
@@ -136,17 +140,24 @@ const InterleavedStudyPage: Component = () => {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (shouldIgnoreStudyShortcut(e)) return;
+
     if (e.key === KEYBOARD_SHORTCUTS.FLIP) {
+      if (isInteractiveStudyTarget(e.target)) return;
       e.preventDefault();
       setIsFlipped((f) => !f);
     } else if (e.key === KEYBOARD_SHORTCUTS.AGAIN && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.AGAIN);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.AGAIN);
     } else if (e.key === KEYBOARD_SHORTCUTS.HARD && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.HARD);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.HARD);
     } else if (e.key === KEYBOARD_SHORTCUTS.GOOD && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.GOOD);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.GOOD);
     } else if (e.key === KEYBOARD_SHORTCUTS.EASY && isFlipped()) {
-      handleReview(REVIEW_ACTIONS.EASY);
+      e.preventDefault();
+      void handleReview(REVIEW_ACTIONS.EASY);
     }
   };
 
@@ -157,20 +168,19 @@ const InterleavedStudyPage: Component = () => {
   });
 
   return (
-    <div class="min-h-screen flex flex-col">
-      {/* Top bar */}
-      <div class="border-b px-6 py-3 flex items-center justify-between">
+    <div class="flex h-full min-h-0 flex-col bg-background">
+      <header class="flex shrink-0 items-center justify-between border-b bg-card/70 px-3 py-3 sm:px-5">
         <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-          <ArrowLeft class="h-4 w-4 mr-2" />
-          Back
+          <ArrowLeft class="mr-2 h-4 w-4" />
+          <span class="hidden sm:inline">Dashboard</span>
         </Button>
         <div class="text-center">
-          <div class="flex items-center gap-1.5">
-            <Shuffle class="h-3.5 w-3.5 text-palette-5" />
-            <p class="text-sm font-medium">Interleaved Study</p>
+          <div class="flex items-center justify-center gap-1.5">
+            <Shuffle class="h-3.5 w-3.5 text-learning" />
+            <p class="text-sm font-semibold">Interleaved review</p>
           </div>
           <Show when={studyData()}>
-            <p class="text-xs text-muted-foreground">
+            <p class="mt-0.5 text-xs tabular-nums text-muted-foreground">
               {currentIndex()} / {studyData()!.due} cards
               {studyData()!.deckIds?.length
                 ? ` from ${studyData()!.deckIds.length} decks`
@@ -182,100 +192,159 @@ const InterleavedStudyPage: Component = () => {
           variant="ghost"
           size="sm"
           onClick={handleRestart}
-          title="Restart session"
+          aria-label="Restart session"
         >
           <RotateCcw class="h-4 w-4" />
         </Button>
-      </div>
+      </header>
 
-      {/* Progress bar */}
-      <div class="h-1 bg-secondary">
+      <div
+        class="h-1 shrink-0 bg-muted"
+        role="progressbar"
+        aria-label="Study progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={progress()}
+      >
         <div
-          class="h-full bg-palette-5 transition-[width] duration-300"
+          class="h-full bg-foreground transition-[width] duration-300 motion-reduce:transition-none"
           style={{ width: `${progress()}%` }}
         />
       </div>
 
-      {/* Main content */}
-      <div class="flex-1 flex flex-col items-center justify-center p-8">
+      <main class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 pb-24 sm:px-8 md:pb-8">
         <Show
           when={!studyQuery.isLoading}
-          fallback={<p class="text-muted-foreground">Loading cards...</p>}
+          fallback={
+            <div class="w-full max-w-xl space-y-4">
+              <div class="h-[22rem] animate-pulse rounded-xl border bg-muted/55" />
+              <p class="text-center text-sm text-muted-foreground">
+                Building your review mix...
+              </p>
+            </div>
+          }
         >
-          <Show
-            when={currentCard()}
-            fallback={
-              <div class="text-center space-y-6 max-w-sm w-full">
-                <CheckCircle class="h-16 w-16 text-green-500 mx-auto" />
+          <Show when={!studyQuery.isError}>
+            <Show
+              when={currentCard()}
+              fallback={
+                <div class="w-full max-w-lg rounded-xl border bg-card p-6 text-center shadow-sm sm:p-8">
+                  <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-lg border border-new/25 bg-new/10 text-new">
+                    <CheckCircle class="h-6 w-6" />
+                  </div>
 
-                <Show
-                  when={hasReviewedCards()}
-                  fallback={
+                  <Show
+                    when={hasReviewedCards()}
+                    fallback={
+                      <div>
+                        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Queue clear
+                        </p>
+                        <h1 class="mt-2 text-2xl font-semibold tracking-tight">
+                          All caught up
+                        </h1>
+                        <p class="mt-2 text-sm text-muted-foreground">
+                          No cards are due across your decks.
+                        </p>
+                      </div>
+                    }
+                  >
                     <div>
-                      <h2 class="text-2xl font-bold">All caught up!</h2>
-                      <p class="text-muted-foreground mt-1">
-                        No cards are due across your decks.
+                      <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        Review complete
+                      </p>
+                      <h1 class="mt-2 text-2xl font-semibold tracking-tight">
+                        Session complete
+                      </h1>
+                      <p class="mt-2 text-sm text-muted-foreground">
+                        You reviewed cards from multiple decks.
                       </p>
                     </div>
-                  }
-                >
-                  <div>
-                    <h2 class="text-2xl font-bold">Session Complete!</h2>
-                    <p class="text-muted-foreground mt-1">
-                      You've reviewed cards from multiple decks.
-                    </p>
-                  </div>
-                </Show>
+                  </Show>
 
-                <Show when={hasReviewedCards()}>
-                  <div class="grid grid-cols-3 gap-3 text-center">
-                    <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold tabular-nums text-destructive">
-                        {stats().again}
-                      </p>
-                      <p class="text-xs text-muted-foreground mt-0.5">Again</p>
+                  <Show when={hasReviewedCards()}>
+                    <div class="mt-6 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                      <SessionStat
+                        label="Again"
+                        value={stats().again}
+                        class="text-destructive"
+                      />
+                      <SessionStat
+                        label="Hard"
+                        value={stats().hard}
+                        class="text-risk"
+                      />
+                      <SessionStat
+                        label="Good"
+                        value={stats().good}
+                        class="text-due"
+                      />
+                      <SessionStat
+                        label="Easy"
+                        value={stats().easy}
+                        class="text-new"
+                      />
                     </div>
-                    <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold tabular-nums text-amber-500">
-                        {stats().hard}
-                      </p>
-                      <p class="text-xs text-muted-foreground mt-0.5">Hard</p>
-                    </div>
-                    <div class="rounded-lg border p-3 bg-card">
-                      <p class="text-2xl font-bold tabular-nums text-green-500">
-                        {stats().good}
-                      </p>
-                      <p class="text-xs text-muted-foreground mt-0.5">Good</p>
-                    </div>
-                  </div>
-                </Show>
+                  </Show>
 
-                <Button variant="outline" onClick={() => navigate('/')}>
-                  Back to Dashboard
-                </Button>
+                  <Button class="mt-6" onClick={() => navigate('/')}>
+                    Back to dashboard
+                  </Button>
+                </div>
+              }
+            >
+              <div class="w-full max-w-2xl">
+                <Flashcard
+                  fields={currentCard()!.fields}
+                  isFlipped={isFlipped()}
+                  onFlip={() => setIsFlipped((flipped) => !flipped)}
+                />
+
+                <StudyControls
+                  onAgain={() => handleReview(REVIEW_ACTIONS.AGAIN)}
+                  onHard={() => handleReview(REVIEW_ACTIONS.HARD)}
+                  onGood={() => handleReview(REVIEW_ACTIONS.GOOD)}
+                  onEasy={() => handleReview(REVIEW_ACTIONS.EASY)}
+                  disabled={reviewing()}
+                  visible={isFlipped()}
+                />
               </div>
-            }
-          >
-            <Flashcard
-              fields={currentCard()!.fields}
-              isFlipped={isFlipped()}
-              onFlip={() => setIsFlipped((f) => !f)}
-            />
-
-            <Show when={isFlipped()}>
-              <StudyControls
-                onAgain={() => handleReview(REVIEW_ACTIONS.AGAIN)}
-                onHard={() => handleReview(REVIEW_ACTIONS.HARD)}
-                onGood={() => handleReview(REVIEW_ACTIONS.GOOD)}
-                onEasy={() => handleReview(REVIEW_ACTIONS.EASY)}
-                disabled={reviewing()}
-              />
             </Show>
           </Show>
+          <Show when={studyQuery.isError}>
+            <div class="w-full max-w-md rounded-xl border border-destructive/25 bg-destructive-surface p-6 text-center">
+              <h1 class="font-semibold text-destructive">
+                Could not load your review
+              </h1>
+              <p class="mt-2 text-sm text-muted-foreground">
+                Check your connection, then try again.
+              </p>
+              <Button
+                variant="outline"
+                class="mt-5"
+                onClick={() => studyQuery.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
+          </Show>
         </Show>
-      </div>
+      </main>
     </div>
   );
 };
+
+const SessionStat: Component<{
+  label: string;
+  value: number;
+  class: string;
+}> = (props) => (
+  <div class="rounded-lg border bg-muted/25 px-3 py-3">
+    <p class={`text-xl font-semibold tabular-nums ${props.class}`}>
+      {props.value}
+    </p>
+    <p class="mt-0.5 text-xs text-muted-foreground">{props.label}</p>
+  </div>
+);
 
 export default InterleavedStudyPage;

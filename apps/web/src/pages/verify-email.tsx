@@ -1,5 +1,6 @@
 import {
   type Component,
+  type JSX,
   Show,
   createMemo,
   createSignal,
@@ -8,14 +9,8 @@ import {
 import { A, useSearchParams } from '@solidjs/router';
 import { api, getApiError } from '@/api/client';
 import { fetchCurrentUser } from '@/stores/auth.store';
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import AuthFrame from '@/components/auth/auth-frame';
+import { buttonVariants } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
 import { CheckCircle2, XCircle, MailOpen } from 'lucide-solid';
 
@@ -58,93 +53,100 @@ const VerifyEmailPage: Component = () => {
   });
 
   return (
-    <div class="min-h-screen flex items-center justify-center px-4">
-      <Card class="w-full max-w-sm">
-        <CardHeader class="text-center items-center">
-          <img
-            src="/logo-engram-full.webp"
-            alt="Engram Spira"
-            class="h-20 w-auto mb-2"
+    <AuthFrame
+      title="Email verification"
+      description="Confirming your email keeps your learning workspace secure."
+    >
+      <div class="space-y-6">
+        <Show when={status() === 'loading'}>
+          <VerificationState
+            icon={<Spinner size="lg" />}
+            title="Verifying your email"
+            description="This should only take a moment."
           />
-          <CardTitle>Email Verification</CardTitle>
-        </CardHeader>
+        </Show>
 
-        <CardContent class="text-center space-y-4">
-          <Show when={status() === 'loading'}>
-            <div class="flex flex-col items-center gap-3 py-4">
-              <Spinner size="lg" />
-              <p class="text-sm text-muted-foreground">
-                Verifying your email...
-              </p>
-            </div>
-          </Show>
+        <Show when={status() === 'success'}>
+          <VerificationState
+            icon={
+              <CheckCircle2 class="h-7 w-7 text-success" aria-hidden="true" />
+            }
+            title="Email verified"
+            description="Your email has been successfully verified."
+            tone="success"
+          />
+        </Show>
 
-          <Show when={status() === 'success'}>
-            <div class="flex flex-col items-center gap-3 py-4">
-              <div class="h-14 w-14 rounded-full bg-green-500/15 flex items-center justify-center">
-                <CheckCircle2 class="h-8 w-8 text-green-500" />
-              </div>
-              <div>
-                <p class="font-semibold text-foreground">Email Verified!</p>
-                <p class="text-sm text-muted-foreground mt-1">
-                  Your email has been successfully verified.
-                </p>
-              </div>
-            </div>
-          </Show>
+        <Show when={status() === 'already'}>
+          <VerificationState
+            icon={<CheckCircle2 class="h-7 w-7 text-info" aria-hidden="true" />}
+            title="Already verified"
+            description="Your email was already verified. You are all set."
+            tone="info"
+          />
+        </Show>
 
-          <Show when={status() === 'already'}>
-            <div class="flex flex-col items-center gap-3 py-4">
-              <div class="h-14 w-14 rounded-full bg-blue-500/15 flex items-center justify-center">
-                <CheckCircle2 class="h-8 w-8 text-blue-500" />
-              </div>
-              <div>
-                <p class="font-semibold text-foreground">Already Verified</p>
-                <p class="text-sm text-muted-foreground mt-1">
-                  Your email was already verified. You're all set!
-                </p>
-              </div>
-            </div>
-          </Show>
+        <Show when={status() === 'error'}>
+          <VerificationState
+            icon={<XCircle class="h-7 w-7 text-destructive" aria-hidden="true" />}
+            title="Verification failed"
+            description={
+              errorMsg() || 'The verification link is invalid or has expired.'
+            }
+            tone="destructive"
+          />
+        </Show>
 
-          <Show when={status() === 'error'}>
-            <div class="flex flex-col items-center gap-3 py-4">
-              <div class="h-14 w-14 rounded-full bg-destructive/15 flex items-center justify-center">
-                <XCircle class="h-8 w-8 text-destructive" />
-              </div>
-              <div>
-                <p class="font-semibold text-foreground">Verification Failed</p>
-                <p class="text-sm text-muted-foreground mt-1">
-                  {errorMsg() ||
-                    'The verification link is invalid or has expired.'}
-                </p>
-              </div>
-            </div>
-          </Show>
+        <Show when={status() === 'no-token'}>
+          <VerificationState
+            icon={
+              <MailOpen
+                class="h-7 w-7 text-muted-foreground"
+                aria-hidden="true"
+              />
+            }
+            title="Verification link required"
+            description="Please use the link sent to your email."
+          />
+        </Show>
 
-          <Show when={status() === 'no-token'}>
-            <div class="flex flex-col items-center gap-3 py-4">
-              <div class="h-14 w-14 rounded-full bg-muted flex items-center justify-center">
-                <MailOpen class="h-8 w-8 text-muted-foreground" />
-              </div>
-              <div>
-                <p class="font-semibold text-foreground">
-                  No Verification Token
-                </p>
-                <p class="text-sm text-muted-foreground mt-1">
-                  Please use the link sent to your email.
-                </p>
-              </div>
-            </div>
-          </Show>
-        </CardContent>
+        <A
+          href="/"
+          class={`${buttonVariants({ variant: 'default' })} w-full no-underline hover:no-underline`}
+        >
+          Go to dashboard
+        </A>
+      </div>
+    </AuthFrame>
+  );
+};
 
-        <CardFooter class="justify-center">
-          <A href="/">
-            <Button variant="outline">Go to Dashboard</Button>
-          </A>
-        </CardFooter>
-      </Card>
+const VerificationState: Component<{
+  icon: JSX.Element;
+  title: string;
+  description: string;
+  tone?: 'success' | 'info' | 'destructive';
+}> = (props) => {
+  const toneClass = () => {
+    if (props.tone === 'success') return 'border-success/25 bg-success/10';
+    if (props.tone === 'info') return 'border-info/25 bg-info/10';
+    if (props.tone === 'destructive')
+      return 'border-destructive/25 bg-destructive/10';
+    return 'border-border bg-muted/40';
+  };
+
+  return (
+    <div
+      class={`rounded-xl border p-6 text-center ${toneClass()}`}
+      role={props.tone === 'destructive' ? 'alert' : 'status'}
+    >
+      <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border bg-background shadow-xs">
+        {props.icon}
+      </div>
+      <p class="mt-4 font-semibold text-foreground">{props.title}</p>
+      <p class="mt-1 text-sm leading-6 text-muted-foreground">
+        {props.description}
+      </p>
     </div>
   );
 };

@@ -6,24 +6,36 @@ import {
   createMemo,
   createSignal,
 } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
 import { useLocation, useNavigate } from '@solidjs/router';
 import { createQuery } from '@tanstack/solid-query';
 import {
+  BookOpenCheck,
   ChevronDown,
   ChevronRight,
   Folder,
+  Home,
   Layers,
   Library,
   LogOut,
   PanelLeft,
   Plus,
   RefreshCcw,
+  Search,
   Settings,
   Sparkles,
+  Target,
 } from 'lucide-solid';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  formatFocusTime,
+  isDrawerOpen,
+  isRunning,
+  openFocusDrawer,
+  remainingSeconds,
+} from '@/stores/focus.store';
 import {
   experienceQueryKeys,
   getLibraryExplorer,
@@ -137,6 +149,21 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
     props.onNavigate?.();
   };
 
+  const openCommandSearch = () => {
+    props.onNavigate?.();
+    openSearch();
+  };
+
+  const openCreate = () => {
+    props.onNavigate?.();
+    openSearch();
+  };
+
+  const openFocus = () => {
+    props.onNavigate?.();
+    openFocusDrawer();
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate('/login', { replace: true });
@@ -156,7 +183,7 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
         <Button
           variant="ghost"
           size="icon"
-          class="h-8 w-8"
+          class="h-8 w-8 xl:hidden"
           aria-label="Collapse library"
           onClick={props.onCollapse}
         >
@@ -164,7 +191,67 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
         </Button>
       </div>
 
-      <div class="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
+      <nav aria-label="Primary navigation" class="shrink-0 border-b p-3">
+        <button
+          type="button"
+          class="mb-3 flex h-9 w-full min-w-0 items-center gap-2 rounded-md border bg-muted/40 px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label="Search commands, decks, cards"
+          aria-keyshortcuts="Control+K Meta+K"
+          onClick={openCommandSearch}
+        >
+          <Search class="h-4 w-4 shrink-0" />
+          <span class="truncate">Search</span>
+          <kbd class="ml-auto hidden shrink-0 rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
+            Ctrl K
+          </kbd>
+        </button>
+
+        <div class="grid gap-1">
+          <ExplorerNavItem
+            label="Home"
+            icon={Home}
+            active={location.pathname === '/'}
+            onClick={() => navigateTo('/')}
+          />
+          <ExplorerNavItem
+            label="Study"
+            icon={BookOpenCheck}
+            active={location.pathname.startsWith('/study')}
+            onClick={() => navigateTo('/study/interleaved')}
+          />
+        </div>
+
+        <button
+          type="button"
+          class={cn(
+            'mt-3 flex w-full items-center gap-3 rounded-md bg-primary px-3 py-2.5 text-left text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            isDrawerOpen() && 'ring-2 ring-ring ring-offset-2',
+          )}
+          aria-label={
+            isRunning()
+              ? `Open Focus Mode, ${formatFocusTime(remainingSeconds())} remaining`
+              : 'Open Focus Mode'
+          }
+          aria-pressed={isDrawerOpen()}
+          onClick={openFocus}
+        >
+          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-foreground/10">
+            <Target class="h-4 w-4" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-semibold">Focus Mode</span>
+            <span class="block text-xs text-primary-foreground/70">
+              {isRunning()
+                ? `${formatFocusTime(remainingSeconds())} remaining`
+                : 'Start a focus session'}
+            </span>
+          </span>
+        </button>
+      </nav>
+
+      <div
+        class="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3"
+      >
         <div class="min-w-0">
           <p class="text-xs font-medium uppercase text-muted-foreground">
             Library
@@ -177,7 +264,7 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
           variant="outline"
           size="sm"
           class="h-8 gap-1.5"
-          onClick={openSearch}
+          onClick={openCreate}
         >
           <Plus class="h-3.5 w-3.5" />
           Create
@@ -189,7 +276,7 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
           <Show when={!explorerQuery.isError} fallback={<ExplorerError onRetry={() => explorerQuery.refetch()} />}>
             <Show
               when={classes().length > 0}
-              fallback={<ExplorerEmpty onAction={openSearch} />}
+              fallback={<ExplorerEmpty onAction={openCreate} />}
             >
               <div class="space-y-1">
                 <For each={classes()}>
@@ -348,6 +435,28 @@ const ClassNode: Component<{
     </Show>
   </div>
 );
+
+const ExplorerNavItem: Component<{
+  label: string;
+  icon: Component<{ class?: string }>;
+  active: boolean;
+  onClick: () => void;
+}> = (props) => {
+  return (
+    <button
+      type="button"
+      class={cn(
+        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+        props.active && 'bg-accent text-foreground',
+      )}
+      aria-current={props.active ? 'page' : undefined}
+      onClick={props.onClick}
+    >
+      <Dynamic component={props.icon} class="h-4 w-4 shrink-0" />
+      <span class="truncate">{props.label}</span>
+    </button>
+  );
+};
 
 const CountPill: Component<{ count: number; tone?: 'due' }> = (props) => (
   <Show when={props.count > 0}>

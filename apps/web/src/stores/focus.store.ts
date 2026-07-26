@@ -22,8 +22,7 @@ export interface FocusStats {
 // ── Constants ─────────────────────────────────────────────────
 const STORAGE_KEY = 'engram-focus';
 const DEFAULT_DURATION_MIN = 30;
-/** Minimum duration in minutes — fractional values allowed (e.g. 1/60 ≈ 1s for testing) */
-const MIN_DURATION = 1 / 60;
+const MIN_DURATION = 5;
 const MAX_DURATION = 120;
 /** Keep at most this many sessions in localStorage to prevent bloat */
 const MAX_PERSISTED_SESSIONS = 200;
@@ -63,23 +62,41 @@ function save(state: PersistedState) {
 
 // ── Signals ───────────────────────────────────────────────────
 const initial = load();
+const initialDurationMin = Number.isFinite(initial.durationMin)
+  ? Math.max(MIN_DURATION, Math.min(MAX_DURATION, initial.durationMin))
+  : DEFAULT_DURATION_MIN;
+const hasActiveSession =
+  initial.activeStart !== null && initial.activeDurationMs !== null;
+const initialRemainingSeconds = hasActiveSession
+  ? Math.max(
+      0,
+      Math.ceil(
+        (initial.activeStart! +
+          initial.activeDurationMs! -
+          Date.now()) /
+          1000,
+      ),
+    )
+  : 0;
 
 /** Is the focus drawer open? */
 const [isDrawerOpen, setDrawerOpen] = createSignal(false);
 
 /** Configured focus duration in minutes */
-const [durationMin, setDurationMinSignal] = createSignal(initial.durationMin);
+const [durationMin, setDurationMinSignal] = createSignal(initialDurationMin);
 
 /** Is a focus session actively running? */
-const [isRunning, setIsRunning] = createSignal(initial.activeStart !== null);
+const [isRunning, setIsRunning] = createSignal(hasActiveSession);
 
 /** Epoch ms when current session started (null if not running) */
 const [sessionStart, setSessionStart] = createSignal<number | null>(
-  initial.activeStart,
+  hasActiveSession ? initial.activeStart : null,
 );
 
 /** Remaining seconds on the timer */
-const [remainingSeconds, setRemainingSeconds] = createSignal(0);
+const [remainingSeconds, setRemainingSeconds] = createSignal(
+  initialRemainingSeconds,
+);
 
 /** Completed sessions (persisted) */
 const [sessions, setSessions] = createSignal<FocusSession[]>(initial.sessions);
@@ -139,6 +156,15 @@ export function getStats(): FocusStats {
   }
 
   return { todayMinutes, todaySessions: todaySessions.length, streak };
+}
+
+export function formatFocusTime(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.ceil(totalSeconds));
+  const mins = Math.floor(safeSeconds / 60);
+  const secs = safeSeconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs
+    .toString()
+    .padStart(2, '0')}`;
 }
 
 // ── Timer logic ───────────────────────────────────────────────
@@ -293,6 +319,7 @@ if (initial.activeStart !== null && initial.activeDurationMs !== null) {
       sessions: sessions(),
       activeStart: null,
       activeDurationMs: null,
+      rewardLabels: rewardLabels(),
     });
   } else {
     // Resume countdown

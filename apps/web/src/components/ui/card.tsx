@@ -2,9 +2,9 @@ import { type JSX, splitProps } from 'solid-js';
 import { cn } from '@/lib/utils';
 
 const cardVariants = {
-  default: 'rounded-xl border bg-card text-card-foreground shadow',
+  default: 'rounded-xl border bg-card text-card-foreground shadow-xs',
   elevated: 'rounded-xl border bg-card text-card-foreground shadow-md',
-  outlined: 'rounded-xl border bg-background text-card-foreground',
+  outlined: 'rounded-xl border bg-card text-card-foreground shadow-none',
   ghost: 'rounded-xl bg-transparent text-card-foreground shadow-none',
 } as const;
 
@@ -25,7 +25,7 @@ export function Card(props: CardProps) {
       class={cn(
         cardVariants[local.variant ?? 'default'],
         local.interactive &&
-          'cursor-pointer transition-colors hover:bg-accent/50',
+          'cursor-pointer transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:border-muted-foreground/35 hover:bg-accent/35 hover:shadow-sm active:translate-y-px',
         local.class,
       )}
       {...others}
@@ -39,7 +39,7 @@ export function CardHeader(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
     <div
-      class={cn('flex flex-col space-y-1.5 p-6 pb-3', local.class)}
+      class={cn('flex flex-col space-y-1.5 p-5 pb-3 sm:p-6 sm:pb-3', local.class)}
       {...others}
     >
       {local.children}
@@ -51,7 +51,7 @@ export function CardTitle(props: JSX.HTMLAttributes<HTMLHeadingElement>) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
     <h3
-      class={cn('text-2xl font-semibold leading-none tracking-tight', local.class)}
+      class={cn('text-xl font-semibold leading-tight tracking-tight', local.class)}
       {...others}
     >
       {local.children}
@@ -73,7 +73,7 @@ export function CardDescription(
 export function CardContent(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
-    <div class={cn('p-6 pt-0', local.class)} {...others}>
+    <div class={cn('p-5 pt-0 sm:p-6 sm:pt-0', local.class)} {...others}>
       {local.children}
     </div>
   );
@@ -82,7 +82,7 @@ export function CardContent(props: JSX.HTMLAttributes<HTMLDivElement>) {
 export function CardFooter(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, others] = splitProps(props, ['class', 'children']);
   return (
-    <div class={cn('flex items-center p-6 pt-0', local.class)} {...others}>
+    <div class={cn('flex items-center p-5 pt-0 sm:p-6 sm:pt-0', local.class)} {...others}>
       {local.children}
     </div>
   );

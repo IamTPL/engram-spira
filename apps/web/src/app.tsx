@@ -31,7 +31,7 @@ const NotFoundPage = lazy(() => import('@/pages/not-found'));
 const FocusDrawer = lazy(() => import('@/components/focus/focus-drawer'));
 
 const LoadingScreen = () => (
-  <div class="min-h-screen flex items-center justify-center bg-background">
+  <div class="flex min-h-[100dvh] items-center justify-center bg-background">
     <Spinner size="lg" />
   </div>
 );
@@ -86,9 +86,11 @@ const App: Component = () => {
               {props.children}
               <RouteAnnouncer />
               <Toaster />
-              <Suspense>
-                <FocusDrawer />
-              </Suspense>
+              <Show when={currentUser()}>
+                <Suspense>
+                  <FocusDrawer />
+                </Suspense>
+              </Show>
             </>
           )}
         >

@@ -4,14 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from '@/components/ui/card';
+import AuthFrame from '@/components/auth/auth-frame';
 import { register } from '@/stores/auth.store';
 import { Mail, Lock, ShieldCheck } from 'lucide-solid';
 
@@ -70,99 +63,94 @@ const RegisterPage: Component = () => {
   };
 
   return (
-    <div class="min-h-screen flex items-center justify-center px-4 bg-section-gradient">
-      <Card class="w-full max-w-sm animate-scale-in" variant="elevated">
-        <CardHeader class="text-center items-center">
-          <img
-            src="/logo-engram-full.webp"
-            alt="Engram Spira"
-            class="h-20 w-auto mb-2"
+    <AuthFrame
+      title="Create your account"
+      description="Build a learning system you can return to every day."
+    >
+      <form onSubmit={handleSubmit} class="space-y-5">
+        <Show when={error()}>
+          <Alert variant="destructive">{error()}</Alert>
+        </Show>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium" for="email">
+            Email
+          </label>
+          <Input
+            id="email"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            value={email()}
+            onInput={(e) => setEmail(e.currentTarget.value)}
+            required
+            iconLeft={<Mail class="h-4 w-4" />}
           />
-          <CardTitle class="text-xl">Create Account</CardTitle>
-          <CardDescription>Start learning with flashcards</CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent class="space-y-4">
-            <Show when={error()}>
-              <Alert variant="destructive">{error()}</Alert>
-            </Show>
-            <div class="space-y-2">
-              <label class="text-sm font-medium" for="email">
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                autocomplete="email"
-                placeholder="you@example.com"
-                value={email()}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-                required
-                iconLeft={<Mail class="h-4 w-4" />}
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium" for="password">
+            Password
+          </label>
+          <Input
+            id="password"
+            type="password"
+            autocomplete="new-password"
+            placeholder="At least 8 characters"
+            value={password()}
+            onInput={(e) => setPassword(e.currentTarget.value)}
+            required
+            iconLeft={<Lock class="h-4 w-4" />}
+          />
+          <Show when={password().length > 0}>
+            <div class="space-y-1.5">
+              <Progress
+                value={passwordStrength().score}
+                variant={passwordStrength().variant}
+                size="sm"
               />
+              <p class="text-xs text-muted-foreground">
+                Password strength:{' '}
+                <span class="font-medium text-foreground">
+                  {passwordStrength().label}
+                </span>
+              </p>
             </div>
-            <div class="space-y-2">
-              <label class="text-sm font-medium" for="password">
-                Password
-              </label>
-              <Input
-                id="password"
-                type="password"
-                autocomplete="new-password"
-                placeholder="At least 8 characters"
-                value={password()}
-                onInput={(e) => setPassword(e.currentTarget.value)}
-                required
-                iconLeft={<Lock class="h-4 w-4" />}
-              />
-              <Show when={password().length > 0}>
-                <div class="space-y-1">
-                  <Progress
-                    value={passwordStrength().score}
-                    variant={passwordStrength().variant}
-                    size="sm"
-                  />
-                  <p class="text-xs text-muted-foreground">
-                    Password strength:{' '}
-                    <span class="font-medium">{passwordStrength().label}</span>
-                  </p>
-                </div>
-              </Show>
-            </div>
-            <div class="space-y-2">
-              <label class="text-sm font-medium" for="confirm-password">
-                Confirm Password
-              </label>
-              <Input
-                id="confirm-password"
-                type="password"
-                autocomplete="new-password"
-                placeholder="Re-enter password"
-                value={confirmPassword()}
-                onInput={(e) => setConfirmPassword(e.currentTarget.value)}
-                required
-                error={passwordMismatch()}
-                iconLeft={<ShieldCheck class="h-4 w-4" />}
-              />
-              <Show when={passwordMismatch()}>
-                <p class="text-xs text-destructive">Passwords do not match</p>
-              </Show>
-            </div>
-          </CardContent>
-          <CardFooter class="flex-col gap-3">
-            <Button type="submit" class="w-full" loading={loading()}>
-              Create account
-            </Button>
-            <p class="text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <A href="/login" class="text-primary font-medium hover:underline">
-                Sign in
-              </A>
-            </p>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
+          </Show>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium" for="confirm-password">
+            Confirm password
+          </label>
+          <Input
+            id="confirm-password"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Re-enter password"
+            value={confirmPassword()}
+            onInput={(e) => setConfirmPassword(e.currentTarget.value)}
+            required
+            error={passwordMismatch()}
+            iconLeft={<ShieldCheck class="h-4 w-4" />}
+          />
+          <Show when={passwordMismatch()}>
+            <p class="text-xs text-destructive">Passwords do not match</p>
+          </Show>
+        </div>
+
+        <Button type="submit" class="w-full" loading={loading()}>
+          Create account
+        </Button>
+
+        <p class="text-center text-sm text-muted-foreground">
+          Already have an account?{' '}
+          <A href="/login" class="font-medium text-foreground hover:underline">
+            Sign in
+          </A>
+        </p>
+      </form>
+    </AuthFrame>
   );
 };
 

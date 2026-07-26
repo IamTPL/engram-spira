@@ -25,6 +25,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
   const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
   const [detected, setDetected] = createSignal(false);
   const [accepting, setAccepting] = createSignal<string | null>(null);
+  const [acceptingAll, setAcceptingAll] = createSignal(false);
 
   const handleDetect = async () => {
     setDetecting(true);
@@ -82,7 +83,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
         targetCardId: suggestion.targetCardId,
       });
     } catch {
-      // Best effort — still remove from UI
+      // Best effort, still remove from UI.
     }
     setSuggestions((prev) =>
       prev.filter(
@@ -94,59 +95,84 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
 
   const handleAcceptAll = async () => {
     const all = suggestions();
-    for (const s of all) {
-      await handleAccept(s);
+    setAcceptingAll(true);
+    try {
+      for (const suggestion of all) {
+        await handleAccept(suggestion);
+      }
+    } finally {
+      setAcceptingAll(false);
     }
   };
 
   return (
-    <div>
-      <Show when={!detected() || suggestions().length === 0}>
+    <section
+      class="rounded-lg border bg-card p-4"
+      aria-labelledby="relationship-suggestions-title"
+    >
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex items-start gap-2.5">
+          <Sparkles class="mt-0.5 h-4 w-4 shrink-0 text-learning" />
+          <div>
+            <h3
+              id="relationship-suggestions-title"
+              class="text-sm font-semibold text-foreground"
+            >
+              Relationship suggestions
+            </h3>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              Find useful links between concepts in this deck.
+            </p>
+          </div>
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={handleDetect}
-          disabled={detecting()}
-          class="text-xs"
+          loading={detecting()}
+          class="w-full text-xs sm:w-auto"
         >
-          <Show when={detecting()} fallback={<Sparkles class="h-3.5 w-3.5 mr-1.5" />}>
-            <Loader2 class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          <Show when={!detecting()}>
+            <Sparkles class="h-3.5 w-3.5 text-learning" />
           </Show>
-          {detecting() ? 'Analyzing...' : 'AI Detect Relationships'}
+          {detected() ? 'Detect again' : 'Detect links'}
         </Button>
-      </Show>
+      </div>
 
       <Show when={suggestions().length > 0}>
-        <div class="rounded-xl border border-palette-5/30 bg-palette-5/5 p-4 mt-3 animate-fade-in">
-          <div class="flex items-center justify-between mb-3">
+        <div class="mt-4 rounded-md border border-learning/25 bg-learning-surface p-3 motion-safe:animate-fade-in">
+          <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-2">
-              <Sparkles class="h-4 w-4 text-palette-5" />
-              <span class="text-sm font-semibold">
-                {suggestions().length} relationship{suggestions().length !== 1 ? 's' : ''} suggested
+              <Link2 class="h-4 w-4 text-learning" />
+              <span class="text-sm font-semibold text-foreground">
+                {suggestions().length} suggested relationship
+                {suggestions().length !== 1 ? 's' : ''}
               </span>
             </div>
-            <div class="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAcceptAll}
-                class="text-xs h-7 text-green-600 border-green-500/30 hover:bg-green-500/10"
-              >
-                <Check class="h-3 w-3 mr-1" />
-                Accept All
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAcceptAll}
+              loading={acceptingAll()}
+              disabled={accepting() !== null}
+              class="h-8 w-full border-success/30 text-xs text-success hover:bg-success-surface sm:w-auto"
+            >
+              <Show when={!acceptingAll()}>
+                <Check class="h-3 w-3" />
+              </Show>
+              Accept all
+            </Button>
           </div>
 
-          <div class="space-y-2 max-h-64 overflow-y-auto">
+          <div class="max-h-72 space-y-2 overflow-y-auto">
             <For each={suggestions()}>
               {(suggestion) => {
                 const key = () => `${suggestion.sourceCardId}:${suggestion.targetCardId}`;
                 return (
-                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border text-xs">
-                    <Link2 class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <div class="flex flex-col gap-2 rounded-md border bg-card px-3 py-2.5 text-xs sm:flex-row sm:items-center">
+                    <Link2 class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-1.5">
+                      <div class="flex min-w-0 items-center gap-1.5">
                         <span class="truncate font-medium">{suggestion.sourceLabel || suggestion.sourceCardId.slice(0, 8)}</span>
                         <span class="text-muted-foreground shrink-0">→</span>
                         <span class="truncate font-medium">{suggestion.targetLabel || suggestion.targetCardId.slice(0, 8)}</span>
@@ -157,27 +183,44 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
                         </p>
                       </Show>
                     </div>
-                    <Badge variant="muted" class="text-[10px] shrink-0">related</Badge>
-                    <span class="text-[10px] text-muted-foreground tabular-nums shrink-0">
-                      {Math.round(suggestion.similarity * 100)}%
-                    </span>
-                    <button
-                      class="shrink-0 p-1 rounded hover:bg-green-500/20 text-green-600 transition-colors disabled:opacity-50"
-                      onClick={() => handleAccept(suggestion)}
-                      disabled={accepting() === key()}
-                      title="Accept"
-                    >
-                      <Show when={accepting() === key()} fallback={<Check class="h-3.5 w-3.5" />}>
-                        <Loader2 class="h-3.5 w-3.5 animate-spin" />
-                      </Show>
-                    </button>
-                    <button
-                      class="shrink-0 p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
-                      onClick={() => handleDismiss(suggestion)}
-                      title="Dismiss"
-                    >
-                      <X class="h-3.5 w-3.5" />
-                    </button>
+                    <div class="flex items-center gap-1.5 sm:ml-2">
+                      <Badge variant="muted" class="shrink-0 text-[10px]">
+                        Related
+                      </Badge>
+                      <span class="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                        {Math.round(suggestion.similarity * 100)}%
+                      </span>
+                      <button
+                        type="button"
+                        class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-success transition-colors hover:bg-success-surface disabled:opacity-50"
+                        onClick={() => handleAccept(suggestion)}
+                        disabled={
+                          accepting() === key() || acceptingAll()
+                        }
+                        title="Accept relationship"
+                        aria-label={`Accept relationship between ${
+                          suggestion.sourceLabel || 'source card'
+                        } and ${suggestion.targetLabel || 'target card'}`}
+                      >
+                        <Show
+                          when={accepting() === key()}
+                          fallback={<Check class="h-3.5 w-3.5" />}
+                        >
+                          <Loader2 class="h-3.5 w-3.5 motion-safe:animate-spin" />
+                        </Show>
+                      </button>
+                      <button
+                        type="button"
+                        class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive-surface hover:text-destructive"
+                        onClick={() => handleDismiss(suggestion)}
+                        title="Dismiss relationship"
+                        aria-label={`Dismiss relationship between ${
+                          suggestion.sourceLabel || 'source card'
+                        } and ${suggestion.targetLabel || 'target card'}`}
+                      >
+                        <X class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 );
               }}
@@ -185,7 +228,13 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
           </div>
         </div>
       </Show>
-    </div>
+
+      <Show when={detected() && suggestions().length === 0}>
+        <p class="mt-4 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+          No new relationships were detected.
+        </p>
+      </Show>
+    </section>
   );
 };
 

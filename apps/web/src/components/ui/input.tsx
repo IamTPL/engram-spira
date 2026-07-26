@@ -18,9 +18,9 @@ export function Input(props: InputProps) {
   const hasIcon = () => !!local.iconLeft || !!local.iconRight;
   const inputClass = () =>
     cn(
-      'flex h-9 w-full rounded-md border bg-background px-3 py-1 text-base shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+      'flex h-10 w-full rounded-md border bg-card px-3 py-2 text-base text-foreground shadow-xs transition-[background-color,border-color,box-shadow] duration-150 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:bg-muted/60 disabled:text-muted-foreground disabled:opacity-70 md:text-sm',
       local.error
-        ? 'border-destructive focus-visible:ring-destructive'
+        ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/20'
         : 'border-input',
       local.class,
     );
@@ -31,11 +31,12 @@ export function Input(props: InputProps) {
       fallback={
         <input
           class={inputClass()}
+          aria-invalid={local.error || undefined}
           {...others}
         />
       }
     >
-      <div class="relative">
+      <div class="relative w-full">
         <Show when={local.iconLeft}>
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
             {local.iconLeft}
@@ -47,6 +48,7 @@ export function Input(props: InputProps) {
             local.iconLeft ? 'pl-10 pr-3' : 'pl-3',
             local.iconRight ? 'pr-10' : 'pr-3',
           )}
+          aria-invalid={local.error || undefined}
           {...others}
         />
         <Show when={local.iconRight}>

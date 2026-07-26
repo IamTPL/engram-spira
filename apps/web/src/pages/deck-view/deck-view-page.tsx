@@ -10,21 +10,28 @@ import {
   lazy,
   Suspense,
 } from 'solid-js';
-import { useNavigate } from '@solidjs/router';
 import { createQuery } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/stores/toast.store';
-import { Sparkles, Loader2, X, Plus, Layers, BarChart3 } from 'lucide-solid';
+import {
+  Sparkles,
+  Loader2,
+  X,
+  Plus,
+  Layers,
+  BarChart3,
+  Search,
+} from 'lucide-solid';
 import {
   AI_BANNER_POLL_INTERVAL_MS,
   AI_BANNER_POLL_TIMEOUT_MS,
 } from '@/constants';
 
 import { createDebouncedSignal } from '@/lib/create-debounced-signal';
-import VirtualList from '@/lib/virtual-list';
+import { createDragAutoScroller } from '@/lib/drag-auto-scroll';
 import { useDeckData } from './use-deck-data';
 import type { CardItem } from './types';
 import DeckHeader from './deck-header';
@@ -32,9 +39,15 @@ import CardItemRow from './card-item';
 import AddCardForm from './add-card-form';
 import EditCardForm from './edit-card-form';
 import BulkActionsBar from './bulk-actions-bar';
+import {
+  getDropPosition,
+  reorderCards,
+  type DropPosition,
+} from './deck-reorder';
 
 // Lazy-load AI modal (heavy component with its own store)
 const AiGenerateModal = lazy(() => import('./ai-generate-modal'));
+const DRAG_CARD_MIME = 'application/x-engram-card-id';
 
 // Lazy-load deck analytics components (only rendered when toggled)
 const RetentionHeatmap = lazy(
@@ -49,7 +62,6 @@ const AiSuggestions = lazy(
 );
 
 const DeckViewPage: Component = () => {
-  const navigate = useNavigate();
   const {
     params,
     deck,
@@ -58,8 +70,9 @@ const DeckViewPage: Component = () => {
     cardLoading,
     cardCount,
     sortedFields,
-    localCards,
-    setLocalCards,
+    pauseCardSync,
+    resumeCardSync,
+    applyCardOrder,
     refetchCards,
     hasMore: hasMoreServer,
     fetchMore,
@@ -129,7 +142,7 @@ const DeckViewPage: Component = () => {
             clearInterval(bannerPollTimer!);
             bannerPollTimer = null;
             toast.error(
-              'AI generation is taking too long. The job may have failed — please try again.',
+              'AI generation is taking too long. The job may have failed. Please try again.',
             );
             return;
           }
@@ -144,7 +157,7 @@ const DeckViewPage: Component = () => {
       if (bannerSeenProcessing && job?.status === 'pending' && !dismissed) {
         bannerSeenProcessing = false;
         toast.success(
-          `AI cards ready — ${job.cardCount ?? 'some'} cards generated!`,
+          `AI cards ready. ${job.cardCount ?? 'Some'} cards generated.`,
         );
       }
       if (!job) bannerSeenProcessing = false;
@@ -160,13 +173,26 @@ const DeckViewPage: Component = () => {
   const [bulkDeleting, setBulkDeleting] = createSignal(false);
 
   // ── Drag-drop reorder state ─────────────────────────────────────
-  const [dragIndex, setDragIndex] = createSignal<number | null>(null);
-  const [dropIndex, setDropIndex] = createSignal<number | null>(null);
+  const [dragCardId, setDragCardId] = createSignal<string | null>(null);
+  const [dropCardId, setDropCardId] = createSignal<string | null>(null);
+  const [dropPosition, setDropPosition] =
+    createSignal<DropPosition | null>(null);
   const [isDragging, setIsDragging] = createSignal(false);
+  const [isReordering, setIsReordering] = createSignal(false);
+  let cardListRef: HTMLDivElement | undefined;
+  let isTrackingDocumentDrag = false;
+  let lastDragPointer: { x: number; y: number } | null = null;
 
   // ── Search / filter (debounced 250ms) ──────────────────────────
   const [searchQuery, setSearchQuery, immediateSearchQuery] =
     createDebouncedSignal('', 250);
+
+  const reorderUnavailableReason = createMemo(() => {
+    if (immediateSearchQuery().trim()) return 'Clear search to reorder cards';
+    if (fetchingMore()) return 'Wait for the remaining cards to load';
+    if (isReordering()) return 'Saving the current card order';
+    return null;
+  });
 
   // Server-side search when query is non-empty (searches ALL cards, not just loaded pages)
   const searchResultsQuery = createQuery(() => ({
@@ -204,9 +230,15 @@ const DeckViewPage: Component = () => {
     );
   });
 
-  // ── VirtualList infinite scroll trigger ─────────────────────────
+  // ── Infinite scroll trigger ─────────────────────────────────────
   const handleReachEnd = () => {
-    if (hasMoreServer() && !fetchingMore()) {
+    if (
+      !isDragging() &&
+      !isReordering() &&
+      !immediateSearchQuery().trim() &&
+      hasMoreServer() &&
+      !fetchingMore()
+    ) {
       fetchMore();
     }
   };
@@ -336,75 +368,250 @@ const DeckViewPage: Component = () => {
   };
 
   // ── Drag-drop reorder ───────────────────────────────────────────
-  const handleDragStart = (index: number, e: DragEvent) => {
+  const clearDropTarget = () => {
+    if (dropCardId() === null && dropPosition() === null) return;
     batch(() => {
-      setDragIndex(index);
-      setIsDragging(true);
+      setDropCardId(null);
+      setDropPosition(null);
     });
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const updateDropTargetFromPoint = (clientX: number, clientY: number) => {
+    if (!cardListRef) return;
+
+    const listBounds = cardListRef.getBoundingClientRect();
+    const isHorizontallyAligned =
+      clientX >= listBounds.left - 40 && clientX <= listBounds.right + 40;
+    if (!isHorizontallyAligned) {
+      clearDropTarget();
+      return;
+    }
+
+    const pointedElement = document.elementFromPoint(clientX, clientY);
+    let row = pointedElement?.closest<HTMLElement>('[data-deck-card-id]') ?? null;
+
+    if (!row || !cardListRef.contains(row)) {
+      const rows = Array.from(
+        cardListRef.querySelectorAll<HTMLElement>('[data-deck-card-id]'),
+      );
+      const visibleRows = rows.filter((candidate) => {
+        const bounds = candidate.getBoundingClientRect();
+        return bounds.bottom >= listBounds.top && bounds.top <= listBounds.bottom;
+      });
+      const candidates = visibleRows.length > 0 ? visibleRows : rows;
+
+      if (candidates.length === 0) {
+        clearDropTarget();
+        return;
+      }
+
+      row = candidates.reduce((nearest, candidate) => {
+        const nearestBounds = nearest.getBoundingClientRect();
+        const candidateBounds = candidate.getBoundingClientRect();
+        const nearestDistance = Math.abs(
+          clientY - (nearestBounds.top + nearestBounds.height / 2),
+        );
+        const candidateDistance = Math.abs(
+          clientY - (candidateBounds.top + candidateBounds.height / 2),
+        );
+        return candidateDistance < nearestDistance ? candidate : nearest;
+      });
+    }
+
+    const cardId = row.dataset.deckCardId;
+    if (!cardId || cardId === dragCardId()) {
+      clearDropTarget();
+      return;
+    }
+
+    const position = getDropPosition(clientY, row.getBoundingClientRect());
+    if (dropCardId() !== cardId || dropPosition() !== position) {
+      batch(() => {
+        setDropCardId(cardId);
+        setDropPosition(position);
+      });
     }
   };
-
-  const handleDragOver = (index: number, e: DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    if (dropIndex() !== index) setDropIndex(index);
+  const dragAutoScroller = createDragAutoScroller(
+    () => cardListRef,
+    updateDropTargetFromPoint,
+  );
+  const trackDragPointer = (e: DragEvent) => {
+    if (e.clientX === 0 && e.clientY === 0 && lastDragPointer) {
+      return lastDragPointer;
+    }
+    lastDragPointer = { x: e.clientX, y: e.clientY };
+    return lastDragPointer;
   };
 
-  const handleDragEnd = () => {
+  const handleDocumentDragOver = (e: DragEvent) => {
+    if (!isDragging()) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const pointer = trackDragPointer(e);
+    dragAutoScroller.updatePointer(pointer.x, pointer.y);
+    updateDropTargetFromPoint(pointer.x, pointer.y);
+  };
+
+  const stopDocumentDragTracking = () => {
+    dragAutoScroller.stop();
+    if (!isTrackingDocumentDrag) return;
+    document.removeEventListener('dragover', handleDocumentDragOver);
+    document.removeEventListener('drop', handleDocumentDragEnd);
+    document.removeEventListener('dragend', handleDocumentDragEnd);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('blur', handleDocumentDragEnd);
+    isTrackingDocumentDrag = false;
+  };
+
+  const resetDragState = () => {
+    stopDocumentDragTracking();
+    lastDragPointer = null;
     batch(() => {
-      setDragIndex(null);
-      setDropIndex(null);
+      setDragCardId(null);
+      setDropCardId(null);
+      setDropPosition(null);
       setIsDragging(false);
     });
   };
 
-  const handleDrop = async (targetIndex: number, e: DragEvent) => {
+  const handleDragEnd = () => {
+    resetDragState();
+    if (!isReordering()) resumeCardSync();
+  };
+
+  const handleDocumentDragEnd = () => {
+    handleDragEnd();
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') handleDocumentDragEnd();
+  };
+
+  const startDocumentDragTracking = () => {
+    if (isTrackingDocumentDrag) return;
+    document.addEventListener('dragover', handleDocumentDragOver);
+    document.addEventListener('drop', handleDocumentDragEnd);
+    document.addEventListener('dragend', handleDocumentDragEnd);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleDocumentDragEnd);
+    isTrackingDocumentDrag = true;
+  };
+
+  onCleanup(stopDocumentDragTracking);
+
+  const handleDragStart = (cardId: string, e: DragEvent) => {
+    if (reorderUnavailableReason()) {
+      e.preventDefault();
+      return;
+    }
+
+    void pauseCardSync();
+    batch(() => {
+      setDragCardId(cardId);
+      setDropCardId(null);
+      setDropPosition(null);
+      setIsDragging(true);
+    });
+    startDocumentDragTracking();
+
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(DRAG_CARD_MIME, cardId);
+      e.dataTransfer.setData('text/plain', cardId);
+    }
+  };
+
+  const handleListDragOver = (e: DragEvent) => {
+    if (!isDragging()) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleCardListScroll = (container: HTMLDivElement) => {
+    if (isDragging() && lastDragPointer) {
+      updateDropTargetFromPoint(lastDragPointer.x, lastDragPointer.y);
+    }
+
+    const remainingScroll =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (remainingScroll <= Math.max(320, container.clientHeight / 2)) {
+      handleReachEnd();
+    }
+  };
+
+  const handleDrop = async (
+    targetCardId: string,
+    position: DropPosition,
+    e: DragEvent,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
-    const fromIndex = dragIndex();
-    if (fromIndex === null || fromIndex === targetIndex) {
-      handleDragEnd();
+
+    const sourceCardId =
+      dragCardId() ||
+      e.dataTransfer?.getData(DRAG_CARD_MIME) ||
+      e.dataTransfer?.getData('text/plain');
+    const previousCards = cards();
+    const reordered =
+      sourceCardId && previousCards
+        ? reorderCards(
+            previousCards,
+            sourceCardId,
+            targetCardId,
+            position,
+          )
+        : null;
+
+    resetDragState();
+    if (!reordered) {
+      resumeCardSync();
       return;
     }
 
-    const allCards = cards();
-    if (!allCards) {
+    const cardIds = reordered.map((card) => card.id);
+
+    setIsReordering(true);
+    applyCardOrder(reordered);
+
+    try {
+      const { error: reorderError } = await api.cards['by-deck']({
+        deckId: params.deckId,
+      }).reorder.patch({
+        cardIds,
+      });
+
+      if (reorderError) {
+        throw new Error(
+          getApiError(reorderError) || 'Failed to reorder cards',
+        );
+      }
+    } catch (err: any) {
+      applyCardOrder(previousCards);
+      toast.error(err?.message ?? 'Failed to reorder cards');
+      try {
+        await refetchCards();
+      } catch {
+        // The exact pre-drag order is already restored locally and in cache.
+      }
+    } finally {
+      resumeCardSync();
+      setIsReordering(false);
+    }
+  };
+
+  const handleListDrop = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const pointer = trackDragPointer(e);
+    updateDropTargetFromPoint(pointer.x, pointer.y);
+    const targetCardId = dropCardId();
+    const position = dropPosition();
+    if (!targetCardId || !position) {
       handleDragEnd();
       return;
     }
-
-    const filtered = filteredCards();
-    const movedCard = filtered[fromIndex];
-    const targetCard = filtered[targetIndex];
-
-    const fullFromIndex = allCards.findIndex((c) => c.id === movedCard.id);
-    const fullTargetIndex = allCards.findIndex((c) => c.id === targetCard.id);
-
-    const reordered = [...allCards];
-    const [moved] = reordered.splice(fullFromIndex, 1);
-    reordered.splice(fullTargetIndex, 0, moved);
-
-    const updatedCards = reordered.map((card, idx) => ({
-      ...card,
-      sortOrder: idx,
-    }));
-
-    const cardIds = reordered.map((c) => c.id);
-    handleDragEnd();
-    setLocalCards(updatedCards);
-
-    const { error: reorderError } = await api.cards['by-deck']({
-      deckId: params.deckId,
-    }).reorder.patch({
-      cardIds,
-    });
-    if (reorderError) {
-      toast.error(getApiError(reorderError) || 'Failed to reorder cards');
-      refetchCards();
-    }
+    void handleDrop(targetCardId, position, e);
   };
 
   // ── AI handlers ─────────────────────────────────────────────────
@@ -453,26 +660,38 @@ const DeckViewPage: Component = () => {
         toggleAnalytics={() => setShowAnalytics((v) => !v)}
       />
 
-      {/* ── Content ── */}
-      <div class={`flex-1 min-h-0 p-6 ${showAnalytics() ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-        <div class={`max-w-5xl mx-auto ${showAnalytics() ? '' : 'h-full'} flex flex-col gap-4`}>
+      <div
+        class={`min-h-0 flex-1 bg-surface px-4 py-3 sm:px-6 sm:py-4 ${
+          showAnalytics() ? 'overflow-y-auto' : 'overflow-hidden'
+        }`}
+      >
+        <div
+          class={`mx-auto flex min-h-0 max-w-6xl flex-col gap-4 ${
+            showAnalytics() ? '' : 'h-full'
+          }`}
+        >
           {/* ── Pending AI job resume banner ── */}
           <Show when={pendingJob() && !pendingJobDismissed() && !showAiModal()}>
-            <div class="flex items-center gap-3 px-4 py-3 rounded-xl border border-palette-5/30 bg-palette-5/5 text-sm animate-fade-in">
+            <section
+              class="flex flex-col gap-3 rounded-lg border border-learning/25 bg-learning-surface px-4 py-3 text-sm motion-safe:animate-fade-in sm:flex-row sm:items-center"
+              aria-label="AI generation status"
+              aria-live="polite"
+            >
               <Show
                 when={pendingJob()!.status === 'processing'}
-                fallback={<Sparkles class="h-4 w-4 text-palette-5 shrink-0" />}
+                fallback={
+                  <Sparkles class="h-4 w-4 shrink-0 text-learning" />
+                }
               >
-                <Loader2 class="h-4 w-4 text-palette-5 shrink-0 animate-spin" />
+                <Loader2 class="h-4 w-4 shrink-0 text-learning motion-safe:animate-spin" />
               </Show>
-              <span class="flex-1 text-foreground">
+              <span class="min-w-0 flex-1 text-foreground">
                 <Show
                   when={pendingJob()!.status === 'processing'}
                   fallback={
                     <>
-                      You have an unsaved AI generation —{' '}
-                      <strong>{pendingJob()!.cardCount} cards</strong> waiting
-                      to be saved.
+                      <strong>{pendingJob()!.cardCount} generated cards</strong>{' '}
+                      are ready to review and save.
                     </>
                   }
                 >
@@ -482,7 +701,7 @@ const DeckViewPage: Component = () => {
               <Button
                 size="sm"
                 variant="outline"
-                class="border-palette-5/40 text-palette-5 hover:bg-palette-5/10 h-7 px-3 text-xs"
+                class="h-8 shrink-0 border-learning/35 bg-card px-3 text-xs text-learning hover:bg-learning-surface"
                 onClick={handleResumeJob}
               >
                 <Show
@@ -493,39 +712,69 @@ const DeckViewPage: Component = () => {
                 </Show>
               </Button>
               <button
-                class="text-muted-foreground hover:text-foreground transition-colors"
+                type="button"
+                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => setPendingJobDismissed(true)}
-                aria-label="Dismiss"
+                aria-label="Dismiss AI generation status"
               >
                 <X class="h-4 w-4" />
               </button>
-            </div>
+            </section>
           </Show>
 
           {/* ── Analytics Panel (lazy-loaded) ── */}
           <Show when={showAnalytics()}>
-            <div class="space-y-4 animate-fade-in">
+            <section
+              class="space-y-4 motion-safe:animate-fade-in"
+              aria-labelledby="deck-analytics-title"
+            >
+              <div class="flex items-start gap-3 py-1">
+                <div class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground">
+                  <BarChart3 class="h-4 w-4" />
+                </div>
+                <div>
+                  <h2
+                    id="deck-analytics-title"
+                    class="text-lg font-semibold tracking-tight text-foreground"
+                  >
+                    Deck analytics
+                  </h2>
+                  <p class="mt-0.5 text-sm text-muted-foreground">
+                    Review retention, relationships, and card quality.
+                  </p>
+                </div>
+              </div>
               <Suspense
                 fallback={
-                  <div class="h-32 rounded-xl bg-muted animate-pulse" />
+                  <div class="h-32 rounded-lg border bg-card motion-safe:animate-pulse" />
                 }
               >
                 <RetentionHeatmap deckId={params.deckId} />
               </Suspense>
               <Suspense
                 fallback={
-                  <div class="h-80 rounded-xl bg-muted animate-pulse" />
+                  <div class="h-80 rounded-lg border bg-card motion-safe:animate-pulse" />
                 }
               >
                 <GraphView deckId={params.deckId} />
               </Suspense>
-              <Suspense fallback={null}>
-                <DuplicateScanner deckId={params.deckId} />
-              </Suspense>
-              <Suspense fallback={null}>
-                <AiSuggestions deckId={params.deckId} />
-              </Suspense>
-            </div>
+              <div class="grid gap-3 lg:grid-cols-2">
+                <Suspense
+                  fallback={
+                    <div class="h-9 rounded-lg border bg-card motion-safe:animate-pulse" />
+                  }
+                >
+                  <DuplicateScanner deckId={params.deckId} />
+                </Suspense>
+                <Suspense
+                  fallback={
+                    <div class="h-9 rounded-lg border bg-card motion-safe:animate-pulse" />
+                  }
+                >
+                  <AiSuggestions deckId={params.deckId} />
+                </Suspense>
+              </div>
+            </section>
           </Show>
 
           {/* Add card form */}
@@ -553,109 +802,158 @@ const DeckViewPage: Component = () => {
 
           {/* Card list loading */}
           <Show when={cardLoading()}>
-            <div class="space-y-3">
+            <div class="space-y-2" aria-label="Loading cards" aria-busy="true">
               <For each={[1, 2, 3]}>
-                {() => <div class="h-24 rounded-xl bg-muted animate-pulse" />}
+                {() => (
+                  <div class="h-28 rounded-lg border bg-card motion-safe:animate-pulse" />
+                )}
               </For>
             </div>
           </Show>
 
           {/* Card list */}
           <Show when={!cardLoading()}>
-            <div class="flex flex-col flex-1" style={{ "min-height": showAnalytics() ? "400px" : undefined }}>
+            <div
+              class={`flex min-h-0 flex-col ${
+                showAnalytics() ? 'flex-none' : 'flex-1'
+              }`}
+              style={{
+                height: showAnalytics()
+                  ? 'clamp(25rem, 70vh, 45rem)'
+                  : undefined,
+              }}
+              aria-label="Cards in this deck"
+            >
               <Show
                 when={filteredCards().length > 0}
                 fallback={
-                  <div class="text-center py-16">
+                  <div class="flex min-h-64 items-center justify-center rounded-lg border border-dashed bg-card px-6 py-12 text-center">
                     <Show
                       when={cardCount() === 0}
                       fallback={
-                        <div>
-                          <p class="text-muted-foreground text-sm">
+                        <div class="max-w-sm">
+                          <Search class="mx-auto mb-3 h-5 w-5 text-muted-foreground" />
+                          <p class="text-sm font-medium text-foreground">
+                            No matching cards
+                          </p>
+                          <p class="mt-1 text-sm text-muted-foreground">
                             No results for &ldquo;{immediateSearchQuery()}
                             &rdquo;
                           </p>
                         </div>
                       }
                     >
-                      <div class="inline-flex h-16 w-16 rounded-full bg-muted items-center justify-center mb-4">
-                        <Layers class="h-7 w-7 text-muted-foreground" />
+                      <div class="max-w-sm">
+                        <div class="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+                          <Layers class="h-5 w-5" />
+                        </div>
+                        <p class="font-medium text-foreground">
+                          Build your first card
+                        </p>
+                        <p class="mt-1 text-sm text-muted-foreground">
+                          Add a card manually or generate a draft from your
+                          notes.
+                        </p>
+                        <Button
+                          variant="outline"
+                          class="mt-4"
+                          onClick={() => {
+                            setAddInputs({});
+                            setShowAddCard(true);
+                          }}
+                        >
+                          <Plus class="h-4 w-4" />
+                          Add first card
+                        </Button>
                       </div>
-                      <p class="text-foreground font-medium mb-1">
-                        No cards yet
-                      </p>
-                      <p class="text-muted-foreground text-sm mb-4">
-                        Click <strong>Add Card</strong> to get started!
-                      </p>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setAddInputs({});
-                          setShowAddCard(true);
-                        }}
-                      >
-                        <Plus class="h-4 w-4 mr-2" />
-                        Add your first card
-                      </Button>
                     </Show>
                   </div>
                 }
               >
-                <VirtualList
-                  items={filteredCards()}
-                  estimatedRowHeight={120}
-                  overscan={5}
-                  class="flex-1 min-h-0"
-                  onReachEnd={handleReachEnd}
+                <div
+                  class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                  style={{ 'overflow-anchor': 'none' }}
+                  ref={(element) => {
+                    cardListRef = element;
+                  }}
+                  onScroll={(event) =>
+                    handleCardListScroll(event.currentTarget)
+                  }
+                  onDragOver={handleListDragOver}
+                  onDrop={handleListDrop}
                 >
-                  {(card, index) => (
-                    <div class="pb-2">
-                      <Show
-                        when={editingCardId() !== card.id}
-                        fallback={
-                          <div class="border rounded-xl bg-card overflow-hidden">
-                            <EditCardForm
-                              sortedFields={sortedFields}
-                              editInputs={editInputs}
-                              setEditInputs={setEditInputs}
-                              editSaving={editSaving}
-                              onSubmit={handleEditCard}
-                              onCancel={() => setEditingCardId(null)}
-                            />
-                          </div>
-                        }
+                  <For each={filteredCards()}>
+                    {(card, index) => (
+                      <div
+                        class="relative pb-2"
+                        data-deck-card-id={card.id}
                       >
-                        <CardItemRow
-                          card={card}
-                          index={index()}
-                          selectMode={selectMode()}
-                          isSelected={selectedIds().has(card.id)}
-                          isEditing={false}
-                          isDragSource={dragIndex() === index()}
-                          isDropTarget={dropIndex() === index()}
-                          isDragging={isDragging()}
-                          confirmDeleteId={confirmDeleteId()}
-                          onToggleSelection={toggleCardSelection}
-                          onStartEdit={startEdit}
-                          onDelete={handleDeleteCard}
-                          onConfirmDelete={setConfirmDeleteId}
-                          onDragStart={handleDragStart}
-                          onDragOver={handleDragOver}
-                          onDrop={handleDrop}
-                          onDragEnd={handleDragEnd}
-                          onDragLeave={() => setDropIndex(null)}
-                        />
-                      </Show>
-                    </div>
-                  )}
-                </VirtualList>
+                        <Show
+                          when={
+                            dropCardId() === card.id &&
+                            dragCardId() !== card.id &&
+                            dropPosition()
+                          }
+                        >
+                          <div
+                            class={`pointer-events-none absolute inset-x-2 z-10 flex items-center ${
+                              dropPosition() === 'before'
+                                ? '-top-1'
+                                : 'bottom-1'
+                            }`}
+                            aria-hidden="true"
+                          >
+                            <span class="h-2.5 w-2.5 rounded-full border-2 border-background bg-info shadow-xs" />
+                            <span class="h-0.5 flex-1 bg-info shadow-xs" />
+                          </div>
+                        </Show>
+                        <Show
+                          when={editingCardId() !== card.id}
+                          fallback={
+                            <div class="overflow-hidden rounded-lg border bg-card shadow-xs">
+                              <EditCardForm
+                                sortedFields={sortedFields}
+                                editInputs={editInputs}
+                                setEditInputs={setEditInputs}
+                                editSaving={editSaving}
+                                onSubmit={handleEditCard}
+                                onCancel={() => setEditingCardId(null)}
+                              />
+                            </div>
+                          }
+                        >
+                          <CardItemRow
+                            card={card}
+                            index={index()}
+                            selectMode={selectMode()}
+                            isSelected={selectedIds().has(card.id)}
+                            isEditing={false}
+                            isDragSource={dragCardId() === card.id}
+                            isDragging={isDragging()}
+                            dragDisabledReason={reorderUnavailableReason()}
+                            confirmDeleteId={confirmDeleteId()}
+                            onToggleSelection={toggleCardSelection}
+                            onStartEdit={startEdit}
+                            onDelete={handleDeleteCard}
+                            onConfirmDelete={setConfirmDeleteId}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                          />
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </div>
+                <p class="sr-only" aria-live="polite">
+                  {isReordering() ? 'Saving the new card order' : ''}
+                </p>
                 <Show when={hasMoreServer() || fetchingMore()}>
                   <div class="flex items-center justify-center gap-2 py-3">
                     <Show when={fetchingMore()}>
-                      <Loader2 class="h-3.5 w-3.5 text-muted-foreground animate-spin" />
+                      <Loader2 class="h-3.5 w-3.5 text-muted-foreground motion-safe:animate-spin" />
                     </Show>
                     <p class="text-xs text-muted-foreground">
-                      Showing {filteredCards().length} of {cardCount()} cards…
+                      {filteredCards().length} of {cardCount()} cards loaded
                     </p>
                   </div>
                 </Show>

@@ -7,50 +7,29 @@ import {
   createSignal,
   on,
 } from 'solid-js';
-import { useLocation, useNavigate } from '@solidjs/router';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { useLocation } from '@solidjs/router';
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { commandActionRunner } from '@/lib/command-actions';
-import { experienceQueryKeys } from '@/lib/experience-api';
-import { queryClient } from '@/lib/query-client';
 import { currentUser } from '@/stores/auth.store';
-import { openSearch } from '@/stores/search.store';
-import { toast } from '@/stores/toast.store';
 import { cn } from '@/lib/utils';
 import { AppShellContext } from './app-shell-context';
 import type {
   AppShellContextValue,
   CommandActionContext,
-  CommandActionRef,
-  CommandActionResult,
   ContextPanelDescriptor,
-  QueryInvalidationKey,
 } from './types';
 import {
   clampPanelWidth,
-  readStoredBoolean,
   readStoredPanelWidth,
   shellPanelBounds,
   shellStorageKeys,
   writeStoredValue,
-  type ShellPanel,
 } from './app-shell-state';
-import { CommandBar } from './command-bar';
-import { ContextPanel } from './context-panel';
+import { CommandSearch } from './command-search';
 import { LibraryExplorer } from './library-explorer';
 import { MobileBottomNav } from './mobile-bottom-nav';
 import { TaskRail } from './task-rail';
@@ -58,8 +37,6 @@ import { TaskRail } from './task-rail';
 type AppShellProps = {
   children: JSX.Element;
 };
-
-type ConfirmationResult = Extract<CommandActionResult, { status: 'confirm' }>;
 
 function browserStorage() {
   return typeof window === 'undefined' ? undefined : window.localStorage;
@@ -72,123 +49,22 @@ function isDesktopPanelViewport() {
   );
 }
 
-function actionKey(action: CommandActionRef) {
-  return `${action.id}:${JSON.stringify(action.params ?? {})}`;
-}
-
-function resolveAvailableRoute(href: string) {
-  const base = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
-  const url = new URL(href, base);
-
-  if (url.pathname === '/study') {
-    const deckId = url.searchParams.get('deckId');
-    return deckId ? `/study/${deckId}` : '/study/interleaved';
-  }
-
-  if (url.pathname === '/library') {
-    const deckId = url.searchParams.get('deckId');
-    const folderId = url.searchParams.get('folderId');
-    if (deckId) return `/deck/${deckId}`;
-    if (folderId) return `/folder/${folderId}`;
-    return '/';
-  }
-
-  if (url.pathname === '/create') {
-    const targetDeckId = url.searchParams.get('targetDeckId');
-    return targetDeckId ? `/deck/${targetDeckId}` : '/';
-  }
-
-  if (url.pathname === '/insights') return '/';
-
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
-function invalidateExperienceQueries(
-  keys: QueryInvalidationKey[] | undefined,
-  context: CommandActionContext,
-) {
-  if (!keys) return;
-
-  for (const key of keys) {
-    if (key === 'command-center') {
-      queryClient.invalidateQueries({
-        queryKey: experienceQueryKeys.commandCenter(),
-      });
-    } else if (key === 'library-explorer') {
-      queryClient.invalidateQueries({
-        queryKey: experienceQueryKeys.libraryExplorer(),
-      });
-    } else if (key === 'study-queue') {
-      queryClient.invalidateQueries({ queryKey: ['study-queue'] });
-    } else if (key === 'deck-workspace') {
-      if (context.selectedDeckId) {
-        queryClient.invalidateQueries({
-          queryKey: experienceQueryKeys.deckWorkspace(
-            context.selectedDeckId,
-          ) as unknown as readonly unknown[],
-        });
-      } else {
-        queryClient.invalidateQueries({ queryKey: ['deck-workspace'] });
-      }
-    } else if (key === 'insights-overview') {
-      queryClient.invalidateQueries({
-        queryKey: experienceQueryKeys.insightsOverview(),
-      });
-    } else if (key === 'command-search') {
-      queryClient.invalidateQueries({ queryKey: ['command-search'] });
-    }
-  }
-}
-
 export const AppShell: Component<AppShellProps> = (props) => {
   const location = useLocation();
-  const navigate = useNavigate();
   const storage = browserStorage();
 
   const [explorerWidth, setExplorerWidth] = createSignal(
     readStoredPanelWidth(storage, 'explorer'),
   );
-  const [contextWidth, setContextWidth] = createSignal(
-    readStoredPanelWidth(storage, 'context'),
-  );
-  const [explorerCollapsed, setExplorerCollapsed] = createSignal(
-    readStoredBoolean(storage, shellStorageKeys.explorerCollapsed, false),
-  );
-  const [contextCollapsed, setContextCollapsed] = createSignal(
-    readStoredBoolean(storage, shellStorageKeys.contextCollapsed, false),
-  );
   const [explorerSheetOpen, setExplorerSheetOpen] = createSignal(false);
-  const [contextSheetOpen, setContextSheetOpen] = createSignal(false);
   const [contextPanel, setContextPanel] =
     createSignal<ContextPanelDescriptor | null>(null);
   const [registeredActionContext, setRegisteredActionContext] = createSignal<
     Partial<CommandActionContext>
   >({});
-  const [pendingActionKey, setPendingActionKey] = createSignal<string | null>(
-    null,
-  );
-  const [confirmation, setConfirmation] =
-    createSignal<ConfirmationResult | null>(null);
 
   createEffect(() =>
     writeStoredValue(storage, shellStorageKeys.explorerWidth, explorerWidth()),
-  );
-  createEffect(() =>
-    writeStoredValue(storage, shellStorageKeys.contextWidth, contextWidth()),
-  );
-  createEffect(() =>
-    writeStoredValue(
-      storage,
-      shellStorageKeys.explorerCollapsed,
-      explorerCollapsed(),
-    ),
-  );
-  createEffect(() =>
-    writeStoredValue(
-      storage,
-      shellStorageKeys.contextCollapsed,
-      contextCollapsed(),
-    ),
   );
 
   createEffect(
@@ -198,7 +74,6 @@ export const AppShell: Component<AppShellProps> = (props) => {
         setContextPanel(null);
         setRegisteredActionContext({});
         setExplorerSheetOpen(false);
-        setContextSheetOpen(false);
       },
       { defer: true },
     ),
@@ -242,83 +117,26 @@ export const AppShell: Component<AppShellProps> = (props) => {
   const closeResponsiveSurfaces = () => {
     if (!isDesktopPanelViewport()) {
       setExplorerSheetOpen(false);
-      setContextSheetOpen(false);
-    }
-  };
-
-  const navigateWithinShell = (href: string) => {
-    navigate(resolveAvailableRoute(href));
-    closeResponsiveSurfaces();
-  };
-
-  const handleActionResult = async (
-    result: CommandActionResult,
-    context: CommandActionContext,
-  ) => {
-    if (result.status === 'confirm') {
-      setConfirmation(result);
-      return;
-    }
-
-    if (result.status === 'error') {
-      toast.error(result.message);
-      return;
-    }
-
-    invalidateExperienceQueries(result.invalidate, context);
-    if (result.message) toast.success(result.message);
-    if (result.navigateTo) navigateWithinShell(result.navigateTo);
-  };
-
-  const runShellAction = async (action: CommandActionRef) => {
-    const key = actionKey(action);
-    if (pendingActionKey() === key) return;
-
-    const context = actionContext();
-    setPendingActionKey(key);
-    try {
-      const result = await commandActionRunner.run(action, context);
-      await handleActionResult(result, context);
-    } finally {
-      setPendingActionKey(null);
     }
   };
 
   const openExplorerPanel = () => {
-    if (isDesktopPanelViewport()) {
-      setExplorerCollapsed(false);
-    } else {
+    if (!isDesktopPanelViewport()) {
       setExplorerSheetOpen(true);
     }
   };
 
-  const openContextPanel = () => {
-    if (isDesktopPanelViewport()) {
-      setContextCollapsed(false);
-    } else {
-      setContextSheetOpen(true);
-    }
-  };
+  const openContextPanel = () => {};
+  const closeContextPanel = () => setContextPanel(null);
 
-  const closeContextPanel = () => {
-    if (isDesktopPanelViewport()) {
-      setContextCollapsed(true);
-    } else {
-      setContextSheetOpen(false);
-    }
-  };
-
-  const beginResize = (panel: ShellPanel, event: PointerEvent) => {
+  const beginExplorerResize = (event: PointerEvent) => {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = panel === 'explorer' ? explorerWidth() : contextWidth();
-    const setWidth = panel === 'explorer' ? setExplorerWidth : setContextWidth;
+    const startWidth = explorerWidth();
 
     const move = (moveEvent: PointerEvent) => {
       const delta = moveEvent.clientX - startX;
-      const nextWidth =
-        panel === 'explorer' ? startWidth + delta : startWidth - delta;
-      setWidth(clampPanelWidth(panel, nextWidth));
+      setExplorerWidth(clampPanelWidth('explorer', startWidth + delta));
     };
 
     const stop = () => {
@@ -334,15 +152,15 @@ export const AppShell: Component<AppShellProps> = (props) => {
     document.addEventListener('pointerup', stop);
   };
 
-  const resizeByKeyboard = (panel: ShellPanel, event: KeyboardEvent) => {
+  const resizeExplorerByKeyboard = (event: KeyboardEvent) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 
     event.preventDefault();
     const delta = event.shiftKey ? 40 : 16;
     const direction = event.key === 'ArrowRight' ? 1 : -1;
-    const width = panel === 'explorer' ? explorerWidth() : contextWidth();
-    const setWidth = panel === 'explorer' ? setExplorerWidth : setContextWidth;
-    setWidth(clampPanelWidth(panel, width + delta * direction));
+    setExplorerWidth(
+      clampPanelWidth('explorer', explorerWidth() + delta * direction),
+    );
   };
 
   const shellContext: AppShellContextValue = {
@@ -357,161 +175,67 @@ export const AppShell: Component<AppShellProps> = (props) => {
 
   return (
     <AppShellContext.Provider value={shellContext}>
-        <div class="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
-          <TaskRail
-            onOpenExplorer={openExplorerPanel}
-            onOpenContext={openContextPanel}
-          />
+      <div class="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
+        <TaskRail onOpenExplorer={openExplorerPanel} />
 
-          <Show when={!explorerCollapsed()}>
-            <aside
-              class="relative hidden h-full min-h-0 shrink-0 border-r bg-background xl:flex"
-              style={{ width: `${explorerWidth()}px` }}
-            >
-              <LibraryExplorer
-                onCollapse={() => setExplorerCollapsed(true)}
-                onNavigate={closeResponsiveSurfaces}
-              />
-              <ResizeHandle
-                panel="explorer"
-                value={explorerWidth()}
-                onPointerDown={beginResize}
-                onKeyDown={resizeByKeyboard}
-              />
-            </aside>
-          </Show>
-
-          <div class="flex min-w-0 flex-1 flex-col">
-            <CommandBar
-              explorerCollapsed={explorerCollapsed()}
-              contextCollapsed={contextCollapsed()}
-              onOpenExplorer={openExplorerPanel}
-              onToggleExplorer={() =>
-                setExplorerCollapsed((collapsed) => !collapsed)
-              }
-              onOpenContext={openContextPanel}
-              onToggleContext={() =>
-                setContextCollapsed((collapsed) => !collapsed)
-              }
-            />
-
-            <main
-              id="main-content"
-              tabindex="-1"
-              class="min-h-0 flex-1 overflow-hidden bg-muted/20 focus:outline-none"
-            >
-              {props.children}
-            </main>
-
-            <MobileBottomNav
-              onOpenExplorer={openExplorerPanel}
-              onOpenContext={openContextPanel}
-            />
-          </div>
-
-          <Show when={!contextCollapsed()}>
-            <aside
-              class="relative hidden h-full min-h-0 shrink-0 border-l bg-background xl:flex"
-              style={{ width: `${contextWidth()}px` }}
-            >
-              <ResizeHandle
-                panel="context"
-                value={contextWidth()}
-                onPointerDown={beginResize}
-                onKeyDown={resizeByKeyboard}
-              />
-              <ContextPanel
-                descriptor={contextPanel}
-                pendingActionKey={pendingActionKey}
-                onRunAction={runShellAction}
-                onNavigate={navigateWithinShell}
-                onOpenSearch={openSearch}
-              />
-            </aside>
-          </Show>
-        </div>
-
-        <Sheet open={explorerSheetOpen()} onOpenChange={setExplorerSheetOpen}>
-          <Show when={explorerSheetOpen()}>
-            <SheetContent side="left" class="w-[min(90vw,360px)] p-0">
-              <SheetHeader class="sr-only">
-                <SheetTitle>Library</SheetTitle>
-              </SheetHeader>
-              <LibraryExplorer
-                onCollapse={() => setExplorerSheetOpen(false)}
-                onNavigate={closeResponsiveSurfaces}
-              />
-            </SheetContent>
-          </Show>
-        </Sheet>
-
-        <Sheet open={contextSheetOpen()} onOpenChange={setContextSheetOpen}>
-          <Show when={contextSheetOpen()}>
-            <SheetContent side="right" class="w-[min(92vw,380px)] p-0">
-              <SheetHeader class="sr-only">
-                <SheetTitle>Context</SheetTitle>
-              </SheetHeader>
-              <ContextPanel
-                descriptor={contextPanel}
-                pendingActionKey={pendingActionKey}
-                onRunAction={runShellAction}
-                onNavigate={navigateWithinShell}
-                onOpenSearch={openSearch}
-              />
-            </SheetContent>
-          </Show>
-        </Sheet>
-
-        <AlertDialog
-          open={!!confirmation()}
-          onOpenChange={(open) => {
-            if (!open) setConfirmation(null);
-          }}
+        <aside
+          class="relative hidden h-full min-h-0 shrink-0 border-r bg-background xl:flex"
+          style={{ width: `${explorerWidth()}px` }}
         >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{confirmation()?.title}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {confirmation()?.description}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setConfirmation(null)}>
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                variant={confirmation()?.destructive ? 'destructive' : 'default'}
-                onClick={() => {
-                  const action = confirmation()?.onConfirmAction;
-                  setConfirmation(null);
-                  if (action) void runShellAction(action);
-                }}
-              >
-                {confirmation()?.confirmLabel ?? 'Confirm'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          <LibraryExplorer
+            onCollapse={() => {}}
+            onNavigate={closeResponsiveSurfaces}
+          />
+          <ResizeHandle
+            value={explorerWidth()}
+            onPointerDown={beginExplorerResize}
+            onKeyDown={resizeExplorerByKeyboard}
+          />
+        </aside>
+
+        <div class="flex min-w-0 flex-1 flex-col">
+          <main
+            id="main-content"
+            tabindex="-1"
+            class="min-h-0 flex-1 overflow-hidden bg-muted/20 focus:outline-none"
+          >
+            {props.children}
+          </main>
+
+          <MobileBottomNav onOpenExplorer={openExplorerPanel} />
+        </div>
+      </div>
+
+      <CommandSearch />
+
+      <Sheet open={explorerSheetOpen()} onOpenChange={setExplorerSheetOpen}>
+        <Show when={explorerSheetOpen()}>
+          <SheetContent side="left" class="w-[min(92vw,360px)] p-0">
+            <SheetHeader class="sr-only">
+              <SheetTitle>Navigation and library</SheetTitle>
+            </SheetHeader>
+            <LibraryExplorer
+              onCollapse={() => setExplorerSheetOpen(false)}
+              onNavigate={closeResponsiveSurfaces}
+            />
+          </SheetContent>
+        </Show>
+      </Sheet>
     </AppShellContext.Provider>
   );
 };
 
 const ResizeHandle: Component<{
-  panel: ShellPanel;
   value: number;
-  onPointerDown: (panel: ShellPanel, event: PointerEvent) => void;
-  onKeyDown: (panel: ShellPanel, event: KeyboardEvent) => void;
+  onPointerDown: (event: PointerEvent) => void;
+  onKeyDown: (event: KeyboardEvent) => void;
 }> = (props) => {
-  const bounds = () => shellPanelBounds[props.panel];
-  const sideClass = () =>
-    props.panel === 'explorer'
-      ? 'right-[-4px] border-r'
-      : 'left-[-4px] border-l';
+  const bounds = () => shellPanelBounds.explorer;
 
   return (
     <div
       role="separator"
-      aria-label={`Resize ${props.panel} panel`}
+      aria-label="Resize navigation panel"
       aria-orientation="vertical"
       aria-valuemin={bounds().min}
       aria-valuemax={bounds().max}
@@ -519,10 +243,10 @@ const ResizeHandle: Component<{
       tabindex="0"
       class={cn(
         'absolute top-0 z-10 h-full w-2 cursor-col-resize border-transparent outline-none transition-colors hover:border-ring focus-visible:border-ring',
-        sideClass(),
+        'right-[-4px] border-r',
       )}
-      onPointerDown={(event) => props.onPointerDown(props.panel, event)}
-      onKeyDown={(event) => props.onKeyDown(props.panel, event)}
+      onPointerDown={props.onPointerDown}
+      onKeyDown={props.onKeyDown}
     />
   );
 };

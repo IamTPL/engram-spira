@@ -282,7 +282,7 @@ export function SelectTrigger(props: SelectTriggerProps) {
   return (
     <SelectPrimitive.Trigger
       class={cn(
-        'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+        'flex h-10 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-xs transition-[background-color,border-color,box-shadow,transform] duration-150 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 active:translate-y-px disabled:cursor-not-allowed disabled:translate-y-0 disabled:bg-muted/60 disabled:text-muted-foreground disabled:opacity-70 [&>span]:line-clamp-1',
         local.class,
       )}
       {...others}
@@ -333,7 +333,7 @@ export function SelectContent(props: SelectContentProps) {
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           class={cn(
-            'z-50 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-scale-in',
+            'z-50 min-w-40 overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl motion-safe:animate-scale-in',
             local.class,
           )}
           {...others}
@@ -391,7 +391,7 @@ export function SelectItem(props: SelectItemProps) {
         <SelectPrimitive.Item
           item={item()}
           class={cn(
-            'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+            'relative flex min-h-9 w-full cursor-default select-none items-center rounded-md py-2 pl-2.5 pr-8 text-sm outline-none transition-colors duration-150 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
             getSelectOptionClass(getItemRawValue(item())),
             local.class,
           )}
@@ -427,7 +427,10 @@ export function SelectLabel(props: SelectLabelProps) {
       render: () => (
         <li
           role="presentation"
-          class={cn('px-2 py-1.5 text-sm font-semibold', local.class)}
+          class={cn(
+            'px-2.5 py-1.5 text-xs font-semibold text-muted-foreground',
+            local.class,
+          )}
           {...others}
         >
           {local.children}
@@ -444,7 +447,10 @@ export function SelectLabel(props: SelectLabelProps) {
       fallback={null}
     >
       <SelectPrimitive.Label
-        class={cn('px-2 py-1.5 text-sm font-semibold', local.class)}
+        class={cn(
+          'px-2.5 py-1.5 text-xs font-semibold text-muted-foreground',
+          local.class,
+        )}
         {...others}
       >
         {local.children}
@@ -470,7 +476,7 @@ export function SelectSeparator(props: SelectSeparatorProps) {
         <li role="presentation">
           <div
             role="separator"
-            class={cn('-mx-1 my-1 h-px bg-muted', local.class)}
+            class={cn('-mx-1 my-1 h-px bg-border', local.class)}
             {...others}
           />
         </li>
@@ -487,7 +493,7 @@ export function SelectSeparator(props: SelectSeparatorProps) {
     >
       <div
         role="separator"
-        class={cn('-mx-1 my-1 h-px bg-muted', local.class)}
+        class={cn('-mx-1 my-1 h-px bg-border', local.class)}
         {...others}
       />
     </Show>
