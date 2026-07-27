@@ -104,7 +104,7 @@ export const TaskRail: Component<TaskRailProps> = (props) => {
         <img
           src="/logo-engram.webp"
           alt=""
-          class="h-7 w-auto"
+          class="h-7 w-auto rounded-sm"
           aria-hidden="true"
         />
       </button>

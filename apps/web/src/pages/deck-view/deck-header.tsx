@@ -218,7 +218,7 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
                   size="sm"
                   onClick={() => props.setShowAiModal(true)}
                   disabled={props.showAiModal()}
-                  class="text-learning hover:bg-learning-surface hover:text-learning"
+                  class="text-info hover:bg-info-surface hover:text-info"
                 >
                   <Sparkles class="h-4 w-4" />
                   Generate with AI
@@ -271,8 +271,9 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
                     <DropdownMenuItem
                       onSelect={() => props.setShowAiModal(true)}
                       disabled={props.showAiModal()}
+                      class="text-info focus:bg-info-surface focus:text-info"
                     >
-                      <Sparkles class="h-4 w-4 text-learning" />
+                      <Sparkles class="h-4 w-4" />
                       Generate with AI
                     </DropdownMenuItem>
                     <DropdownMenuItem

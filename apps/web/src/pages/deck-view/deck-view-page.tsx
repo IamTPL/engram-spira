@@ -673,17 +673,17 @@ const DeckViewPage: Component = () => {
           {/* ── Pending AI job resume banner ── */}
           <Show when={pendingJob() && !pendingJobDismissed() && !showAiModal()}>
             <section
-              class="flex flex-col gap-3 rounded-lg border border-learning/25 bg-learning-surface px-4 py-3 text-sm motion-safe:animate-fade-in sm:flex-row sm:items-center"
+              class="flex flex-col gap-3 rounded-lg border border-border bg-muted/70 px-4 py-3 text-sm motion-safe:animate-fade-in sm:flex-row sm:items-center"
               aria-label="AI generation status"
               aria-live="polite"
             >
               <Show
                 when={pendingJob()!.status === 'processing'}
                 fallback={
-                  <Sparkles class="h-4 w-4 shrink-0 text-learning" />
+                  <Sparkles class="h-4 w-4 shrink-0 text-primary" />
                 }
               >
-                <Loader2 class="h-4 w-4 shrink-0 text-learning motion-safe:animate-spin" />
+                <Loader2 class="h-4 w-4 shrink-0 text-primary motion-safe:animate-spin" />
               </Show>
               <span class="min-w-0 flex-1 text-foreground">
                 <Show
@@ -701,7 +701,7 @@ const DeckViewPage: Component = () => {
               <Button
                 size="sm"
                 variant="outline"
-                class="h-8 shrink-0 border-learning/35 bg-card px-3 text-xs text-learning hover:bg-learning-surface"
+                class="h-8 shrink-0 border-border bg-card px-3 text-xs text-foreground hover:bg-accent hover:text-accent-foreground"
                 onClick={handleResumeJob}
               >
                 <Show

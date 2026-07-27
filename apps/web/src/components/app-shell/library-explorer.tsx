@@ -2,6 +2,7 @@ import {
   type Component,
   For,
   Show,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -11,12 +12,15 @@ import { useLocation, useNavigate } from '@solidjs/router';
 import { createQuery } from '@tanstack/solid-query';
 import {
   BookOpenCheck,
+  Check,
   ChevronDown,
   ChevronRight,
   Folder,
+  FolderPlus,
   Home,
   Layers,
   Library,
+  Loader2,
   LogOut,
   PanelLeft,
   Plus,
@@ -25,7 +29,9 @@ import {
   Settings,
   Sparkles,
   Target,
+  X,
 } from 'lucide-solid';
+import { api, getApiError } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,8 +46,10 @@ import {
   experienceQueryKeys,
   getLibraryExplorer,
 } from '@/lib/experience-api';
+import { queryClient } from '@/lib/query-client';
 import { currentUser, logout } from '@/stores/auth.store';
 import { openSearch } from '@/stores/search.store';
+import { toast } from '@/stores/toast.store';
 import { cn } from '@/lib/utils';
 import { useRegisterActionContext } from './app-shell-context';
 import {
@@ -60,6 +68,10 @@ type RouteSelection = {
   folderId?: string;
   deckId?: string;
 };
+
+type CreateTarget =
+  | { type: 'library' }
+  | { type: 'folder'; classId: string };
 
 function routeSelection(pathname: string): RouteSelection {
   const deckMatch = pathname.match(/^\/deck\/([^/?#]+)/);
@@ -82,6 +94,11 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
   >({});
   const [selected, setSelected] = createSignal<RouteSelection>({});
   const [initialized, setInitialized] = createSignal(false);
+  const [createTarget, setCreateTarget] = createSignal<CreateTarget | null>(
+    null,
+  );
+  const [createName, setCreateName] = createSignal('');
+  const [createPending, setCreatePending] = createSignal(false);
 
   const explorerQuery = createQuery(() => ({
     queryKey: experienceQueryKeys.libraryExplorer(),
@@ -96,6 +113,10 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
   const selectedContext = createMemo(() =>
     findLibrarySelectionContext(classes(), selected()),
   );
+  const creatingFolderClassId = () => {
+    const target = createTarget();
+    return target?.type === 'folder' ? target.classId : null;
+  };
 
   useRegisterActionContext(selectedContext, [
     'selectedClassId',
@@ -154,9 +175,89 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
     openSearch();
   };
 
-  const openCreate = () => {
-    props.onNavigate?.();
-    openSearch();
+  const openLibraryCreate = () => {
+    batch(() => {
+      setCreateTarget({ type: 'library' });
+      setCreateName('');
+    });
+  };
+
+  const openFolderCreate = (cls: LibraryClass) => {
+    batch(() => {
+      setSelected({ classId: cls.id });
+      setExpandedClasses((current) => ({
+        ...current,
+        [cls.id]: true,
+      }));
+    setCreateTarget({
+      type: 'folder',
+      classId: cls.id,
+    });
+      setCreateName('');
+    });
+  };
+
+  const cancelCreate = () => {
+    if (createPending()) return;
+    batch(() => {
+      setCreateTarget(null);
+      setCreateName('');
+    });
+  };
+
+  const submitCreate = async (event: Event) => {
+    event.preventDefault();
+    const target = createTarget();
+    const name = createName().trim();
+    if (!target || !name || createPending()) return;
+
+    setCreatePending(true);
+    try {
+      if (target.type === 'library') {
+        const { error } = await api.classes.post({ name });
+        if (error) {
+          throw new Error(getApiError(error) || 'Failed to create library');
+        }
+      } else {
+        const { error } = await api.folders['by-class']({
+          classId: target.classId,
+        }).post({ name });
+        if (error) {
+          throw new Error(getApiError(error) || 'Failed to create folder');
+        }
+        setExpandedClasses((current) => ({
+          ...current,
+          [target.classId]: true,
+        }));
+      }
+
+      batch(() => {
+        setCreateTarget(null);
+        setCreateName('');
+      });
+
+      await Promise.allSettled([
+        queryClient.invalidateQueries({
+          queryKey: experienceQueryKeys.libraryExplorer(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: experienceQueryKeys.commandCenter(),
+        }),
+      ]);
+      toast.success(
+        target.type === 'library' ? 'Library created' : 'Folder created',
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : target.type === 'library'
+            ? 'Failed to create library'
+            : 'Failed to create folder',
+      );
+    } finally {
+      setCreatePending(false);
+    }
   };
 
   const openFocus = () => {
@@ -177,7 +278,7 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
           class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
           onClick={() => navigateTo('/')}
         >
-          <img src="/logo-engram.webp" alt="" class="h-7 w-auto" />
+          <img src="/logo-engram.webp" alt="" class="h-7 w-auto rounded-sm" />
           <span class="truncate text-sm font-semibold">Engram Spira</span>
         </button>
         <Button
@@ -264,7 +365,8 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
           variant="outline"
           size="sm"
           class="h-8 gap-1.5"
-          onClick={openCreate}
+          aria-label="Create library"
+          onClick={openLibraryCreate}
         >
           <Plus class="h-3.5 w-3.5" />
           Create
@@ -272,11 +374,24 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto p-3">
+        <Show when={createTarget()?.type === 'library'}>
+          <InlineCreateForm
+            id="new-library-name"
+            label="New library"
+            placeholder="Library name"
+            value={createName()}
+            pending={createPending()}
+            onInput={setCreateName}
+            onCancel={cancelCreate}
+            onSubmit={submitCreate}
+          />
+        </Show>
+
         <Show when={!explorerQuery.isLoading} fallback={<ExplorerSkeleton />}>
           <Show when={!explorerQuery.isError} fallback={<ExplorerError onRetry={() => explorerQuery.refetch()} />}>
             <Show
               when={classes().length > 0}
-              fallback={<ExplorerEmpty onAction={openCreate} />}
+              fallback={<ExplorerEmpty />}
             >
               <div class="space-y-1">
                 <For each={classes()}>
@@ -312,6 +427,13 @@ export const LibraryExplorer: Component<LibraryExplorerProps> = (props) => {
                         setSelected({ deckId });
                         navigateTo(`/deck/${deckId}`);
                       }}
+                      onCreateFolder={() => openFolderCreate(cls)}
+                      createFolderOpen={creatingFolderClassId() === cls.id}
+                      createName={createName()}
+                      createPending={createPending()}
+                      onCreateNameInput={setCreateName}
+                      onCreateCancel={cancelCreate}
+                      onCreateSubmit={submitCreate}
                     />
                   )}
                 </For>
@@ -338,29 +460,65 @@ const ClassNode: Component<{
   onFolderClick: (folderId: string) => void;
   onFolderToggle: (folderId: string) => void;
   onDeckClick: (deckId: string) => void;
+  onCreateFolder: () => void;
+  createFolderOpen: boolean;
+  createName: string;
+  createPending: boolean;
+  onCreateNameInput: (value: string) => void;
+  onCreateCancel: () => void;
+  onCreateSubmit: (event: Event) => void;
 }> = (props) => (
-  <div>
-    <button
-      type="button"
+  <div class="group/library">
+    <div
       class={cn(
-        'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent',
+        'flex w-full items-center rounded-md text-sm hover:bg-accent',
         props.selected && 'bg-accent text-foreground',
       )}
-      onClick={props.onToggle}
     >
-      <Show
-        when={props.expanded}
-        fallback={<ChevronRight class="h-3.5 w-3.5 text-muted-foreground" />}
+      <button
+        type="button"
+        class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left"
+        onClick={props.onToggle}
       >
-        <ChevronDown class="h-3.5 w-3.5 text-muted-foreground" />
-      </Show>
-      <Layers class="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span class="min-w-0 flex-1 truncate font-medium">{props.cls.name}</span>
-      <CountPill count={props.cls.dueCount} tone="due" />
-    </button>
+        <Show
+          when={props.expanded}
+          fallback={<ChevronRight class="h-3.5 w-3.5 text-muted-foreground" />}
+        >
+          <ChevronDown class="h-3.5 w-3.5 text-muted-foreground" />
+        </Show>
+        <Layers class="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span class="min-w-0 flex-1 truncate font-medium">{props.cls.name}</span>
+        <CountPill count={props.cls.dueCount} tone="due" />
+      </button>
+      <button
+        type="button"
+        class="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-[color,background-color,opacity,transform] hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 active:translate-y-px"
+        aria-label={`Create folder in ${props.cls.name}`}
+        title={`Create folder in ${props.cls.name}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          props.onCreateFolder();
+        }}
+      >
+        <FolderPlus class="h-3.5 w-3.5" />
+      </button>
+    </div>
 
     <Show when={props.expanded}>
       <div class="ml-4 mt-1 space-y-1 border-l pl-2">
+        <Show when={props.createFolderOpen}>
+          <InlineCreateForm
+            id={`new-folder-name-${props.cls.id}`}
+            label={`New folder in ${props.cls.name}`}
+            placeholder="Folder name"
+            value={props.createName}
+            pending={props.createPending}
+            onInput={props.onCreateNameInput}
+            onCancel={props.onCreateCancel}
+            onSubmit={props.onCreateSubmit}
+          />
+        </Show>
+
         <For each={props.cls.folders}>
           {(folder) => (
             <div>
@@ -436,6 +594,77 @@ const ClassNode: Component<{
   </div>
 );
 
+const InlineCreateForm: Component<{
+  id: string;
+  label: string;
+  placeholder: string;
+  value: string;
+  pending: boolean;
+  onInput: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: (event: Event) => void;
+}> = (props) => (
+  <form
+    class="mb-2 rounded-md border bg-muted/30 p-2"
+    onSubmit={props.onSubmit}
+  >
+    <label
+      for={props.id}
+      class="mb-1.5 block truncate text-[11px] font-medium text-muted-foreground"
+      title={props.label}
+    >
+      {props.label}
+    </label>
+    <div class="flex items-center gap-1.5">
+      <input
+        id={props.id}
+        type="text"
+        maxlength={255}
+        required
+        autofocus
+        class="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/25"
+        placeholder={props.placeholder}
+        value={props.value}
+        disabled={props.pending}
+        onInput={(event) => props.onInput(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            props.onCancel();
+          }
+        }}
+      />
+      <Button
+        type="submit"
+        variant="outline"
+        size="icon"
+        class="h-8 w-8"
+        aria-label={`Create ${props.label.toLowerCase()}`}
+        aria-busy={props.pending}
+        disabled={!props.value.trim() || props.pending}
+      >
+        <Show
+          when={!props.pending}
+          fallback={<Loader2 class="h-3.5 w-3.5 motion-safe:animate-spin" />}
+        >
+          <Check class="h-3.5 w-3.5" />
+        </Show>
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        class="h-8 w-8 text-muted-foreground"
+        aria-label="Cancel create"
+        disabled={props.pending}
+        onClick={props.onCancel}
+      >
+        <X class="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  </form>
+);
+
 const ExplorerNavItem: Component<{
   label: string;
   icon: Component<{ class?: string }>;
@@ -490,18 +719,13 @@ const ExplorerError: Component<{ onRetry: () => void }> = (props) => (
   </div>
 );
 
-const ExplorerEmpty: Component<{ onAction: () => void }> = (props) => (
+const ExplorerEmpty: Component = () => (
   <div class="rounded-md border border-dashed p-4 text-center">
     <Sparkles class="mx-auto h-8 w-8 text-muted-foreground/60" />
-    <p class="mt-3 text-sm font-medium text-foreground">No library items</p>
-    <div class="mt-4 grid gap-2">
-      <Button variant="outline" size="sm" onClick={props.onAction}>
-        Create deck
-      </Button>
-      <Button variant="ghost" size="sm" onClick={props.onAction}>
-        Import CSV
-      </Button>
-    </div>
+    <p class="mt-3 text-sm font-medium text-foreground">No libraries yet</p>
+    <p class="mt-1 text-xs text-muted-foreground">
+      Use Create above to add your first library.
+    </p>
   </div>
 );
 

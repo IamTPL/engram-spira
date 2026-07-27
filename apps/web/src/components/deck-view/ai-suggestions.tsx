@@ -112,7 +112,7 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
     >
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div class="flex items-start gap-2.5">
-          <Sparkles class="mt-0.5 h-4 w-4 shrink-0 text-learning" />
+          <Sparkles class="mt-0.5 h-4 w-4 shrink-0 text-info" />
           <div>
             <h3
               id="relationship-suggestions-title"
@@ -133,17 +133,17 @@ const AiSuggestions: Component<AiSuggestionsProps> = (props) => {
           class="w-full text-xs sm:w-auto"
         >
           <Show when={!detecting()}>
-            <Sparkles class="h-3.5 w-3.5 text-learning" />
+            <Sparkles class="h-3.5 w-3.5 text-info" />
           </Show>
           {detected() ? 'Detect again' : 'Detect links'}
         </Button>
       </div>
 
       <Show when={suggestions().length > 0}>
-        <div class="mt-4 rounded-md border border-learning/25 bg-learning-surface p-3 motion-safe:animate-fade-in">
+        <div class="mt-4 rounded-md border border-info/25 bg-info-surface p-3 motion-safe:animate-fade-in">
           <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-2">
-              <Link2 class="h-4 w-4 text-learning" />
+              <Link2 class="h-4 w-4 text-info" />
               <span class="text-sm font-semibold text-foreground">
                 {suggestions().length} suggested relationship
                 {suggestions().length !== 1 ? 's' : ''}

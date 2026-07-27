@@ -13,6 +13,7 @@ import { createQuery } from '@tanstack/solid-query';
 import { Portal } from 'solid-js/web';
 import { api, getApiError } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Command,
   CommandEmpty,
@@ -22,8 +23,16 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAppShell } from '@/components/app-shell/app-shell-context';
+import { commandActionRunner } from '@/lib/command-actions';
 import { createDebouncedSignal } from '@/lib/create-debounced-signal';
+import {
+  experienceQueryKeys,
+  getLibraryExplorer,
+} from '@/lib/experience-api';
+import { queryClient } from '@/lib/query-client';
 import { closeSearch, openSearch, searchOpen } from '@/stores/search.store';
+import { toast } from '@/stores/toast.store';
 import type {
   CommandActionRef,
   CommandResult,
@@ -35,6 +44,8 @@ import {
   Command as CommandIcon,
   FileText,
   FolderOpen,
+  ChevronLeft,
+  FolderPlus,
   Layers,
   Library,
   Settings,
@@ -72,7 +83,14 @@ const GlobalSearch: Component = () => {
     180,
   );
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [folderDraft, setFolderDraft] = createSignal<{
+    classId: string;
+    name: string;
+  } | null>(null);
+  const [submittingFolder, setSubmittingFolder] = createSignal(false);
+  const shell = useAppShell();
   let inputRef: HTMLInputElement | undefined;
+  let folderNameRef: HTMLInputElement | undefined;
 
   const commandQuery = createQuery(() => ({
     queryKey: ['command-search', debouncedQuery(), location.pathname],
@@ -120,8 +138,74 @@ const GlobalSearch: Component = () => {
     } else {
       setQuery('');
       setSelectedIndex(0);
+      setFolderDraft(null);
     }
   });
+
+  // Reuses the explorer cache the sidebar already fills — no extra request.
+  const explorerQuery = createQuery(() => ({
+    queryKey: experienceQueryKeys.libraryExplorer(),
+    queryFn: getLibraryExplorer,
+    enabled: !!folderDraft(),
+    staleTime: 60_000,
+  }));
+
+  const classOptions = () => explorerQuery.data?.data.classes ?? [];
+
+  /** Explicit pick wins, then the sidebar selection, then the first class. */
+  const draftClassId = () => {
+    const draft = folderDraft();
+    if (!draft) return '';
+    return (
+      draft.classId ||
+      shell.actionContext().selectedClassId ||
+      classOptions()[0]?.id ||
+      ''
+    );
+  };
+
+  const openFolderDraft = () => {
+    setFolderDraft({ classId: '', name: '' });
+    setTimeout(() => folderNameRef?.focus(), 40);
+  };
+
+  const submitFolderDraft = async (event: Event) => {
+    event.preventDefault();
+    const draft = folderDraft();
+    if (!draft || submittingFolder()) return;
+
+    const classId = draftClassId();
+    if (!classId) {
+      toast.error('Pick a library first');
+      return;
+    }
+
+    setSubmittingFolder(true);
+    const result = await commandActionRunner.run(
+      {
+        id: 'folder.create',
+        label: 'Create folder',
+        params: { classId, name: draft.name },
+      },
+      shell.actionContext(),
+    );
+    setSubmittingFolder(false);
+
+    if (result.status !== 'success') {
+      toast.error(
+        result.status === 'error' ? result.message : 'Could not create folder',
+      );
+      return;
+    }
+
+    for (const key of result.invalidate ?? []) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+    setFolderDraft(null);
+    closeSearch();
+    toast.success(result.message ?? 'Folder created');
+    if (result.navigateTo) navigate(result.navigateTo);
+  };
 
   const runAction = (action: CommandActionRef | null) => {
     const deckId = currentDeckId(location.pathname);
@@ -147,6 +231,11 @@ const GlobalSearch: Component = () => {
 
   const handleSelect = (result: FlattenedResult) => {
     if (result.disabledReason) return;
+    // Stays inside the palette: the folder needs a name and a target class.
+    if (result.action?.id === 'create-folder') {
+      openFolderDraft();
+      return;
+    }
     closeSearch();
     if (result.href) {
       navigate(result.href);
@@ -166,9 +255,17 @@ const GlobalSearch: Component = () => {
 
     if (event.key === 'Escape') {
       event.preventDefault();
-      closeSearch();
+      if (folderDraft()) {
+        setFolderDraft(null);
+        setTimeout(() => inputRef?.focus(), 40);
+      } else {
+        closeSearch();
+      }
       return;
     }
+
+    // The draft form owns arrow keys and Enter while it is open.
+    if (folderDraft()) return;
 
     const items = enabledResults();
     if (items.length === 0) return;
@@ -224,7 +321,113 @@ const GlobalSearch: Component = () => {
               </div>
 
               <CommandList class="max-h-none flex-1 md:max-h-[460px]">
-                <Show when={isLoading()}>
+                <Show when={folderDraft()}>
+                  {(draft) => (
+                    <form
+                      class="space-y-4 p-4"
+                      onSubmit={submitFolderDraft}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === 'Enter' ||
+                          event.key === 'ArrowUp' ||
+                          event.key === 'ArrowDown'
+                        ) {
+                          event.stopPropagation();
+                        }
+                      }}
+                    >
+                      <div class="flex items-center gap-2">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                          <FolderPlus class="h-4 w-4" />
+                        </span>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-sm font-medium">Create folder</p>
+                          <p class="text-xs text-muted-foreground">
+                            Adds a folder inside the selected library.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div class="space-y-1.5">
+                        <label
+                          for="command-folder-class"
+                          class="text-xs font-medium text-muted-foreground"
+                        >
+                          Library
+                        </label>
+                        <select
+                          id="command-folder-class"
+                          class="h-9 w-full rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          value={draftClassId()}
+                          disabled={classOptions().length === 0}
+                          onChange={(event) =>
+                            setFolderDraft({
+                              ...draft(),
+                              classId: event.currentTarget.value,
+                            })
+                          }
+                        >
+                          <For each={classOptions()}>
+                            {(option) => (
+                              <option value={option.id}>{option.name}</option>
+                            )}
+                          </For>
+                        </select>
+                      </div>
+
+                      <div class="space-y-1.5">
+                        <label
+                          for="command-folder-name"
+                          class="text-xs font-medium text-muted-foreground"
+                        >
+                          Folder name
+                        </label>
+                        <input
+                          id="command-folder-name"
+                          ref={folderNameRef}
+                          class="h-9 w-full rounded-md border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          placeholder="Family"
+                          value={draft().name}
+                          onInput={(event) =>
+                            setFolderDraft({
+                              ...draft(),
+                              name: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div class="flex items-center justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          class="gap-1.5"
+                          onClick={() => {
+                            setFolderDraft(null);
+                            setTimeout(() => inputRef?.focus(), 40);
+                          }}
+                        >
+                          <ChevronLeft class="h-3.5 w-3.5" />
+                          Back
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          disabled={
+                            submittingFolder() ||
+                            draft().name.trim().length === 0 ||
+                            !draftClassId()
+                          }
+                        >
+                          {submittingFolder() ? 'Creating…' : 'Create folder'}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </Show>
+
+                <Show when={!folderDraft() && isLoading()}>
                   <div class="space-y-2 p-3">
                     <For each={[1, 2, 3, 4]}>
                       {() => <Skeleton shape="text" height="44px" />}
@@ -232,7 +435,7 @@ const GlobalSearch: Component = () => {
                   </div>
                 </Show>
 
-                <Show when={!isLoading() && !hasQuery()}>
+                <Show when={!folderDraft() && !isLoading() && !hasQuery()}>
                   <div class="px-5 py-8 text-center">
                     <CommandIcon class="mx-auto h-8 w-8 text-muted-foreground/50" />
                     <p class="mt-3 text-sm font-medium">Command center</p>
@@ -243,12 +446,19 @@ const GlobalSearch: Component = () => {
                 </Show>
 
                 <Show
-                  when={!isLoading() && hasQuery() && flattened().length === 0}
+                  when={
+                    !folderDraft() &&
+                    !isLoading() &&
+                    hasQuery() &&
+                    flattened().length === 0
+                  }
                 >
                   <CommandEmpty>No matching commands.</CommandEmpty>
                 </Show>
 
-                <Show when={!isLoading() && flattened().length > 0}>
+                <Show
+                  when={!folderDraft() && !isLoading() && flattened().length > 0}
+                >
                   <For each={groups().filter((group) => group.results.length > 0)}>
                     {(group) => (
                       <CommandGroup heading={group.label}>

@@ -730,8 +730,8 @@ const DashboardPage: Component = () => {
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Show when={pendingSuggestions()}>
                 {(suggestions) => (
-                  <div class="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-                    <Sparkles class="h-4 w-4 text-muted-foreground" />
+                  <div class="flex items-center gap-3 rounded-lg border border-info/25 bg-info-surface px-4 py-3 text-sm">
+                    <Sparkles class="h-4 w-4 text-info" />
                     <span>
                       {suggestions().duplicates} duplicates and{' '}
                       {suggestions().aiSuggestions} AI suggestions queued.

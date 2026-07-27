@@ -69,7 +69,7 @@ const RelatedCardsPanel: Component<RelatedCardsPanelProps> = (props) => {
                   <div class="shrink-0">
                     <Show
                       when={card.source === 'link'}
-                      fallback={<Sparkles class="h-3.5 w-3.5 text-palette-5" />}
+                      fallback={<Sparkles class="h-3.5 w-3.5 text-info" />}
                     >
                       <Link2 class="h-3.5 w-3.5 text-muted-foreground" />
                     </Show>

@@ -233,6 +233,11 @@ const defaultActions: SearchableAction[] = [
     keywords: ['new', 'library'],
   },
   {
+    id: 'create-folder',
+    label: 'Create folder',
+    keywords: ['new', 'library', 'class', 'organize'],
+  },
+  {
     id: 'start-study',
     label: 'Start study',
     keywords: ['review', 'queue'],

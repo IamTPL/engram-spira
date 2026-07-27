@@ -21,7 +21,7 @@ const AuthFrame: Component<AuthFrameProps> = (props) => {
               src="/logo-engram.webp"
               alt=""
               aria-hidden="true"
-              class="h-7 w-auto"
+              class="h-7 w-auto rounded-sm"
             />
           </span>
           <span class="text-base font-semibold tracking-tight">Engram Spira</span>
@@ -53,7 +53,7 @@ const AuthFrame: Component<AuthFrameProps> = (props) => {
                 src="/logo-engram.webp"
                 alt=""
                 aria-hidden="true"
-                class="h-6 w-auto"
+                class="h-6 w-auto rounded-sm"
               />
             </span>
             <span class="text-sm font-semibold tracking-tight">Engram Spira</span>

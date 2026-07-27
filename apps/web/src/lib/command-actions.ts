@@ -37,6 +37,7 @@ const commandActionOrder = [
   'navigate.create',
   'navigate.insights',
   'study.startQueue',
+  'folder.create',
   'deck.create',
   'deck.delete.confirm',
   'deck.delete',
@@ -190,6 +191,10 @@ const invalidates = {
     'library-explorer',
     'command-center',
   ] satisfies QueryInvalidationKey[],
+  folderMutation: [
+    'library-explorer',
+    'command-center',
+  ] satisfies QueryInvalidationKey[],
 };
 
 const definitions: Record<string, ActionImplementation<any>> = {
@@ -258,6 +263,32 @@ const definitions: Record<string, ActionImplementation<any>> = {
         navigateTo: studyRoute(params),
         invalidate: invalidates.studyQueue,
       }),
+  },
+
+  'folder.create': {
+    id: 'folder.create',
+    label: 'Create folder',
+    keywords: ['folder', 'create', 'new', 'library', 'class'],
+    requiredParams: ['classId', 'name'],
+    validateParams: (params, context) => {
+      const classId = optionalString(params.classId) ?? context.selectedClassId;
+      if (!classId) return validationError('classId');
+      const name = requireString(params, 'name');
+      if (isActionResult(name)) return name;
+      return { classId, name };
+    },
+    run: async (params, _context, runtime) => {
+      const folder = await unwrapActionResponse<{ id?: string }>(
+        await runtime.client.folders['by-class']({
+          classId: params.classId,
+        }).post({ name: params.name }),
+      );
+      return success({
+        message: 'Folder created',
+        navigateTo: folder?.id ? `/folder/${folder.id}` : undefined,
+        invalidate: invalidates.folderMutation,
+      });
+    },
   },
 
   'deck.create': {

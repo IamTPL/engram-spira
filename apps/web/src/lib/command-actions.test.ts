@@ -19,6 +19,7 @@ describe('command actions', () => {
       'navigate.create',
       'navigate.insights',
       'study.startQueue',
+      'folder.create',
       'deck.create',
       'deck.delete.confirm',
       'deck.delete',
@@ -102,6 +103,83 @@ describe('command actions', () => {
         body: { name: 'Biology', cardTemplateId: 'template-1' },
       },
     ]);
+  });
+
+  test('creates a folder in the class carried by the action params', async () => {
+    const calls: unknown[] = [];
+    const client = {
+      folders: {
+        'by-class': ({ classId }: { classId: string }) => ({
+          post: async (body: unknown) => {
+            calls.push({ classId, body });
+            return { data: { id: 'folder-1' }, error: null };
+          },
+        }),
+      },
+    };
+    const runner = createCommandActionRunner({ client: client as any });
+
+    await expect(
+      runner.run(
+        {
+          id: 'folder.create',
+          label: 'Create folder',
+          params: { classId: 'class-1', name: ' Family ' },
+        },
+        context,
+      ),
+    ).resolves.toEqual({
+      status: 'success',
+      message: 'Folder created',
+      navigateTo: '/folder/folder-1',
+      invalidate: ['library-explorer', 'command-center'],
+    });
+    expect(calls).toEqual([
+      { classId: 'class-1', body: { name: 'Family' } },
+    ]);
+  });
+
+  test('falls back to the selected class when folder.create omits classId', async () => {
+    const calls: unknown[] = [];
+    const client = {
+      folders: {
+        'by-class': ({ classId }: { classId: string }) => ({
+          post: async (body: unknown) => {
+            calls.push({ classId, body });
+            return { data: { id: 'folder-2' }, error: null };
+          },
+        }),
+      },
+    };
+    const runner = createCommandActionRunner({ client: client as any });
+
+    await expect(
+      runner.run(
+        { id: 'folder.create', label: 'Create folder', params: { name: 'Family' } },
+        { ...context, selectedClassId: 'class-9' },
+      ),
+    ).resolves.toEqual({
+      status: 'success',
+      message: 'Folder created',
+      navigateTo: '/folder/folder-2',
+      invalidate: ['library-explorer', 'command-center'],
+    });
+    expect(calls).toEqual([{ classId: 'class-9', body: { name: 'Family' } }]);
+  });
+
+  test('rejects folder.create without a resolvable class', async () => {
+    const runner = createCommandActionRunner();
+
+    await expect(
+      runner.run(
+        { id: 'folder.create', label: 'Create folder', params: { name: 'Family' } },
+        context,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      message: 'classId is required',
+      fieldErrors: { classId: 'Required' },
+    });
   });
 
   test('returns validation errors before running invalid actions', async () => {
