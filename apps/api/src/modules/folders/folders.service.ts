@@ -84,6 +84,22 @@ export async function remove(id: string, userId: string) {
   await db.delete(folders).where(eq(folders.id, id));
 }
 
+/**
+ * Move a folder to a different class (must belong to the same user).
+ */
+export async function move(id: string, userId: string, classId: string) {
+  await getById(id, userId);
+  await verifyClassOwnership(classId, userId);
+
+  const [updated] = await db
+    .update(folders)
+    .set({ classId })
+    .where(eq(folders.id, id))
+    .returning();
+
+  return updated;
+}
+
 export async function reorder(
   classId: string,
   userId: string,

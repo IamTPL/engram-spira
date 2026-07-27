@@ -36,6 +36,16 @@ export const foldersRoutes = new Elysia({ prefix: '/folders' })
     return { success: true };
   })
   .patch(
+    '/:id/move',
+    ({ currentUser, params, body }) =>
+      foldersService.move(params.id, currentUser.id, body.classId),
+    {
+      body: t.Object({
+        classId: t.String({ format: 'uuid' }),
+      }),
+    },
+  )
+  .patch(
     '/by-class/:classId/reorder',
     ({ currentUser, params, body }) =>
       foldersService.reorder(params.classId, currentUser.id, body.folderIds),

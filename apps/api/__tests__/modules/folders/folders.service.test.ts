@@ -93,6 +93,39 @@ describe('folders.service', () => {
     });
   });
 
+  describe('move', () => {
+    test('moves folder to another owned class', async () => {
+      const folder = createFolder();
+      const targetClass = createClass({ id: 'class-2', name: 'Target Class' });
+      const moved = createFolder({ classId: 'class-2' });
+      setMockReturnSequence([
+        [{ folders: folder }], // getById
+        [targetClass],         // verifyClassOwnership
+        [moved],               // update ... returning
+      ]);
+      const result = await foldersService.move('folder-1', 'user-1', 'class-2');
+      expect(result.classId).toBe('class-2');
+    });
+
+    test('throws NotFoundError for non-owned folder', async () => {
+      setMockReturn([]);
+      await expect(
+        foldersService.move('folder-1', 'wrong-user', 'class-2'),
+      ).rejects.toThrow('Folder not found');
+    });
+
+    test('throws NotFoundError when target class is not owned', async () => {
+      const folder = createFolder();
+      setMockReturnSequence([
+        [{ folders: folder }], // getById succeeds
+        [],                    // verifyClassOwnership finds nothing
+      ]);
+      await expect(
+        foldersService.move('folder-1', 'user-1', 'someone-elses-class'),
+      ).rejects.toThrow('Class not found');
+    });
+  });
+
   describe('reorder', () => {
     test('throws NotFoundError if folder not in class', async () => {
       const cls = createClass();

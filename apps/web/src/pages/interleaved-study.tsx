@@ -7,7 +7,7 @@ import {
   batch,
   Show,
 } from 'solid-js';
-import { useNavigate } from '@solidjs/router';
+import { useNavigate, useSearchParams } from '@solidjs/router';
 import { createQuery, createMutation } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
@@ -22,8 +22,32 @@ import { Button } from '@/components/ui/button';
 import { REVIEW_ACTIONS, KEYBOARD_SHORTCUTS } from '@/constants';
 import { ArrowLeft, CheckCircle, RotateCcw, Shuffle } from 'lucide-solid';
 
+/** `POST /study/interleaved` accepts at most 20 deck ids. */
+const INTERLEAVED_DECK_LIMIT = 20;
+
+type InterleavedSession = {
+  cards: {
+    id: string;
+    fields: {
+      fieldName: string;
+      fieldType: string;
+      side: string;
+      value: unknown;
+      sortOrder: number;
+    }[];
+    progress: unknown;
+  }[];
+  total: number;
+  due: number;
+  deckIds: string[];
+  /** Decks left out because the folder exceeds INTERLEAVED_DECK_LIMIT. */
+  skippedDeckCount: number;
+};
+
 const InterleavedStudyPage: Component = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams<{ folderId?: string }>();
+  const scopedFolderId = () => searchParams.folderId ?? null;
 
   const [currentIndex, setCurrentIndex] = createSignal(0);
   const [isFlipped, setIsFlipped] = createSignal(false);
@@ -41,27 +65,48 @@ const InterleavedStudyPage: Component = () => {
   });
 
   const studyQuery = createQuery(() => ({
-    queryKey: ['interleavedStudy'],
+    queryKey: ['interleavedStudy', scopedFolderId()],
     queryFn: async () => {
-      const { data } = await (api.study as any).interleaved.auto.get({
-        query: { topN: 5, limit: 50 },
+      const folderId = scopedFolderId();
+
+      if (!folderId) {
+        const { data } = await (api.study as any).interleaved.auto.get({
+          query: { topN: 5, limit: 50 },
+        });
+        if (!data) return null;
+        return { ...data, skippedDeckCount: 0 } as InterleavedSession;
+      }
+
+      const { data: folderDecks, error: decksError } = await api.decks[
+        'by-folder'
+      ]({ folderId }).get();
+      if (decksError) throw new Error(getApiError(decksError));
+
+      const allDeckIds = (folderDecks ?? []).map((deck) => deck.id);
+      const deckIds = allDeckIds.slice(0, INTERLEAVED_DECK_LIMIT);
+      if (deckIds.length === 0) {
+        return {
+          cards: [],
+          total: 0,
+          due: 0,
+          deckIds: [],
+          skippedDeckCount: 0,
+        } satisfies InterleavedSession;
+      }
+
+      // The POST variant returns { cards, total, due } only — deckIds are ours.
+      const { data, error } = await (api.study as any).interleaved.post({
+        deckIds,
+        limit: 50,
       });
-      return data as {
-        cards: {
-          id: string;
-          fields: {
-            fieldName: string;
-            fieldType: string;
-            side: string;
-            value: unknown;
-            sortOrder: number;
-          }[];
-          progress: unknown;
-        }[];
-        total: number;
-        due: number;
-        deckIds: string[];
-      } | null;
+      if (error) throw new Error(getApiError(error));
+      if (!data) return null;
+
+      return {
+        ...data,
+        deckIds,
+        skippedDeckCount: allDeckIds.length - deckIds.length,
+      } as InterleavedSession;
     },
   }));
   const studyData = () => studyQuery.data;
@@ -170,9 +215,18 @@ const InterleavedStudyPage: Component = () => {
   return (
     <div class="flex h-full min-h-0 flex-col bg-background">
       <header class="flex shrink-0 items-center justify-between border-b bg-card/70 px-3 py-3 sm:px-5">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            const folderId = scopedFolderId();
+            navigate(folderId ? `/folder/${folderId}` : '/');
+          }}
+        >
           <ArrowLeft class="mr-2 h-4 w-4" />
-          <span class="hidden sm:inline">Dashboard</span>
+          <span class="hidden sm:inline">
+            {scopedFolderId() ? 'Folder' : 'Dashboard'}
+          </span>
         </Button>
         <div class="text-center">
           <div class="flex items-center justify-center gap-1.5">
@@ -186,6 +240,12 @@ const InterleavedStudyPage: Component = () => {
                 ? ` from ${studyData()!.deckIds.length} decks`
                 : ''}
             </p>
+            <Show when={studyData()!.skippedDeckCount > 0}>
+              <p class="mt-0.5 text-xs text-risk">
+                Folder exceeds {INTERLEAVED_DECK_LIMIT} decks — studying the
+                first {INTERLEAVED_DECK_LIMIT}.
+              </p>
+            </Show>
           </Show>
         </div>
         <Button
