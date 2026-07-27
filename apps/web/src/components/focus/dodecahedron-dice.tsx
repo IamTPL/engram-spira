@@ -86,9 +86,6 @@ const CubeDice: Component<Props> = (props) => {
     fallbackRolling = true;
     const selectedFace = Math.floor(Math.random() * getRewards().length);
     setFallbackFace(selectedFace);
-    const reduceMotion = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
 
     fallbackTimer = setTimeout(
       () => {
@@ -96,7 +93,7 @@ const CubeDice: Component<Props> = (props) => {
         props.onRollingChange(false);
         props.onResult(getRewards()[selectedFace]);
       },
-      reduceMotion ? 0 : 1200,
+      1200,
     );
   };
 
@@ -114,9 +111,6 @@ const CubeDice: Component<Props> = (props) => {
       bg: rootStyles.getPropertyValue(tokens.bg).trim(),
       text: rootStyles.getPropertyValue(tokens.text).trim(),
     }));
-    const reduceMotion = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
 
     // ── Scene ──────────────────────────────────────────────
     const scene = new THREE.Scene();
@@ -280,11 +274,6 @@ const CubeDice: Component<Props> = (props) => {
         TARGET_EULERS[selectedFaceIdx],
       );
 
-      if (reduceMotion) {
-        settleNow();
-        return;
-      }
-
       // Random rotation axis and 6 to 10 full random spins
       spinAxis
         .set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
@@ -322,7 +311,7 @@ const CubeDice: Component<Props> = (props) => {
         if (t >= 1.0) {
           settleNow();
         }
-      } else if (!reduceMotion) {
+      } else {
         // Idle hover bobbing is applied to the GROUP, so it doesn't destroy the exact computed quaternion state of the mesh!
         idleTime += 0.01;
         diceGroup.rotation.x = Math.sin(idleTime) * 0.04;
@@ -397,7 +386,7 @@ const CubeDice: Component<Props> = (props) => {
           <span
             class={`flex h-32 w-32 items-center justify-center rounded-2xl border bg-primary text-primary-foreground shadow-lg ${
               props.rolling
-                ? 'animate-dice-fallback-roll will-change-transform motion-reduce:animate-none'
+                ? 'animate-dice-fallback-roll will-change-transform'
                 : ''
             }`}
           >
