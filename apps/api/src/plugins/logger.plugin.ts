@@ -23,9 +23,8 @@ function getClientIp(request: Request): string {
   );
 }
 
-function getPathWithQuery(request: Request): string {
-  const url = new URL(request.url);
-  return `${url.pathname}${url.search}`;
+export function getRequestPath(request: Request): string {
+  return new URL(request.url).pathname;
 }
 
 function toErrorInfo(error: unknown): {
@@ -55,7 +54,7 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
     const requestId =
       request.headers.get('x-request-id') ?? crypto.randomUUID();
     const startedAt = new Date().toISOString();
-    const path = getPathWithQuery(request);
+    const path = getRequestPath(request);
     const clientIp = getClientIp(request);
     logger.info(
       {
@@ -117,7 +116,7 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
           ? Math.round((performance.now() - _startTime) * 100) / 100
           : -1;
       const status = (set.status ?? 500) as number;
-      const path = _requestPath ?? getPathWithQuery(request);
+      const path = _requestPath ?? getRequestPath(request);
       const clientIp = _clientIp ?? getClientIp(request);
       const errorInfo = toErrorInfo(error);
       const logData = {

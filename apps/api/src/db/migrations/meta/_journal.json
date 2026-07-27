@@ -169,6 +169,13 @@
       "when": 1773900000000,
       "tag": "0023_dismissed_suggestions",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785125637081,
+      "tag": "0024_email_verification_outbox",
+      "breakpoints": true
     }
   ]
 }

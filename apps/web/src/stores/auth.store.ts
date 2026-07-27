@@ -81,6 +81,27 @@ export async function register(email: string, password: string) {
   return data;
 }
 
+export async function resendVerificationEmail() {
+  const { data, error } = await api.auth['resend-verification'].post();
+  if (error) {
+    const message = getApiError(error);
+    throw new Error(
+      message === 'An unknown error occurred'
+        ? 'Failed to resend verification email. Please try again.'
+        : message,
+    );
+  }
+  if (!data?.success) {
+    throw new Error('Failed to resend verification email. Please try again.');
+  }
+
+  if (data.alreadyVerified) {
+    await fetchCurrentUser();
+  }
+
+  return data;
+}
+
 export async function logout() {
   await api.auth.logout.post();
   setCurrentUser(null);

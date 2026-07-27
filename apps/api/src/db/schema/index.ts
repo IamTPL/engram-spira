@@ -21,6 +21,10 @@ export {
   passwordResetTokens,
   passwordResetTokensRelations,
 } from './password-reset-tokens';
+export {
+  emailVerificationOutbox,
+  emailVerificationOutboxRelations,
+} from './email-verification-outbox';
 export { reviewLogs, reviewLogsRelations } from './review-logs';
 export {
   aiGenerationJobs,

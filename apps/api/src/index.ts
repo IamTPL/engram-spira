@@ -29,6 +29,7 @@ import {
   recoverOrphanedJobs,
 } from './modules/ai/ai.service';
 import { cleanupOldReviewLogs } from './modules/study/review-logs-cleanup';
+import { startVerificationEmailWorker } from './modules/auth/verification-email-outbox';
 
 const AI_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000; // every hour
 
@@ -208,6 +209,8 @@ logger.info(
 );
 
 // ── Background maintenance ─────────────────────────────────────────────────
+startVerificationEmailWorker();
+
 // 1. Recover orphaned jobs first — any 'processing' row left over from a
 //    previous server crash/restart will never complete. Mark them failed NOW
 //    so the frontend stops polling and surfaces a clear error immediately.

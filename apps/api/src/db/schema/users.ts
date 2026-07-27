@@ -4,6 +4,7 @@ import {
   varchar,
   text,
   boolean,
+  integer,
   timestamp,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
@@ -11,6 +12,7 @@ import { sessions } from './sessions';
 import { classes } from './classes';
 import { cardTemplates } from './card-templates';
 import { studyProgress } from './study-progress';
+import { emailVerificationOutbox } from './email-verification-outbox';
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -26,14 +28,18 @@ export const users = pgTable('users', {
   emailTokenExpiresAt: timestamp('email_token_expires_at', {
     withTimezone: true,
   }),
+  emailVerificationVersion: integer('email_verification_version')
+    .notNull()
+    .default(0),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   sessions: many(sessions),
   classes: many(classes),
   cardTemplates: many(cardTemplates),
   studyProgress: many(studyProgress),
+  emailVerificationOutbox: one(emailVerificationOutbox),
 }));

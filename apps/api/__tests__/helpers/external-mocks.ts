@@ -89,6 +89,7 @@ export function mockEnv(overrides: Record<string, any> = {}) {
       NODE_ENV: 'development',
       FRONTEND_URL: 'http://localhost:3002',
       ALLOWED_ORIGINS: ['http://localhost:3002'],
+      TRUST_PROXY_HOPS: 0,
       SESSION_COOKIE_NAME: 'engram_session',
       SESSION_MAX_AGE_DAYS: 30,
       SESSION_REFRESH_THRESHOLD_DAYS: 15,

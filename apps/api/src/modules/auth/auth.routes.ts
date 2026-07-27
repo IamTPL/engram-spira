@@ -1,8 +1,8 @@
 import Elysia, { t } from 'elysia';
-import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from './auth.middleware';
 import { validateSession } from './session.utils';
 import * as authService from './auth.service';
+import { createAuthRateLimit } from './auth-rate-limit';
 import { ENV } from '../../config/env';
 import { SESSION } from '../../shared/constants';
 import { sendPasswordResetEmail } from '../../shared/email';
@@ -19,27 +19,7 @@ const COOKIE_OPTIONS = {
 };
 
 export const authRoutes = new Elysia({ prefix: '/auth' })
-  .use(
-    rateLimit({
-      scoping: 'scoped',
-      duration: 60 * 1000,
-      max: 5,
-      skip: (req) => !req,
-      generator: async (req, server) => {
-        if (!req) return 'anonymous';
-        return (
-          req.headers.get('x-forwarded-for') ??
-          req.headers.get('x-real-ip') ??
-          server?.requestIP(req)?.address ??
-          'anonymous'
-        );
-      },
-      errorResponse: new Response(
-        JSON.stringify({ error: 'Too many requests, please try again later' }),
-        { status: 429, headers: { 'Content-Type': 'application/json' } },
-      ),
-    }),
-  )
+  .use(createAuthRateLimit())
   .post(
     '/register',
     async ({ body, cookie }) => {

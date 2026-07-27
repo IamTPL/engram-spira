@@ -22,6 +22,7 @@ function createChainMock(returnValue: any[] = []) {
     leftJoin: mock(() => chain),
     groupBy: mock(() => chain),
     orderBy: mock(() => chain),
+    for: mock(() => chain),
     limit: mock(() => Promise.resolve(chain._returnValue)),
     insert: mock(() => chain),
     values: mock(() => chain),

@@ -10,6 +10,7 @@ import { createQuery, createMutation } from '@tanstack/solid-query';
 import { queryClient } from '@/lib/query-client';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -19,7 +20,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { currentUser, updateProfile } from '@/stores/auth.store';
+import {
+  currentUser,
+  resendVerificationEmail,
+  updateProfile,
+} from '@/stores/auth.store';
 import {
   theme,
   setTheme,
@@ -151,6 +156,33 @@ const SettingsPage: Component = () => {
   const [newPw, setNewPw] = createSignal('');
   const [confirmPw, setConfirmPw] = createSignal('');
   const [pwSaving, setPwSaving] = createSignal(false);
+  const [isResendingVerification, setIsResendingVerification] =
+    createSignal(false);
+
+  const handleResendVerification = async () => {
+    if (isResendingVerification()) return;
+
+    setIsResendingVerification(true);
+    try {
+      const result = await resendVerificationEmail();
+      if (result.alreadyVerified) {
+        toast.info('Your email is already verified.');
+        return;
+      }
+
+      toast.success(
+        'Verification request is being processed. Check your Inbox or Spam folder shortly.',
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : 'Failed to resend verification email. Please try again.',
+      );
+    } finally {
+      setIsResendingVerification(false);
+    }
+  };
 
   const handleChangePassword = async () => {
     if (newPw().length < 8) {
@@ -413,7 +445,7 @@ const SettingsPage: Component = () => {
           </div>
         </section>
 
-        {/* ── Account Section (read-only info) ── */}
+        {/* ── Account Section ── */}
         <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
           <div class="space-y-1">
             <div class="flex items-center gap-2">
@@ -425,13 +457,35 @@ const SettingsPage: Component = () => {
             </p>
           </div>
           <div class="overflow-hidden rounded-xl border bg-card shadow-xs">
-            <div class="flex items-center justify-between border-b px-5 py-4 sm:px-6">
-              <div>
+            <div class="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div class="min-w-0">
                 <p class="text-sm font-medium text-foreground">Email</p>
-                <p class="mt-1 text-sm text-muted-foreground">
-                  {currentUser()?.email ?? 'Not available'}
-                </p>
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                  <p class="truncate text-sm text-muted-foreground">
+                    {currentUser()?.email ?? 'Not available'}
+                  </p>
+                  <Show when={currentUser()}>
+                    <Show
+                      when={currentUser()!.emailVerified}
+                      fallback={<Badge variant="warning">Unverified</Badge>}
+                    >
+                      <Badge variant="success">Verified</Badge>
+                    </Show>
+                  </Show>
+                </div>
               </div>
+              <Show when={currentUser()?.emailVerified === false}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="shrink-0 self-start sm:self-auto"
+                  loading={isResendingVerification()}
+                  disabled={isResendingVerification()}
+                  onClick={handleResendVerification}
+                >
+                  Resend verification email
+                </Button>
+              </Show>
             </div>
             <div class="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
               <div>

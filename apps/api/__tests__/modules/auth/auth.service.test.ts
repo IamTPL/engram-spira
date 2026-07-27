@@ -1,10 +1,8 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 
 // ── Mock external deps BEFORE importing the service ────────────────────────
-import { mockArgon2, mockEmailModule, mockLogger } from '../../helpers/external-mocks';
+import { mockArgon2 } from '../../helpers/external-mocks';
 mockArgon2();
-mockEmailModule();
-mockLogger();
 
 // Mock DB
 import { resetMocks, setMockReturn, setMockReturnSequence, mockDbChain } from '../../helpers/db-mock';
@@ -36,15 +34,33 @@ mock.module('@oslojs/crypto/sha2', () => ({
 
 // Mock db/schema
 mock.module('../../../src/db/schema', () => ({
-  users: { id: 'id', email: 'email', passwordHash: 'passwordHash', displayName: 'displayName', avatarUrl: 'avatarUrl', emailVerified: 'emailVerified', emailVerificationToken: 'emailVerificationToken', emailTokenExpiresAt: 'emailTokenExpiresAt' },
+  users: { id: 'id', email: 'email', passwordHash: 'passwordHash', displayName: 'displayName', avatarUrl: 'avatarUrl', emailVerified: 'emailVerified', emailVerificationToken: 'emailVerificationToken', emailTokenExpiresAt: 'emailTokenExpiresAt', emailVerificationVersion: 'emailVerificationVersion' },
   passwordResetTokens: { id: 'id', userId: 'userId', tokenHash: 'tokenHash', expiresAt: 'expiresAt' },
   sessions: { id: 'id', userId: 'userId', expiresAt: 'expiresAt' },
 }));
 
 import { createUser } from '../../helpers/fixtures';
+import { ConflictError } from '../../../src/shared/errors';
 
 // Now import the service under test
 import * as authService from '../../../src/modules/auth/auth.service';
+
+const FIXED_NOW = new Date('2026-07-27T12:00:00.000Z');
+const mockEnqueueVerificationEmail = mock(
+  async (_executor: any, _userId: string, _tokenVersion: number) => ({
+    jobId: 'verification-job-id',
+  }),
+);
+const mockCancelVerificationEmail = mock(
+  async (_executor: any, _userId: string, _tokenVersion: number) => true,
+);
+const mockRequestVerificationEmailProcessing = mock(() => {});
+const verificationQueueDependencies = {
+  enqueue: mockEnqueueVerificationEmail,
+  cancel: mockCancelVerificationEmail,
+  requestProcessing: mockRequestVerificationEmailProcessing,
+  now: () => new Date(FIXED_NOW),
+};
 
 describe('auth.service', () => {
   beforeEach(() => {
@@ -52,6 +68,13 @@ describe('auth.service', () => {
     mockGenerateSessionToken.mockClear();
     mockCreateSession.mockClear();
     mockInvalidateSession.mockClear();
+    mockEnqueueVerificationEmail.mockClear();
+    mockEnqueueVerificationEmail.mockImplementation(
+      async () => ({ jobId: 'verification-job-id' }),
+    );
+    mockCancelVerificationEmail.mockClear();
+    mockCancelVerificationEmail.mockImplementation(async () => true);
+    mockRequestVerificationEmailProcessing.mockClear();
   });
 
   // ── register ───────────────────────────────────────────
@@ -97,11 +120,132 @@ describe('auth.service', () => {
         [{ id: user.id, email: user.email, displayName: user.displayName, avatarUrl: user.avatarUrl, emailVerified: false }], // insert returning
       ]);
 
-      const result = await authService.register('test@test.com', 'password123');
+      const result = await authService.register(
+        'test@test.com',
+        'password123',
+        verificationQueueDependencies,
+      );
       expect(result).toHaveProperty('user');
       expect(result).toHaveProperty('token');
       expect(result).toHaveProperty('session');
       expect(mockCreateSession).toHaveBeenCalled();
+      expect(mockEnqueueVerificationEmail).toHaveBeenCalledWith(
+        mockDbChain,
+        user.id,
+        1,
+      );
+      expect(mockRequestVerificationEmailProcessing).toHaveBeenCalledTimes(1);
+    });
+
+    test('waits only until the verification request is durably queued', async () => {
+      const user = createUser();
+      setMockReturnSequence([
+        [],
+        [
+          {
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+            emailVerified: false,
+          },
+        ],
+      ]);
+
+      let resolveEnqueue!: () => void;
+      let markEnqueueStarted!: () => void;
+      const enqueueStarted = new Promise<void>((resolve) => {
+        markEnqueueStarted = resolve;
+      });
+      mockEnqueueVerificationEmail.mockImplementationOnce(
+        () =>
+          new Promise<{ jobId: string }>((resolve) => {
+            resolveEnqueue = () => resolve({ jobId: 'verification-job-id' });
+            markEnqueueStarted();
+          }),
+      );
+
+      let registrationCompleted = false;
+      const registration = authService
+        .register(
+          'test@test.com',
+          'password123',
+          verificationQueueDependencies,
+        )
+        .then((result) => {
+          registrationCompleted = true;
+          return result;
+        });
+
+      await enqueueStarted;
+      expect(registrationCompleted).toBe(false);
+      expect(mockRequestVerificationEmailProcessing).not.toHaveBeenCalled();
+
+      resolveEnqueue();
+      const result = await registration;
+      expect(result.user.id).toBe(user.id);
+      expect(mockRequestVerificationEmailProcessing).toHaveBeenCalledTimes(1);
+    });
+
+    test('does not report success when the durable enqueue fails', async () => {
+      const user = createUser();
+      setMockReturnSequence([
+        [],
+        [
+          {
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+            emailVerified: false,
+          },
+        ],
+      ]);
+      mockEnqueueVerificationEmail.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(
+        authService.register(
+          'test@test.com',
+          'password123',
+          verificationQueueDependencies,
+        ),
+      ).rejects.toThrow('outbox unavailable');
+      expect(mockCreateSession).not.toHaveBeenCalled();
+      expect(mockRequestVerificationEmailProcessing).not.toHaveBeenCalled();
+    });
+
+    test('stores a 24-hour token and initial queue version atomically', async () => {
+      const user = createUser();
+      setMockReturnSequence([
+        [],
+        [
+          {
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+            emailVerified: false,
+          },
+        ],
+      ]);
+
+      await authService.register(
+        user.email,
+        'password123',
+        verificationQueueDependencies,
+      );
+
+      expect(mockDbChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          emailVerificationToken: 'mock-hex-token',
+          emailVerificationVersion: 1,
+          emailTokenExpiresAt: new Date(
+            FIXED_NOW.getTime() + 24 * 60 * 60 * 1000,
+          ),
+        }),
+      );
     });
   });
 
@@ -124,11 +268,17 @@ describe('auth.service', () => {
     });
 
     test('returns user and session on valid login', async () => {
-      setMockReturn([createUser({ passwordHash: '$mock_hash$password123' })]);
+      setMockReturn([
+        createUser({
+          passwordHash: '$mock_hash$password123',
+          emailVerified: true,
+        }),
+      ]);
       const result = await authService.login('test@test.com', 'password123');
       expect(result).toHaveProperty('user');
       expect(result).toHaveProperty('token');
       expect(result.user.email).toBe('test@example.com');
+      expect(result.user.emailVerified).toBe(true);
     });
   });
 
@@ -177,25 +327,160 @@ describe('auth.service', () => {
   describe('verifyEmail', () => {
     test('throws ValidationError for invalid token', async () => {
       setMockReturn([]);
-      await expect(authService.verifyEmail('bad-token')).rejects.toThrow(
-        'Invalid or expired verification token',
-      );
+      await expect(
+        authService.verifyEmail('bad-token', verificationQueueDependencies),
+      ).rejects.toThrow('Invalid or expired verification token');
+      expect(mockCancelVerificationEmail).not.toHaveBeenCalled();
     });
 
     test('returns alreadyVerified if already verified', async () => {
       setMockReturn([
         { id: 'user-1', emailVerified: true, emailTokenExpiresAt: new Date(Date.now() + 10000) },
       ]);
-      const result = await authService.verifyEmail('good-token');
+      const result = await authService.verifyEmail(
+        'good-token',
+        verificationQueueDependencies,
+      );
       expect(result).toEqual({ success: true, alreadyVerified: true });
+      expect(mockCancelVerificationEmail).not.toHaveBeenCalled();
     });
 
-    test('verifies email successfully', async () => {
-      setMockReturn([
-        { id: 'user-1', emailVerified: false, emailTokenExpiresAt: new Date(Date.now() + 10000) },
+    test('verifies email and cancels the matching queued delivery atomically', async () => {
+      setMockReturnSequence([
+        [
+          {
+            id: 'user-1',
+            emailVerified: false,
+            emailTokenExpiresAt: new Date(FIXED_NOW.getTime() + 10_000),
+          },
+        ],
+        [{ tokenVersion: 3 }],
       ]);
-      const result = await authService.verifyEmail('good-token');
+      const result = await authService.verifyEmail(
+        'good-token',
+        verificationQueueDependencies,
+      );
       expect(result).toEqual({ success: true, alreadyVerified: false });
+      expect(mockCancelVerificationEmail).toHaveBeenCalledWith(
+        mockDbChain,
+        'user-1',
+        3,
+      );
+    });
+  });
+
+  // ── resendVerification ─────────────────────────────────
+  describe('resendVerification', () => {
+    test('queues immediately and reuses an unexpired token', async () => {
+      const previousExpiry = new Date(FIXED_NOW.getTime() + 60_000);
+      const user = createUser({
+        emailVerified: false,
+        emailVerificationToken: 'previous-token',
+        emailTokenExpiresAt: previousExpiry,
+        emailVerificationVersion: 4,
+      });
+      setMockReturnSequence([[user], [{ id: user.id }]]);
+
+      const result = await authService.resendVerification(
+        user.id,
+        verificationQueueDependencies,
+      );
+
+      expect(mockDbChain.set).toHaveBeenCalledWith({
+        emailVerificationToken: 'previous-token',
+        emailTokenExpiresAt: previousExpiry,
+        emailVerificationVersion: 5,
+      });
+      expect(mockEnqueueVerificationEmail).toHaveBeenCalledWith(
+        mockDbChain,
+        user.id,
+        5,
+      );
+      expect(mockRequestVerificationEmailProcessing).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ success: true, alreadyVerified: false });
+    });
+
+    test('generates a fresh token when the previous token expired', async () => {
+      const user = createUser({
+        emailVerified: false,
+        emailVerificationToken: 'previous-token',
+        emailTokenExpiresAt: new Date(FIXED_NOW.getTime() - 1),
+        emailVerificationVersion: 2,
+      });
+      setMockReturnSequence([[user], [{ id: user.id }]]);
+
+      await authService.resendVerification(
+        user.id,
+        verificationQueueDependencies,
+      );
+
+      expect(mockDbChain.set).toHaveBeenCalledWith({
+        emailVerificationToken: 'mock-hex-token',
+        emailTokenExpiresAt: new Date(
+          FIXED_NOW.getTime() + 24 * 60 * 60 * 1000,
+        ),
+        emailVerificationVersion: 3,
+      });
+    });
+
+    test('does not report success when the durable enqueue fails', async () => {
+      const user = createUser({
+        emailVerified: false,
+        emailVerificationToken: 'previous-token',
+        emailTokenExpiresAt: new Date(FIXED_NOW.getTime() + 60_000),
+        emailVerificationVersion: 1,
+      });
+      setMockReturnSequence([[user], [{ id: user.id }]]);
+      mockEnqueueVerificationEmail.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(
+        authService.resendVerification(
+          user.id,
+          verificationQueueDependencies,
+        ),
+      ).rejects.toThrow('outbox unavailable');
+      expect(mockRequestVerificationEmailProcessing).not.toHaveBeenCalled();
+    });
+
+    test('rejects when verification state changes before the update', async () => {
+      const user = createUser({
+        emailVerified: false,
+        emailVerificationToken: 'previous-token',
+        emailTokenExpiresAt: new Date(FIXED_NOW.getTime() + 60_000),
+        emailVerificationVersion: 7,
+      });
+      setMockReturnSequence([[user], []]);
+
+      await expect(
+        authService.resendVerification(
+          user.id,
+          verificationQueueDependencies,
+        ),
+      ).rejects.toBeInstanceOf(ConflictError);
+      expect(mockEnqueueVerificationEmail).not.toHaveBeenCalled();
+      expect(mockRequestVerificationEmailProcessing).not.toHaveBeenCalled();
+    });
+
+    test('returns without queueing when the email is already verified', async () => {
+      const user = createUser({
+        emailVerified: true,
+        emailVerificationVersion: 2,
+      });
+      setMockReturn([user]);
+
+      await expect(
+        authService.resendVerification(
+          user.id,
+          verificationQueueDependencies,
+        ),
+      ).resolves.toEqual({
+        success: true,
+        alreadyVerified: true,
+      });
+      expect(mockEnqueueVerificationEmail).not.toHaveBeenCalled();
+      expect(mockRequestVerificationEmailProcessing).not.toHaveBeenCalled();
     });
   });
 

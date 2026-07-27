@@ -3,6 +3,10 @@ const parsedGeminiRequestTimeoutMs = Number.parseInt(
   process.env.GEMINI_REQUEST_TIMEOUT_MS ?? '',
   10,
 );
+const parsedTrustProxyHops = Number.parseInt(
+  process.env.TRUST_PROXY_HOPS ?? '',
+  10,
+);
 
 const ENV = {
   DATABASE_URL: process.env.DATABASE_URL!,
@@ -17,6 +21,10 @@ const ENV = {
     .split(',')
     .map((v) => v.trim())
     .filter(Boolean),
+  // Trust no forwarding headers unless the deployment declares its proxy hops.
+  TRUST_PROXY_HOPS: Number.isNaN(parsedTrustProxyHops)
+    ? 0
+    : Math.max(0, parsedTrustProxyHops),
   SESSION_COOKIE_NAME: 'engram_session',
   SESSION_MAX_AGE_DAYS: 30,
   SESSION_REFRESH_THRESHOLD_DAYS: 15,

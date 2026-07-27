@@ -3,6 +3,9 @@ import { ENV } from '../config/env';
 import { logger } from './logger';
 
 const emailLogger = logger.child({ module: 'email' });
+const SMTP_CONNECTION_TIMEOUT_MS = 10_000;
+const SMTP_GREETING_TIMEOUT_MS = 10_000;
+const SMTP_SOCKET_TIMEOUT_MS = 30_000;
 
 /* ══════════════════════════════════════════════════════════════
    EMAIL UTILITY — Gmail SMTP via Nodemailer
@@ -26,6 +29,9 @@ function getTransporter(): nodemailer.Transporter {
     }
     _transporter = nodemailer.createTransport({
       service: 'gmail',
+      connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+      greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
+      socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
       auth: {
         user: ENV.GMAIL_USER,
         // Google displays App Password with spaces for readability — strip them
@@ -110,12 +116,25 @@ export async function sendFeedbackEmail(
 }
 
 /* ── Send email verification email ─────────────────────────── */
+export interface VerificationEmailReceipt {
+  messageId?: string;
+}
+
 export async function sendVerificationEmail(
   toEmail: string,
   verifyToken: string,
-): Promise<void> {
+): Promise<VerificationEmailReceipt> {
   const baseUrl = ENV.FRONTEND_URL;
   const verifyLink = `${baseUrl}/verify-email?token=${verifyToken}`;
+  const text = [
+    'Verify your email address for Engram Spira',
+    '',
+    'Use this link to verify the email address for your Engram Spira account:',
+    verifyLink,
+    '',
+    'This verification link expires in 24 hours.',
+    'If you did not create an Engram Spira account or request this verification, ignore this email.',
+  ].join('\n');
 
   const html = `
 <!DOCTYPE html>
@@ -134,25 +153,53 @@ export async function sendVerificationEmail(
 </head>
 <body>
   <div class="card">
-    <h2>✉️ Verify Your Email</h2>
-    <p>Welcome to Engram Spira! Please verify your email address by clicking the button below:</p>
-    <a href="${verifyLink}" class="btn">Verify Email</a>
-    <p>Or copy this link:</p>
+    <h2>Verify your email address</h2>
+    <p>Use the link below to verify the email address for your Engram Spira account.</p>
+    <a href="${verifyLink}" class="btn">Verify email address</a>
+    <p>Or copy and open this link:</p>
     <div class="code">${verifyLink}</div>
-    <p>This link expires in <strong>24 hours</strong>. If you didn't create this account, you can safely ignore this email.</p>
-    <p class="footer">— Engram Spira</p>
+    <p>This verification link expires in <strong>24 hours</strong>.</p>
+    <p>If you did not create an Engram Spira account or request this verification, ignore this email.</p>
+    <p class="footer">Engram Spira account notification</p>
   </div>
 </body>
 </html>`;
 
-  await getTransporter().sendMail({
+  const delivery = await getTransporter().sendMail({
     from: `"Engram Spira" <${ENV.GMAIL_USER}>`,
     to: toEmail,
-    subject: 'Engram Spira — Verify Your Email',
+    subject: 'Verify your Engram Spira email address',
+    text,
     html,
   });
 
-  emailLogger.info({ toEmail }, 'Verification email sent');
+  const acceptedCount = Array.isArray(delivery.accepted)
+    ? delivery.accepted.length
+    : undefined;
+  const rejectedCount = Array.isArray(delivery.rejected)
+    ? delivery.rejected.length
+    : undefined;
+
+  if (acceptedCount === 0 || (rejectedCount ?? 0) > 0) {
+    throw new Error(
+      `SMTP did not accept the verification recipient (accepted=${acceptedCount ?? 'unknown'}, rejected=${rejectedCount ?? 'unknown'})`,
+    );
+  }
+
+  emailLogger.info(
+    {
+      messageId: delivery.messageId,
+      acceptedCount,
+      rejectedCount,
+    },
+    'Verification email accepted by SMTP',
+  );
+
+  const receipt: VerificationEmailReceipt = {};
+  if (typeof delivery.messageId === 'string' && delivery.messageId) {
+    receipt.messageId = delivery.messageId;
+  }
+  return receipt;
 }
 
 /* ── Send password reset email ───────────────────────────────── */

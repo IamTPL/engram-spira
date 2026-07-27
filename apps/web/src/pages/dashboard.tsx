@@ -1,4 +1,4 @@
-import { type Component, For, Show, createMemo } from 'solid-js';
+import { type Component, For, Show, createMemo, createSignal } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { createQuery } from '@tanstack/solid-query';
 import PageShell from '@/components/layout/page-shell';
@@ -7,7 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import Skeleton from '@/components/ui/skeleton';
-import { currentUser } from '@/stores/auth.store';
+import {
+  currentUser,
+  resendVerificationEmail,
+} from '@/stores/auth.store';
 import {
   durationMin,
   getStats,
@@ -178,6 +181,8 @@ const SectionShell: Component<{
 
 const DashboardPage: Component = () => {
   const navigate = useNavigate();
+  const [isResendingVerification, setIsResendingVerification] =
+    createSignal(false);
 
   const commandCenterQuery = createQuery(() => ({
     queryKey: ['experience-command-center', currentUser()?.id],
@@ -247,6 +252,31 @@ const DashboardPage: Component = () => {
     navigate('/');
   };
 
+  const handleResendVerification = async () => {
+    if (isResendingVerification()) return;
+
+    setIsResendingVerification(true);
+    try {
+      const result = await resendVerificationEmail();
+      if (result.alreadyVerified) {
+        toast.info('Your email is already verified.');
+        return;
+      }
+
+      toast.success(
+        'Verification request is being processed. Check your Inbox or Spam folder shortly.',
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : 'Failed to resend verification email. Please try again.',
+      );
+    } finally {
+      setIsResendingVerification(false);
+    }
+  };
+
   return (
     <PageShell maxWidth="max-w-7xl">
       <Show
@@ -296,14 +326,9 @@ const DashboardPage: Component = () => {
                 variant="ghost"
                 size="sm"
                 class="h-8 self-start text-risk hover:text-risk md:self-auto"
-                onClick={async () => {
-                  try {
-                    await (api.auth as any)['resend-verification'].post();
-                    toast.success('Verification email sent');
-                  } catch {
-                    toast.error('Failed to resend. Try again later.');
-                  }
-                }}
+                loading={isResendingVerification()}
+                disabled={isResendingVerification()}
+                onClick={handleResendVerification}
               >
                 Resend
               </Button>

@@ -16,13 +16,35 @@ import {
   generateSessionToken,
   invalidateSession,
 } from './session.utils';
-import { sendVerificationEmail } from '../../shared/email';
-import { logger } from '../../shared/logger';
+import {
+  cancelVerificationEmail,
+  enqueueVerificationEmail,
+  requestVerificationEmailProcessing,
+} from './verification-email-outbox';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 const VERIFY_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const INITIAL_VERIFICATION_VERSION = 1;
 
-export async function register(email: string, password: string) {
+type VerificationQueueDependencies = {
+  enqueue: typeof enqueueVerificationEmail;
+  cancel: typeof cancelVerificationEmail;
+  requestProcessing: typeof requestVerificationEmailProcessing;
+  now: () => Date;
+};
+
+const verificationQueueDependencies: VerificationQueueDependencies = {
+  enqueue: enqueueVerificationEmail,
+  cancel: cancelVerificationEmail,
+  requestProcessing: requestVerificationEmailProcessing,
+  now: () => new Date(),
+};
+
+export async function register(
+  email: string,
+  password: string,
+  dependencies = verificationQueueDependencies,
+) {
   if (!email || !email.includes('@')) {
     throw new ValidationError('Invalid email address');
   }
@@ -52,29 +74,35 @@ export async function register(email: string, password: string) {
     crypto.getRandomValues(new Uint8Array(32)),
   );
 
-  const [user] = await db
-    .insert(users)
-    .values({
-      email: email.toLowerCase(),
-      passwordHash,
-      emailVerificationToken: verifyToken,
-      emailTokenExpiresAt: new Date(Date.now() + VERIFY_TOKEN_EXPIRY_MS),
-    })
-    .returning({
-      id: users.id,
-      email: users.email,
-      displayName: users.displayName,
-      avatarUrl: users.avatarUrl,
-      emailVerified: users.emailVerified,
-    });
+  const user = await db.transaction(async (tx) => {
+    const [createdUser] = await tx
+      .insert(users)
+      .values({
+        email: email.toLowerCase(),
+        passwordHash,
+        emailVerificationToken: verifyToken,
+        emailTokenExpiresAt: new Date(
+          dependencies.now().getTime() + VERIFY_TOKEN_EXPIRY_MS,
+        ),
+        emailVerificationVersion: INITIAL_VERIFICATION_VERSION,
+      })
+      .returning({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        avatarUrl: users.avatarUrl,
+        emailVerified: users.emailVerified,
+      });
 
-  // Fire-and-forget: send verification email without blocking register response
-  sendVerificationEmail(user.email, verifyToken).catch((err) =>
-    logger.warn(
-      { err: err.message, email: user.email },
-      'Failed to send verification email',
-    ),
-  );
+    await dependencies.enqueue(
+      tx,
+      createdUser.id,
+      INITIAL_VERIFICATION_VERSION,
+    );
+    return createdUser;
+  });
+
+  dependencies.requestProcessing();
 
   const token = generateSessionToken();
   const session = await createSession(user.id, token);
@@ -90,6 +118,7 @@ export async function login(email: string, password: string) {
       passwordHash: users.passwordHash,
       displayName: users.displayName,
       avatarUrl: users.avatarUrl,
+      emailVerified: users.emailVerified,
     })
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
@@ -113,6 +142,7 @@ export async function login(email: string, password: string) {
       email: user.email,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
+      emailVerified: user.emailVerified,
     },
     token,
     session,
@@ -205,83 +235,138 @@ export async function forgotPassword(email: string) {
 /**
  * Verify email address using the token sent during registration.
  */
-export async function verifyEmail(token: string) {
-  const [user] = await db
-    .select({
-      id: users.id,
-      emailVerified: users.emailVerified,
-      emailTokenExpiresAt: users.emailTokenExpiresAt,
-    })
-    .from(users)
-    .where(
-      and(
-        eq(users.emailVerificationToken, token),
-        gt(users.emailTokenExpiresAt, new Date()),
-      ),
-    )
-    .limit(1);
+export async function verifyEmail(
+  token: string,
+  dependencies = verificationQueueDependencies,
+) {
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({
+        id: users.id,
+        emailVerified: users.emailVerified,
+        emailTokenExpiresAt: users.emailTokenExpiresAt,
+      })
+      .from(users)
+      .where(
+        and(
+          eq(users.emailVerificationToken, token),
+          gt(users.emailTokenExpiresAt, dependencies.now()),
+        ),
+      )
+      .limit(1);
 
-  if (!user) {
-    throw new ValidationError('Invalid or expired verification token');
-  }
+    if (!user) {
+      throw new ValidationError('Invalid or expired verification token');
+    }
 
-  if (user.emailVerified) {
-    return { success: true, alreadyVerified: true };
-  }
+    if (user.emailVerified) {
+      return { success: true, alreadyVerified: true };
+    }
 
-  await db
-    .update(users)
-    .set({
-      emailVerified: true,
-      emailVerificationToken: null,
-      emailTokenExpiresAt: null,
-    })
-    .where(eq(users.id, user.id));
+    const [verifiedUser] = await tx
+      .update(users)
+      .set({
+        emailVerified: true,
+        emailVerificationToken: null,
+        emailTokenExpiresAt: null,
+      })
+      .where(
+        and(
+          eq(users.id, user.id),
+          eq(users.emailVerified, false),
+          eq(users.emailVerificationToken, token),
+        ),
+      )
+      .returning({
+        tokenVersion: users.emailVerificationVersion,
+      });
 
-  return { success: true, alreadyVerified: false };
+    if (!verifiedUser) {
+      throw new ValidationError('Invalid or expired verification token');
+    }
+
+    await dependencies.cancel(tx, user.id, verifiedUser.tokenVersion);
+    return { success: true, alreadyVerified: false };
+  });
 }
 
 /**
- * Resend verification email. Generates a fresh token.
+ * Queue a verification email and return as soon as the request is durable.
  */
-export async function resendVerification(userId: string) {
-  const [user] = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      emailVerified: users.emailVerified,
-    })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+export async function resendVerification(
+  userId: string,
+  dependencies = verificationQueueDependencies,
+) {
+  const result = await db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({
+        id: users.id,
+        emailVerified: users.emailVerified,
+        emailVerificationToken: users.emailVerificationToken,
+        emailTokenExpiresAt: users.emailTokenExpiresAt,
+        emailVerificationVersion: users.emailVerificationVersion,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for('update')
+      .limit(1);
 
-  if (!user) throw new NotFoundError('User');
+    if (!user) throw new NotFoundError('User');
 
-  if (user.emailVerified) {
-    return { success: true, alreadyVerified: true };
+    if (user.emailVerified) {
+      return { success: true, alreadyVerified: true, queued: false };
+    }
+
+    const now = dependencies.now();
+    const canReuseToken =
+      user.emailVerificationToken !== null &&
+      user.emailTokenExpiresAt !== null &&
+      user.emailTokenExpiresAt.getTime() > now.getTime();
+    const verifyToken = canReuseToken
+      ? user.emailVerificationToken
+      : encodeHexLowerCase(crypto.getRandomValues(new Uint8Array(32)));
+    const tokenExpiresAt = canReuseToken
+      ? user.emailTokenExpiresAt
+      : new Date(now.getTime() + VERIFY_TOKEN_EXPIRY_MS);
+    const tokenVersion = user.emailVerificationVersion + 1;
+
+    const [claimed] = await tx
+      .update(users)
+      .set({
+        emailVerificationToken: verifyToken,
+        emailTokenExpiresAt: tokenExpiresAt,
+        emailVerificationVersion: tokenVersion,
+      })
+      .where(
+        and(
+          eq(users.id, userId),
+          eq(users.emailVerified, false),
+          eq(
+            users.emailVerificationVersion,
+            user.emailVerificationVersion,
+          ),
+        ),
+      )
+      .returning({ id: users.id });
+
+    if (!claimed) {
+      throw new ConflictError(
+        'Verification state changed. Please refresh and try again.',
+      );
+    }
+
+    await dependencies.enqueue(tx, user.id, tokenVersion);
+    return { success: true, alreadyVerified: false, queued: true };
+  });
+
+  if (result.queued) {
+    dependencies.requestProcessing();
   }
 
-  const verifyToken = encodeHexLowerCase(
-    crypto.getRandomValues(new Uint8Array(32)),
-  );
-
-  await db
-    .update(users)
-    .set({
-      emailVerificationToken: verifyToken,
-      emailTokenExpiresAt: new Date(Date.now() + VERIFY_TOKEN_EXPIRY_MS),
-    })
-    .where(eq(users.id, userId));
-
-  // Fire-and-forget
-  sendVerificationEmail(user.email, verifyToken).catch((err) =>
-    logger.warn(
-      { err: err.message, email: user.email },
-      'Failed to resend verification email',
-    ),
-  );
-
-  return { success: true, alreadyVerified: false };
+  return {
+    success: result.success,
+    alreadyVerified: result.alreadyVerified,
+  };
 }
 
 export async function resetPassword(token: string, newPassword: string) {
