@@ -25,15 +25,82 @@ export async function getCardText(cardId: string): Promise<string | null> {
 
   if (fields.length === 0) return null;
 
+  return buildCardText(fields);
+}
+
+/**
+ * Bulk form of getCardText. Keeps the same per-card field ordering and value
+ * conversion while using one query for the whole batch.
+ */
+export async function getCardTexts(
+  cardIds: string[],
+): Promise<Map<string, string>> {
+  if (cardIds.length === 0) return new Map();
+
+  const fields = await db
+    .select({
+      cardId: cardFieldValues.cardId,
+      value: cardFieldValues.value,
+      side: templateFields.side,
+      sortOrder: templateFields.sortOrder,
+    })
+    .from(cardFieldValues)
+    .innerJoin(
+      templateFields,
+      eq(cardFieldValues.templateFieldId, templateFields.id),
+    )
+    .where(inArray(cardFieldValues.cardId, cardIds))
+    .orderBy(
+      cardFieldValues.cardId,
+      templateFields.side,
+      templateFields.sortOrder,
+    );
+
+  const fieldsByCard = new Map<string, typeof fields>();
+  const fieldPositionsByCard = new Map<string, Set<string>>();
+  const ambiguousCardIds = new Set<string>();
+  for (const field of fields) {
+    const cardFields = fieldsByCard.get(field.cardId) ?? [];
+    cardFields.push(field);
+    fieldsByCard.set(field.cardId, cardFields);
+
+    const positions = fieldPositionsByCard.get(field.cardId) ?? new Set<string>();
+    const position = `${field.side}:${field.sortOrder}`;
+    if (positions.has(position)) ambiguousCardIds.add(field.cardId);
+    positions.add(position);
+    fieldPositionsByCard.set(field.cardId, positions);
+  }
+
+  const texts = new Map<string, string>();
+  for (const [cardId, cardFields] of fieldsByCard) {
+    const text = buildCardText(cardFields);
+    if (text) texts.set(cardId, text);
+  }
+
+  // Preserve the legacy single-card query's unspecified tie behavior for custom
+  // templates that assign multiple fields to the same side and sort position.
+  for (const cardId of ambiguousCardIds) {
+    const text = await getCardText(cardId);
+    if (text) {
+      texts.set(cardId, text);
+    } else {
+      texts.delete(cardId);
+    }
+  }
+  return texts;
+}
+
+function buildCardText(fields: Array<{ value: unknown }>): string | null {
   const text = fields
-    .map((f) => {
-      const val = f.value;
-      if (typeof val === 'string') return val;
-      if (Array.isArray(val))
-        return val.filter((x) => typeof x === 'string').join(' ');
-      if (val && typeof val === 'object' && 'text' in val)
-        return String((val as { text: unknown }).text);
-      return JSON.stringify(val);
+    .map(({ value }) => {
+      if (typeof value === 'string') return value;
+      if (Array.isArray(value)) {
+        return value.filter((entry) => typeof entry === 'string').join(' ');
+      }
+      if (value && typeof value === 'object' && 'text' in value) {
+        return String((value as { text: unknown }).text);
+      }
+      return JSON.stringify(value);
     })
     .filter(Boolean)
     .join(' ');

@@ -1,4 +1,5 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 
 import { db } from '../../db';
 import { cardFieldValues, cards, decks, templateFields } from '../../db/schema';
@@ -44,6 +45,11 @@ type ExistingCardInfo = {
   fields: Record<string, string>;
 };
 
+type DuplicateCandidateSource = {
+  card: ExistingCardInfo;
+  normalizedTitle: string;
+};
+
 type AiPastePayload = Extract<
   CreatePreviewRequest,
   { source: 'ai-paste' }
@@ -51,13 +57,31 @@ type AiPastePayload = Extract<
 type CsvPayload = Extract<CreatePreviewRequest, { source: 'csv' }>['payload'];
 type JsonPayload = Extract<CreatePreviewRequest, { source: 'json' }>['payload'];
 
-type InternalPreviewRecord = CreatePreviewRecord & {
-  commitRecords: Map<
-    string,
-    { fingerprint: string; result: CreateCommitResponse | null; succeeded: boolean }
-  >;
+type CommitRecord = {
+  fingerprint: string;
+  result: CreateCommitResponse | null;
+  succeeded: boolean;
+};
+
+type ActivePreviewRecord = Omit<CreatePreviewRecord, 'requestFingerprint'> & {
+  kind: 'active';
+  commitRecords: Map<string, CommitRecord>;
   consumedByKey: string | null;
 };
+
+type CommitTombstone = {
+  kind: 'commit';
+  previewId: string;
+  userId: string;
+  commitRecords: Map<string, CommitRecord>;
+  consumedByKey: string;
+};
+
+type InternalPreviewRecord = ActivePreviewRecord | CommitTombstone;
+
+type InternalPreviewCards = ActivePreviewRecord['cards'];
+
+type PreviewStorePrune = (nowMs: number) => void;
 
 type CommitOperation =
   | { resolution: 'skip'; clientId: string }
@@ -73,6 +97,7 @@ export type PreviewStore = {
   get: (previewId: string) => InternalPreviewRecord | undefined;
   set: (record: InternalPreviewRecord) => void;
   clear: () => void;
+  pruneExpired?: PreviewStorePrune;
 };
 
 export type CreatePreviewServices = {
@@ -102,10 +127,82 @@ export type CreatePreviewServices = {
 
 export function createInMemoryPreviewStore(): PreviewStore {
   const records = new Map<string, InternalPreviewRecord>();
+  const scheduledExpirations = new Map<string, number>();
+  const expiryHeap: Array<{ previewId: string; expiresAt: number }> = [];
+
+  const pushExpiry = (previewId: string, expiresAt: number) => {
+    expiryHeap.push({ previewId, expiresAt });
+    let index = expiryHeap.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (expiryHeap[parent].expiresAt <= expiresAt) break;
+      expiryHeap[index] = expiryHeap[parent];
+      index = parent;
+    }
+    expiryHeap[index] = { previewId, expiresAt };
+  };
+
+  const popExpiry = () => {
+    const root = expiryHeap[0];
+    const tail = expiryHeap.pop();
+    if (!tail || expiryHeap.length === 0) return root;
+
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      if (left >= expiryHeap.length) break;
+      const right = left + 1;
+      const child =
+        right < expiryHeap.length &&
+        expiryHeap[right].expiresAt < expiryHeap[left].expiresAt
+          ? right
+          : left;
+      if (expiryHeap[child].expiresAt >= tail.expiresAt) break;
+      expiryHeap[index] = expiryHeap[child];
+      index = child;
+    }
+    expiryHeap[index] = tail;
+    return root;
+  };
+
   return {
     get: (previewId) => records.get(previewId),
-    set: (record) => records.set(record.previewId, record),
-    clear: () => records.clear(),
+    set: (record) => {
+      records.set(record.previewId, record);
+      if (record.kind === 'active' && record.consumedByKey === null) {
+        const expiresAt = new Date(record.expiresAt).getTime();
+        if (scheduledExpirations.get(record.previewId) !== expiresAt) {
+          scheduledExpirations.set(record.previewId, expiresAt);
+          pushExpiry(record.previewId, expiresAt);
+        }
+      }
+    },
+    clear: () => {
+      records.clear();
+      scheduledExpirations.clear();
+      expiryHeap.length = 0;
+    },
+    pruneExpired: (nowMs) => {
+      while (expiryHeap[0]?.expiresAt <= nowMs) {
+        const expired = popExpiry();
+        if (!expired) break;
+        if (
+          scheduledExpirations.get(expired.previewId) !== expired.expiresAt
+        ) {
+          continue;
+        }
+        scheduledExpirations.delete(expired.previewId);
+        const record = records.get(expired.previewId);
+        if (
+          record?.kind !== 'active' ||
+          record.consumedByKey !== null ||
+          new Date(record.expiresAt).getTime() !== expired.expiresAt
+        ) {
+          continue;
+        }
+        records.delete(expired.previewId);
+      }
+    },
   };
 }
 
@@ -190,13 +287,22 @@ export async function createPreview(
   const template = await services.loadTemplate(request.templateId);
   const rows = parsePayloadRows(request);
   const existingCards = await services.listCardsInDeck(userId, request.targetDeckId);
+  const duplicateCandidateSources = existingCards
+    .map((card) => ({
+      card,
+      normalizedTitle: normalize(card.title || firstNonEmptyField(card.fields)),
+    }))
+    .sort((a, b) => a.card.id.localeCompare(b.card.id));
   const cardsForPreview = rows.map((row, index) => {
     const fields = normalizeFields(row, template.fields);
     const validationErrors = requiredFieldErrors(fields, template.fields);
     if (request.source === 'manual' && validationErrors.length > 0) {
       throw new ValidationError(validationErrors.join(', '));
     }
-    const duplicateCandidates = findDuplicateCandidates(fields, existingCards);
+    const duplicateCandidates = findDuplicateCandidates(
+      fields,
+      duplicateCandidateSources,
+    );
     return {
       clientId: `preview-card-${index + 1}`,
       fields,
@@ -207,17 +313,17 @@ export async function createPreview(
     };
   });
 
-  const expiresAt = new Date(
-    services.now().getTime() + services.previewTtlMs,
-  ).toISOString();
+  const nowMs = services.now().getTime();
+  services.store.pruneExpired?.(nowMs);
+  const expiresAt = new Date(nowMs + services.previewTtlMs).toISOString();
   const previewId = crypto.randomUUID();
-  const record: InternalPreviewRecord = {
+  const record: ActivePreviewRecord = {
+    kind: 'active',
     previewId,
     userId,
     targetDeckId: request.targetDeckId,
     templateId: request.templateId,
     source: request.source,
-    requestFingerprint: fingerprint(request),
     cards: cardsForPreview,
     expiresAt,
     commitRecords: new Map(),
@@ -275,11 +381,19 @@ export async function commitCreatePreview(
     throw new ConflictError('Preview already committed');
   }
 
-  if (new Date(record.expiresAt).getTime() <= services.now().getTime()) {
+  if (record.kind === 'commit') {
+    throw new ConflictError('Commit already attempted');
+  }
+
+  const nowMs = services.now().getTime();
+  services.store.pruneExpired?.(nowMs);
+  if (new Date(record.expiresAt).getTime() <= nowMs) {
     throw new ConflictError('Preview expired');
   }
 
+  const previousCommitRecords = record.commitRecords;
   record.consumedByKey = request.idempotencyKey;
+  record.commitRecords = new Map(previousCommitRecords);
   record.commitRecords.set(request.idempotencyKey, {
     fingerprint: commitFingerprint,
     result: null,
@@ -294,17 +408,27 @@ export async function commitCreatePreview(
     const currentRecord = services.store.get(record.previewId) ?? record;
     const currentCommit = currentRecord.commitRecords.get(request.idempotencyKey);
     if (
+      currentRecord.kind === 'active' &&
       currentRecord.consumedByKey === request.idempotencyKey &&
       currentCommit &&
       !currentCommit.succeeded &&
       currentCommit.result === null
     ) {
       currentRecord.consumedByKey = null;
-      currentRecord.commitRecords.delete(request.idempotencyKey);
+      currentRecord.commitRecords = previousCommitRecords;
       services.store.set(currentRecord);
     }
     throw error;
   }
+
+  const tombstone: CommitTombstone = {
+    kind: 'commit',
+    previewId: record.previewId,
+    userId: record.userId,
+    consumedByKey: request.idempotencyKey,
+    commitRecords: new Map(record.commitRecords),
+  };
+  services.store.set(tombstone);
 
   const result: CreateCommitResponse = {
     createdCardIds: [],
@@ -336,27 +460,31 @@ export async function commitCreatePreview(
     result.mergedCardIds.push(operation.mergeTargetCardId);
   }
 
-  record.commitRecords.set(request.idempotencyKey, {
+  tombstone.commitRecords.set(request.idempotencyKey, {
     fingerprint: commitFingerprint,
     result,
     succeeded: true,
   });
-  services.store.set(record);
+  services.store.set(tombstone);
   return result;
 }
 
 async function planCommitOperations(
   services: CreatePreviewServices,
   userId: string,
-  record: InternalPreviewRecord,
+  record: ActivePreviewRecord,
   request: CreateCommitRequest,
 ): Promise<CommitOperation[]> {
   const operations: CommitOperation[] = [];
+  const previewCardsByClientId = new Map<string, InternalPreviewCards[number]>();
+  for (const card of record.cards) {
+    if (!previewCardsByClientId.has(card.clientId)) {
+      previewCardsByClientId.set(card.clientId, card);
+    }
+  }
 
   for (const requestedCard of request.cards) {
-    const previewCard = record.cards.find(
-      (card) => card.clientId === requestedCard.clientId,
-    );
+    const previewCard = previewCardsByClientId.get(requestedCard.clientId);
     if (!previewCard) throw new ConflictError('Unknown preview record');
 
     if (requestedCard.resolution === 'skip') {
@@ -630,32 +758,25 @@ function requiredFieldErrors(
 
 function findDuplicateCandidates(
   fields: Record<string, string>,
-  existingCards: ExistingCardInfo[],
+  sources: DuplicateCandidateSource[],
 ) {
   const title = firstNonEmptyField(fields);
   if (!title) return [];
   const normalizedTitle = normalize(title);
-  return existingCards
-    .map((card) => {
-      const candidateTitle = normalize(card.title || firstNonEmptyField(card.fields));
-      if (!candidateTitle) return null;
-      const similarity =
-        candidateTitle === normalizedTitle
-          ? 1
-          : candidateTitle.includes(normalizedTitle) ||
-              normalizedTitle.includes(candidateTitle)
-            ? 0.85
-            : 0;
-      if (similarity === 0) return null;
-      return { cardId: card.id, similarity, title: card.title };
-    })
-    .filter(
-      (
-        candidate,
-      ): candidate is { cardId: string; similarity: number; title: string } =>
-        candidate !== null,
-    )
-    .sort((a, b) => b.similarity - a.similarity || a.cardId.localeCompare(b.cardId));
+  const exact: Array<{ cardId: string; similarity: number; title: string }> = [];
+  const partial: Array<{ cardId: string; similarity: number; title: string }> = [];
+  for (const { card, normalizedTitle: candidateTitle } of sources) {
+    if (!candidateTitle) continue;
+    if (candidateTitle === normalizedTitle) {
+      exact.push({ cardId: card.id, similarity: 1, title: card.title });
+    } else if (
+      candidateTitle.includes(normalizedTitle) ||
+      normalizedTitle.includes(candidateTitle)
+    ) {
+      partial.push({ cardId: card.id, similarity: 0.85, title: card.title });
+    }
+  }
+  return exact.concat(partial);
 }
 
 async function loadMergeTarget(
@@ -748,16 +869,24 @@ async function loadCardsWithNamedFields(deckId: string, cardIds?: string[]) {
   if (cardRows.length === 0) return [];
 
   const ids = cardRows.map((card) => card.id);
-  const values = await db
-    .select({
-      cardId: cardFieldValues.cardId,
-      fieldName: templateFields.name,
-      sortOrder: templateFields.sortOrder,
-      value: cardFieldValues.value,
-    })
-    .from(cardFieldValues)
-    .innerJoin(templateFields, eq(cardFieldValues.templateFieldId, templateFields.id))
-    .where(inArray(cardFieldValues.cardId, ids));
+  // Bind one PostgreSQL array value instead of one parameter per card so very
+  // large decks cannot hit the 65,535 bind-parameter ceiling.
+  const cardIdArrayLiteral = `{${ids.join(',')}}`;
+  const values = await db.execute<{
+    cardId: string;
+    fieldName: string;
+    sortOrder: number;
+    value: unknown;
+  }>(sql`
+    SELECT
+      cfv.card_id AS "cardId",
+      tf.name AS "fieldName",
+      tf.sort_order AS "sortOrder",
+      cfv.value
+    FROM card_field_values AS cfv
+    INNER JOIN template_fields AS tf ON tf.id = cfv.template_field_id
+    WHERE cfv.card_id = ANY(${cardIdArrayLiteral}::uuid[])
+  `);
 
   const fieldsByCard = new Map<string, Record<string, string>>();
   for (const value of values) {
@@ -786,7 +915,9 @@ function normalize(value: string) {
 }
 
 function fingerprint(value: unknown) {
-  return JSON.stringify(sortForFingerprint(value));
+  return createHash('sha256')
+    .update(JSON.stringify(sortForFingerprint(value)))
+    .digest('base64url');
 }
 
 function sortForFingerprint(value: unknown): unknown {

@@ -1,7 +1,11 @@
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { folders, classes } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
+import {
+  buildSortOrderAssignments,
+  REORDER_UPDATE_BATCH_SIZE,
+} from '../../shared/reorder';
 
 async function verifyClassOwnership(classId: string, userId: string) {
   const [cls] = await db
@@ -100,22 +104,32 @@ export async function reorder(
     }
   }
 
-  const indexMap = new Map(folderIds.map((id, i) => [id, i]));
-  let nextOrder = folderIds.length;
+  const assignments = buildSortOrderAssignments(classFolders, folderIds);
 
   await db.transaction(async (tx) => {
-    const updates = classFolders.map((f) => {
-      let newOrder = indexMap.get(f.id);
-      if (newOrder === undefined) {
-        newOrder = nextOrder++;
-      }
-      return tx
-        .update(folders)
-        .set({ sortOrder: newOrder })
-        .where(eq(folders.id, f.id));
-    });
-
-    await Promise.all(updates);
+    for (
+      let offset = 0;
+      offset < assignments.length;
+      offset += REORDER_UPDATE_BATCH_SIZE
+    ) {
+      const chunk = assignments.slice(
+        offset,
+        offset + REORDER_UPDATE_BATCH_SIZE,
+      );
+      const values = sql.join(
+        chunk.map(
+          (assignment) =>
+            sql`(${assignment.id}::uuid, ${assignment.sortOrder}::integer)`,
+        ),
+        sql.raw(', '),
+      );
+      await tx.execute(sql`
+        UPDATE folders AS target
+        SET sort_order = updates.sort_order
+        FROM (VALUES ${values}) AS updates(id, sort_order)
+        WHERE target.id = updates.id
+      `);
+    }
   });
 
   return { reordered: folderIds.length };

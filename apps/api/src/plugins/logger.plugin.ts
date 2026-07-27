@@ -56,12 +56,13 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
       request.headers.get('x-request-id') ?? crypto.randomUUID();
     const startedAt = new Date().toISOString();
     const path = getPathWithQuery(request);
+    const clientIp = getClientIp(request);
     logger.info(
       {
         requestId,
         method: request.method,
         path,
-        ip: getClientIp(request),
+        ip: clientIp,
         startedAt,
       },
       `Started ${request.method} "${path}"`,
@@ -70,46 +71,54 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
       _requestId: requestId,
       _startTime: performance.now(),
       _startedAt: startedAt,
+      _requestPath: path,
+      _clientIp: clientIp,
     };
   })
   .onAfterHandle(
     { as: 'global' },
-    ({ request, set, _startTime, _requestId }) => {
-      const path = getPathWithQuery(request);
+    ({ request, set, _startTime, _requestId, _requestPath, _clientIp }) => {
       const duration = Math.round((performance.now() - _startTime) * 100) / 100;
       const status = (set.status ?? 200) as number;
+      const logData = {
+        requestId: _requestId,
+        method: request.method,
+        path: _requestPath,
+        status,
+        duration,
+        ip: _clientIp,
+      };
+      const message = `Completed ${status} in ${duration}ms`;
 
-      const logFn =
-        status >= 500
-          ? logger.error.bind(logger)
-          : status >= 400
-            ? logger.warn.bind(logger)
-            : logger.info.bind(logger);
-
-      logFn(
-        {
-          requestId: _requestId,
-          method: request.method,
-          path,
-          status,
-          duration,
-          ip: getClientIp(request),
-        },
-        `Completed ${status} in ${duration}ms`,
-      );
+      if (status >= 500) {
+        logger.error(logData, message);
+      } else if (status >= 400) {
+        logger.warn(logData, message);
+      } else {
+        logger.info(logData, message);
+      }
     },
   )
   .onError(
     {
       as: 'global',
     },
-    ({ request, error, set, _startTime, _requestId }) => {
-      const path = getPathWithQuery(request);
+    ({
+      request,
+      error,
+      set,
+      _startTime,
+      _requestId,
+      _requestPath,
+      _clientIp,
+    }) => {
       const duration =
         _startTime != null
           ? Math.round((performance.now() - _startTime) * 100) / 100
           : -1;
       const status = (set.status ?? 500) as number;
+      const path = _requestPath ?? getPathWithQuery(request);
+      const clientIp = _clientIp ?? getClientIp(request);
       const errorInfo = toErrorInfo(error);
       const logData = {
         requestId: _requestId,
@@ -117,7 +126,7 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
         path,
         status,
         duration,
-        ip: getClientIp(request),
+        ip: clientIp,
         ...errorInfo,
       };
 

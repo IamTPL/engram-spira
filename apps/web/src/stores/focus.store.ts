@@ -118,8 +118,8 @@ const [rewardLabels, setRewardLabelsSignal] = createSignal<string[]>(
   initial.rewardLabels || DEFAULT_LABELS,
 );
 
-/** Timer tick interval id */
-let tickInterval: ReturnType<typeof setInterval> | null = null;
+/** Timer aligned to the next visible whole-second transition. */
+let tickTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // ── Derived: stats ────────────────────────────────────────────
 export function getStats(): FocusStats {
@@ -167,27 +167,45 @@ export function formatFocusTime(totalSeconds: number) {
     .padStart(2, '0')}`;
 }
 
+export function getFocusTickDelay(
+  remainingMs: number,
+  remainingSeconds: number,
+) {
+  const nextSecondBoundary = (remainingSeconds - 1) * 1000;
+  return Math.max(1, remainingMs - nextSecondBoundary);
+}
+
 // ── Timer logic ───────────────────────────────────────────────
 function startTick() {
   stopTick();
-  tickInterval = setInterval(() => {
+
+  const tick = () => {
     const start = sessionStart();
-    if (!start) return;
+    if (!start) {
+      tickTimeout = null;
+      return;
+    }
     const elapsed = Date.now() - start;
     const totalMs = durationMin() * 60_000;
-    const left = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
+    const remainingMs = totalMs - elapsed;
+    const left = Math.max(0, Math.ceil(remainingMs / 1000));
     setRemainingSeconds(left);
 
     if (left <= 0) {
       completeSession();
+      return;
     }
-  }, 250); // 4 Hz for smooth countdown
+
+    tickTimeout = setTimeout(tick, getFocusTickDelay(remainingMs, left));
+  };
+
+  tick();
 }
 
 function stopTick() {
-  if (tickInterval !== null) {
-    clearInterval(tickInterval);
-    tickInterval = null;
+  if (tickTimeout !== null) {
+    clearTimeout(tickTimeout);
+    tickTimeout = null;
   }
 }
 

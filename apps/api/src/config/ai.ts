@@ -49,7 +49,7 @@ export function checkAiRateLimit(userId: string): void {
 }
 
 // Cleanup stale buckets every 10 minutes
-setInterval(
+const rateBucketCleanupInterval = setInterval(
   () => {
     const now = Date.now();
     for (const [key, bucket] of buckets) {
@@ -58,3 +58,4 @@ setInterval(
   },
   10 * 60 * 1000,
 );
+rateBucketCleanupInterval.unref();

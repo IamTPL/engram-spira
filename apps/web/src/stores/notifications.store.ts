@@ -1,4 +1,4 @@
-import { createRoot } from 'solid-js';
+import { createMemo, createRoot } from 'solid-js';
 import { createQuery } from '@tanstack/solid-query';
 import { api } from '@/api/client';
 import { currentUser } from './auth.store';
@@ -33,8 +33,10 @@ const { dueDecks, dueDeckLoading, refetchDue, totalDue, hasDue } = createRoot(
     const dueDeckLoading = () => notifQuery.isLoading;
     const refetchDue = () =>
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-    const totalDue = () => dueDecks().reduce((sum, d) => sum + d.dueCount, 0);
-    const hasDue = () => totalDue() > 0;
+    const totalDue = createMemo(() =>
+      dueDecks().reduce((sum, d) => sum + d.dueCount, 0),
+    );
+    const hasDue = createMemo(() => totalDue() > 0);
 
     return { dueDecks, dueDeckLoading, refetchDue, totalDue, hasDue };
   },

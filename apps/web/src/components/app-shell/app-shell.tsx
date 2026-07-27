@@ -6,6 +6,7 @@ import {
   createMemo,
   createSignal,
   on,
+  onCleanup,
 } from 'solid-js';
 import { useLocation } from '@solidjs/router';
 import {
@@ -62,6 +63,7 @@ export const AppShell: Component<AppShellProps> = (props) => {
   const [registeredActionContext, setRegisteredActionContext] = createSignal<
     Partial<CommandActionContext>
   >({});
+  let stopExplorerResize: (() => void) | undefined;
 
   createEffect(() =>
     writeStoredValue(storage, shellStorageKeys.explorerWidth, explorerWidth()),
@@ -133,6 +135,7 @@ export const AppShell: Component<AppShellProps> = (props) => {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = explorerWidth();
+    stopExplorerResize?.();
 
     const move = (moveEvent: PointerEvent) => {
       const delta = moveEvent.clientX - startX;
@@ -142,15 +145,21 @@ export const AppShell: Component<AppShellProps> = (props) => {
     const stop = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', stop);
+      document.removeEventListener('pointercancel', stop);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      if (stopExplorerResize === stop) stopExplorerResize = undefined;
     };
 
+    stopExplorerResize = stop;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', stop);
+    document.addEventListener('pointercancel', stop);
   };
+
+  onCleanup(() => stopExplorerResize?.());
 
   const resizeExplorerByKeyboard = (event: KeyboardEvent) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;

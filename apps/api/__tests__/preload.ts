@@ -17,6 +17,7 @@ const LOGGER_MODULE_PATH = resolve(import.meta.dir, '../src/shared/logger.ts');
 mock.module(ENV_MODULE_PATH, () => ({
   ENV: {
     DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+    DB_POOL_MAX: 10,
     PORT: 3001,
     NODE_ENV: 'test',
     FRONTEND_URL: 'http://localhost:3002',
@@ -30,6 +31,7 @@ mock.module(ENV_MODULE_PATH, () => ({
     GEMINI_API_KEY: 'test-key',
     GEMINI_MODEL: 'gemini-3-flash-preview',
     GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+    GEMINI_REQUEST_TIMEOUT_MS: 60_000,
   },
 }));
 
@@ -37,6 +39,7 @@ mock.module(ENV_MODULE_PATH, () => ({
 mock.module('../config/env', () => ({
   ENV: {
     DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+    DB_POOL_MAX: 10,
     PORT: 3001,
     NODE_ENV: 'test',
     FRONTEND_URL: 'http://localhost:3002',
@@ -50,6 +53,7 @@ mock.module('../config/env', () => ({
     GEMINI_API_KEY: 'test-key',
     GEMINI_MODEL: 'gemini-3-flash-preview',
     GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+    GEMINI_REQUEST_TIMEOUT_MS: 60_000,
   },
 }));
 

@@ -11,7 +11,6 @@ const cleanupLogger = logger.child({ module: 'review-logs-cleanup' });
 /**
  * Delete review_logs older than RETENTION_DAYS.
  * Runs in batches to minimize lock contention and memory usage.
- * Index idx_rl_user_reviewed_at ensures efficient range scan.
  */
 export async function cleanupOldReviewLogs(): Promise<number> {
   const cutoff = new Date(

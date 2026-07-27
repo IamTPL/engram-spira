@@ -17,8 +17,18 @@ function authForRoutes() {
     }
 
     return {
-      currentUser: { id: 'user-1', email: 'test@example.com' },
-      currentSession: { id: 'session-1', userId: 'user-1' },
+      currentUser: {
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: null,
+        avatarUrl: null,
+        emailVerified: true,
+      },
+      currentSession: {
+        id: 'session-1',
+        userId: 'user-1',
+        expiresAt: new Date('2026-07-01T00:00:00.000Z'),
+      },
     };
   });
 }
@@ -236,7 +246,12 @@ function appWithExperience(services = routeServices()) {
       set.status = 500;
       return { error: error instanceof Error ? error.message : String(error) };
     })
-    .use(createExperienceRoutes(services as any, authForRoutes()));
+    .use(
+      createExperienceRoutes(
+        services as any,
+        authForRoutes() as Parameters<typeof createExperienceRoutes>[1],
+      ),
+    );
 }
 
 async function json(response: Response) {

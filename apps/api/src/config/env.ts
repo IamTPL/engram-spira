@@ -1,5 +1,14 @@
+const parsedDbPoolMax = Number.parseInt(process.env.DB_POOL_MAX ?? '', 10);
+const parsedGeminiRequestTimeoutMs = Number.parseInt(
+  process.env.GEMINI_REQUEST_TIMEOUT_MS ?? '',
+  10,
+);
+
 const ENV = {
   DATABASE_URL: process.env.DATABASE_URL!,
+  DB_POOL_MAX: Number.isNaN(parsedDbPoolMax)
+    ? 10
+    : Math.max(1, parsedDbPoolMax),
   PORT: Number(process.env.PORT) || 3001,
   NODE_ENV:
     (process.env.NODE_ENV as 'development' | 'production') || 'development',
@@ -23,6 +32,9 @@ const ENV = {
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
   GEMINI_EMBEDDING_MODEL:
     process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001',
+  GEMINI_REQUEST_TIMEOUT_MS: Number.isNaN(parsedGeminiRequestTimeoutMs)
+    ? 60_000
+    : Math.max(1_000, parsedGeminiRequestTimeoutMs),
 } as const;
 
 // Validate required env vars at startup

@@ -84,6 +84,7 @@ export function mockEnv(overrides: Record<string, any> = {}) {
   mock.module('../../config/env', () => ({
     ENV: {
       DATABASE_URL: 'postgresql://test',
+      DB_POOL_MAX: 10,
       PORT: 3001,
       NODE_ENV: 'development',
       FRONTEND_URL: 'http://localhost:3002',
@@ -97,6 +98,7 @@ export function mockEnv(overrides: Record<string, any> = {}) {
       GEMINI_API_KEY: 'test-key',
       GEMINI_MODEL: 'gemini-3-flash-preview',
       GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+      GEMINI_REQUEST_TIMEOUT_MS: 60_000,
       ...overrides,
     },
   }));

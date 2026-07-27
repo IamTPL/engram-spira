@@ -43,36 +43,36 @@ const defaultExperienceRouteServices: ExperienceRouteServices = {
 
 export function createExperienceRoutes(
   services: ExperienceRouteServices = defaultExperienceRouteServices,
-  authPlugin: any = requireAuth,
+  authPlugin: typeof requireAuth = requireAuth,
 ) {
   return new Elysia({ name: 'experience-routes' })
     .use(authPlugin)
-    .get('/dashboard/command-center', ({ currentUser }: any) =>
+    .get('/dashboard/command-center', ({ currentUser }) =>
       services.getCommandCenter(currentUser.id),
     )
-    .get('/study/queue', ({ currentUser, query }: any) =>
+    .get('/study/queue', ({ currentUser, query }) =>
       services.getStudyQueue(currentUser.id, parseStudyQueueQuery(query)),
     )
-    .get('/library/explorer', ({ currentUser }: any) =>
+    .get('/library/explorer', ({ currentUser }) =>
       services.getLibraryExplorer(currentUser.id),
     )
-    .get('/decks/:id/workspace', ({ currentUser, params, query }: any) =>
+    .get('/decks/:id/workspace', ({ currentUser, params, query }) =>
       services.getDeckWorkspace(
         currentUser.id,
         params.id,
         parseDeckWorkspaceQuery(query),
       ),
     )
-    .get('/insights/overview', ({ currentUser }: any) =>
+    .get('/insights/overview', ({ currentUser }) =>
       services.getInsightsOverview(currentUser.id),
     )
-    .get('/command/search', ({ currentUser, query }: any) =>
+    .get('/command/search', ({ currentUser, query }) =>
       services.searchCommands(currentUser.id, parseCommandSearchQuery(query)),
     )
-    .post('/create/preview', ({ currentUser, body }: any) =>
+    .post('/create/preview', ({ currentUser, body }) =>
       services.createPreview(currentUser.id, body as CreatePreviewRequest),
     )
-    .post('/create/commit', ({ currentUser, body }: any) =>
+    .post('/create/commit', ({ currentUser, body }) =>
       services.commitCreatePreview(currentUser.id, body as CreateCommitRequest),
     );
 }

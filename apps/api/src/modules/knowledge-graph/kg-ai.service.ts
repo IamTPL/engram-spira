@@ -4,9 +4,8 @@ import { cards, decks, cardFieldValues, dismissedSuggestions } from '../../db/sc
 import { logger } from '../../shared/logger';
 import { NotFoundError } from '../../shared/errors';
 import {
-  cosineSimilarity,
   getCardLabels,
-  getCardText,
+  getCardTexts,
 } from '../../shared/embedding-utils';
 import { verifyRelationships } from './relationship-verifier';
 
@@ -62,22 +61,34 @@ export async function detectRelationships(
     WHERE c.deck_id = ${deckId}
       AND cfv.embedding IS NOT NULL
     ORDER BY cfv.card_id, cfv.id
+    LIMIT 500
   `);
 
   if (rows.length < 2) return { suggestions: [] };
 
-  // Safety limit + parse vectors upfront (once)
-  const parsed = rows.slice(0, 500).map((r) => ({
-    cardId: r.card_id,
-    vec: JSON.parse(r.embedding) as number[],
-  }));
+  // Parse vectors and cache their norms once instead of once per pair.
+  const parsed = rows.map((row) => {
+    const vec = JSON.parse(row.embedding) as number[];
+    let squaredNorm = 0;
+    for (const value of vec) squaredNorm += value * value;
+    return {
+      cardId: row.card_id,
+      vec,
+      norm: Math.sqrt(squaredNorm),
+    };
+  });
 
   // Half-matrix: only i < j (symmetric similarity, no need for full N²)
   const rawCandidates: { src: string; tgt: string; sim: number }[] = [];
 
   for (let i = 0; i < parsed.length; i++) {
     for (let j = i + 1; j < parsed.length; j++) {
-      const sim = cosineSimilarity(parsed[i].vec, parsed[j].vec);
+      let dot = 0;
+      for (let k = 0; k < parsed[i].vec.length; k++) {
+        dot += parsed[i].vec[k] * parsed[j].vec[k];
+      }
+      const denominator = parsed[i].norm * parsed[j].norm;
+      const sim = denominator === 0 ? 0 : dot / denominator;
 
       if (sim >= threshold) {
         const [a, b] =
@@ -96,17 +107,19 @@ export async function detectRelationships(
   const topCandidates = rawCandidates.slice(0, maxSuggestions);
 
   // Filter out already-linked pairs
-  const allCardIds = rows.map((r) => r.card_id);
+  const candidateCardIds = [
+    ...new Set(topCandidates.flatMap((candidate) => [candidate.src, candidate.tgt])),
+  ];
 
   let existingLinks: { source_card_id: string; target_card_id: string }[] = [];
-  if (allCardIds.length > 0) {
+  if (candidateCardIds.length > 0) {
     const { pgClient } = await import('../../db');
     existingLinks = await pgClient<
       { source_card_id: string; target_card_id: string }[]
     >`
       SELECT source_card_id, target_card_id FROM card_links
-      WHERE source_card_id = ANY(${allCardIds}::uuid[])
-         OR target_card_id = ANY(${allCardIds}::uuid[])
+      WHERE source_card_id = ANY(${candidateCardIds}::uuid[])
+         OR target_card_id = ANY(${candidateCardIds}::uuid[])
     `;
   }
 
@@ -171,21 +184,13 @@ export async function detectRelationships(
 
   if (filteredCandidates.length === 0) return { suggestions: [] };
 
-  // Get card labels for display
-  const labels = await getCardLabels(allCardIds);
-
   // ── LLM Verification Step ──────────────────────────────────────────────────
   // Fetch card texts for each unique card in candidates
-  const candidateCardIds = [
+  const filteredCardIds = [
     ...new Set(filteredCandidates.flatMap((c) => [c.src, c.tgt])),
   ];
-  const cardTexts = new Map<string, string>();
-  await Promise.all(
-    candidateCardIds.map(async (id) => {
-      const text = await getCardText(id);
-      if (text) cardTexts.set(id, text);
-    }),
-  );
+  const labels = await getCardLabels(filteredCardIds);
+  const cardTexts = await getCardTexts(filteredCardIds);
 
   // Call LLM to verify each candidate
   const verificationInput = filteredCandidates

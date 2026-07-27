@@ -22,13 +22,18 @@ import { getGenAI, checkAiRateLimit } from '../../config/ai';
 import { buildVocabPrompt } from './vocab.prompt';
 import { buildQAPrompt } from './qa.prompt';
 import { ENV } from '../../config/env';
-import { enqueueEmbedding } from '../embedding/embedding.service';
+import {
+  embedCardBatch,
+  enqueueEmbedding,
+} from '../embedding/embedding.service';
 
 // ── AI timing constants ────────────────────────────────────────────────────
 // Maximum wall-clock time for the entire streaming generation.
 // Streaming keeps the connection active throughout, so this is a true
 // safety net (e.g. Gemini hangs mid-stream) rather than an idle timeout.
 const AI_STREAM_TIMEOUT_MS = 3 * 60 * 1_000; // 3 minutes
+const CARD_INSERT_BATCH_SIZE = 1_000;
+const FIELD_VALUE_INSERT_BATCH_SIZE = 5_000;
 
 export type BackLanguage = 'vi' | 'en';
 
@@ -301,45 +306,61 @@ export async function saveGeneratedCards(
 
     let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
 
-    const created = [];
-    for (const card of cardsToSave) {
-      const [newCard] = await tx
+    const insertedCards: (typeof cards.$inferSelect)[] = [];
+    for (
+      let offset = 0;
+      offset < cardsToSave.length;
+      offset += CARD_INSERT_BATCH_SIZE
+    ) {
+      const chunk = cardsToSave.slice(offset, offset + CARD_INSERT_BATCH_SIZE);
+      const inserted = await tx
         .insert(cards)
-        .values({ deckId: job.deckId, sortOrder: nextOrder++ })
+        .values(
+          chunk.map(() => ({
+            deckId: job.deckId,
+            sortOrder: nextOrder++,
+          })),
+        )
         .returning();
+      insertedCards.push(...inserted);
+    }
+    insertedCards.sort((a, b) => a.sortOrder - b.sortOrder);
 
+    const allFieldValues: {
+      cardId: string;
+      templateFieldId: string;
+      value: string;
+    }[] = [];
+    const created = insertedCards.map((newCard, index) => {
+      const card = cardsToSave[index];
       if (mode === 'vocabulary') {
         // Save all vocab fields by name lookup
         const wordFieldId = fieldMap.get('word') ?? frontFieldId;
         const defFieldId = fieldMap.get('definition') ?? backFieldId;
-        const fieldValues: {
-          cardId: string;
-          templateFieldId: string;
-          value: string;
-        }[] = [
+        allFieldValues.push(
           {
             cardId: newCard.id,
             templateFieldId: wordFieldId,
             value: card.front,
           },
           { cardId: newCard.id, templateFieldId: defFieldId, value: card.back },
-        ];
+        );
         if (card.ipa && fieldMap.has('ipa')) {
-          fieldValues.push({
+          allFieldValues.push({
             cardId: newCard.id,
             templateFieldId: fieldMap.get('ipa')!,
             value: card.ipa,
           });
         }
         if (card.wordType && fieldMap.has('type')) {
-          fieldValues.push({
+          allFieldValues.push({
             cardId: newCard.id,
             templateFieldId: fieldMap.get('type')!,
             value: card.wordType,
           });
         }
         if (card.examples && fieldMap.has('examples')) {
-          fieldValues.push({
+          allFieldValues.push({
             cardId: newCard.id,
             templateFieldId: fieldMap.get('examples')!,
             value:
@@ -348,10 +369,9 @@ export async function saveGeneratedCards(
                 : JSON.stringify(card.examples),
           });
         }
-        await tx.insert(cardFieldValues).values(fieldValues);
       } else {
         // Q&A: simple front → first front field, back → first back field
-        await tx.insert(cardFieldValues).values([
+        allFieldValues.push(
           {
             cardId: newCard.id,
             templateFieldId: frontFieldId,
@@ -362,10 +382,22 @@ export async function saveGeneratedCards(
             templateFieldId: backFieldId,
             value: card.back,
           },
-        ]);
+        );
       }
 
-      created.push({ id: newCard.id, front: card.front, back: card.back });
+      return { id: newCard.id, front: card.front, back: card.back };
+    });
+
+    for (
+      let offset = 0;
+      offset < allFieldValues.length;
+      offset += FIELD_VALUE_INSERT_BATCH_SIZE
+    ) {
+      await tx
+        .insert(cardFieldValues)
+        .values(
+          allFieldValues.slice(offset, offset + FIELD_VALUE_INSERT_BATCH_SIZE),
+        );
     }
     return created;
   });
@@ -376,12 +408,11 @@ export async function saveGeneratedCards(
     .set({ status: 'saved' })
     .where(eq(aiGenerationJobs.id, jobId));
 
-  // Enqueue embedding generation for all newly created cards (fire-and-forget).
-  // This was previously missing — AI-generated cards bypassed cards.service.ts
-  // which contains the enqueueEmbedding hook, leaving all embeddings NULL.
-  for (const card of createdCards) {
-    enqueueEmbedding(card.id);
-  }
+  // Batch first (one provider roundtrip), with bounded individual fallback.
+  const createdCardIds = createdCards.map((card) => card.id);
+  void embedCardBatch(createdCardIds, true).catch(() => {
+    for (const cardId of createdCardIds) enqueueEmbedding(cardId);
+  });
 
   return { saved: createdCards.length, cards: createdCards };
 }

@@ -270,6 +270,59 @@ describe('create preview service', () => {
     expect(stored?.cards[0].fields.Front).toBe('Photosynthesis');
   });
 
+  test('duplicate candidates keep exact matches first and card IDs ordered', async () => {
+    const candidates = [
+      {
+        id: 'z-exact',
+        deckId: 'deck-1',
+        title: 'Alpha',
+        fields: { Front: 'Alpha', Back: '' },
+      },
+      {
+        id: 'c-partial',
+        deckId: 'deck-1',
+        title: 'Alpha Beta',
+        fields: { Front: 'Alpha Beta', Back: '' },
+      },
+      {
+        id: 'a-exact',
+        deckId: 'deck-1',
+        title: 'Alpha',
+        fields: { Front: 'Alpha', Back: '' },
+      },
+      {
+        id: 'b-partial',
+        deckId: 'deck-1',
+        title: 'Al',
+        fields: { Front: 'Al', Back: '' },
+      },
+    ];
+    const preview = await createPreview(
+      'user-1',
+      {
+        source: 'manual',
+        targetDeckId: 'deck-1',
+        templateId: 'template-1',
+        payload: { fields: { Front: 'Alpha', Back: 'Answer' } },
+      },
+      services({
+        listCardsInDeck: async () => candidates,
+      }),
+    );
+
+    expect(
+      preview.cards[0].duplicateCandidates.map(({ cardId, similarity }) => ({
+        cardId,
+        similarity,
+      })),
+    ).toEqual([
+      { cardId: 'a-exact', similarity: 1 },
+      { cardId: 'z-exact', similarity: 1 },
+      { cardId: 'b-partial', similarity: 0.85 },
+      { cardId: 'c-partial', similarity: 0.85 },
+    ]);
+  });
+
   test('merge fill-only semantics', async () => {
     const { preview, svc } = await validPreview();
 
@@ -335,6 +388,10 @@ describe('create preview service', () => {
     expect(first).toEqual(replay);
     expect(first).toEqual(expiredReplay);
     expect(svc.created).toHaveLength(1);
+    const stored = svc.store.get(preview.previewId);
+    expect(stored?.kind).toBe('commit');
+    expect(stored && 'cards' in stored).toBe(false);
+    expect(stored?.commitRecords.get('same-key')?.fingerprint).toHaveLength(43);
   });
 
   test('same key different payload returns conflict error', async () => {
@@ -592,6 +649,19 @@ describe('create preview service', () => {
         { ...svc, store },
       ),
     ).rejects.toThrow(new ConflictError('Preview expired'));
+    expect(store.get(preview.previewId)).toBeUndefined();
+  });
+
+  test('creating a preview prunes untouched previews after their TTL', async () => {
+    let now = new Date('2026-06-28T10:00:00.000Z');
+    const svc = services({ now: () => now });
+    const first = await validPreview(svc);
+
+    now = new Date('2026-06-28T11:00:00.000Z');
+    const second = await validPreview(svc);
+
+    expect(svc.store.get(first.preview.previewId)).toBeUndefined();
+    expect(svc.store.get(second.preview.previewId)?.kind).toBe('active');
   });
 
   test('expired preview without matching successful idempotency replay returns Preview expired', async () => {

@@ -1,7 +1,11 @@
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { classes } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
+import {
+  buildSortOrderAssignments,
+  REORDER_UPDATE_BATCH_SIZE,
+} from '../../shared/reorder';
 
 export async function listByUser(userId: string) {
   return db
@@ -67,19 +71,32 @@ export async function reorder(userId: string, classIds: string[]) {
     }
   }
 
-  const indexMap = new Map(classIds.map((id, i) => [id, i]));
-  let nextOrder = classIds.length;
+  const assignments = buildSortOrderAssignments(userClasses, classIds);
 
   await db.transaction(async (tx) => {
-    const updates = userClasses.map((c) => {
-      let newOrder = indexMap.get(c.id);
-      if (newOrder === undefined) {
-        newOrder = nextOrder++;
-      }
-      return tx.update(classes).set({ sortOrder: newOrder }).where(eq(classes.id, c.id));
-    });
-    
-    await Promise.all(updates);
+    for (
+      let offset = 0;
+      offset < assignments.length;
+      offset += REORDER_UPDATE_BATCH_SIZE
+    ) {
+      const chunk = assignments.slice(
+        offset,
+        offset + REORDER_UPDATE_BATCH_SIZE,
+      );
+      const values = sql.join(
+        chunk.map(
+          (assignment) =>
+            sql`(${assignment.id}::uuid, ${assignment.sortOrder}::integer)`,
+        ),
+        sql.raw(', '),
+      );
+      await tx.execute(sql`
+        UPDATE classes AS target
+        SET sort_order = updates.sort_order
+        FROM (VALUES ${values}) AS updates(id, sort_order)
+        WHERE target.id = updates.id
+      `);
+    }
   });
 
   return { reordered: classIds.length };

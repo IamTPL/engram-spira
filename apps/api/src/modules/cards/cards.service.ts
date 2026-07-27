@@ -2,7 +2,14 @@ import { eq, and, inArray, desc, sql, count, asc, gt } from 'drizzle-orm';
 import { db } from '../../db';
 import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
+import {
+  buildSortOrderAssignments,
+  REORDER_UPDATE_BATCH_SIZE,
+} from '../../shared/reorder';
 import { enqueueEmbedding, embedCardBatch } from '../embedding/embedding.service';
+
+const CARD_INSERT_BATCH_SIZE = 1_000;
+const FIELD_VALUE_INSERT_BATCH_SIZE = 5_000;
 
 // Ownership check: decks.userId is denormalized — no JOIN chain needed
 async function verifyDeckOwnership(deckId: string, userId: string) {
@@ -301,9 +308,7 @@ export async function createBatch(
 ) {
   await verifyDeckOwnership(deckId, userId);
 
-  const createdCards: (typeof cards.$inferSelect)[] = [];
-
-  await db.transaction(async (tx) => {
+  const createdCards = await db.transaction(async (tx) => {
     // Lock deck row to serialize sort order assignment per deck.
     await tx.execute(sql`SELECT id FROM decks WHERE id = ${deckId} FOR UPDATE`);
 
@@ -315,29 +320,50 @@ export async function createBatch(
       .limit(1);
 
     let nextOrder = existing.length > 0 ? existing[0].sortOrder + 1 : 0;
+    if (cardsData.length === 0) return [];
 
-    for (const cardData of cardsData) {
-      const [card] = await tx
+    const insertedCards: (typeof cards.$inferSelect)[] = [];
+    for (
+      let offset = 0;
+      offset < cardsData.length;
+      offset += CARD_INSERT_BATCH_SIZE
+    ) {
+      const chunk = cardsData.slice(offset, offset + CARD_INSERT_BATCH_SIZE);
+      const inserted = await tx
         .insert(cards)
-        .values({ deckId, sortOrder: nextOrder++ })
+        .values(chunk.map(() => ({ deckId, sortOrder: nextOrder++ })))
         .returning();
-
-      if (cardData.fieldValues.length > 0) {
-        await tx.insert(cardFieldValues).values(
-          cardData.fieldValues.map((fv) => ({
-            cardId: card.id,
-            templateFieldId: fv.templateFieldId,
-            value: fv.value,
-          })),
-        );
-      }
-
-      createdCards.push(card);
+      insertedCards.push(...inserted);
     }
+    insertedCards.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    const allFieldValues = insertedCards.flatMap((card, index) =>
+      cardsData[index].fieldValues.map((fv) => ({
+        cardId: card.id,
+        templateFieldId: fv.templateFieldId,
+        value: fv.value,
+      })),
+    );
+    for (
+      let offset = 0;
+      offset < allFieldValues.length;
+      offset += FIELD_VALUE_INSERT_BATCH_SIZE
+    ) {
+      await tx
+        .insert(cardFieldValues)
+        .values(
+          allFieldValues.slice(offset, offset + FIELD_VALUE_INSERT_BATCH_SIZE),
+        );
+    }
+
+    return insertedCards;
   });
 
   // Fire-and-forget: batch embed all new cards (single API call)
-  embedCardBatch(createdCards.map((c) => c.id)).catch((_err: unknown) =>
+  embedCardBatch(
+    createdCards.map((c) => c.id),
+    true,
+  ).catch((_err: unknown) =>
     // Fallback to individual embedding if batch fails
     createdCards.forEach((card) => enqueueEmbedding(card.id)),
   );
@@ -370,22 +396,32 @@ export async function reorder(
     }
   }
 
-  const indexMap = new Map(cardIds.map((id, i) => [id, i]));
-  let nextOrder = cardIds.length;
+  const assignments = buildSortOrderAssignments(deckCards, cardIds);
 
   await db.transaction(async (tx) => {
-    const updates = deckCards.map((c) => {
-      let newOrder = indexMap.get(c.id);
-      if (newOrder === undefined) {
-        newOrder = nextOrder++;
-      }
-      return tx
-        .update(cards)
-        .set({ sortOrder: newOrder })
-        .where(eq(cards.id, c.id));
-    });
-
-    await Promise.all(updates);
+    for (
+      let offset = 0;
+      offset < assignments.length;
+      offset += REORDER_UPDATE_BATCH_SIZE
+    ) {
+      const chunk = assignments.slice(
+        offset,
+        offset + REORDER_UPDATE_BATCH_SIZE,
+      );
+      const values = sql.join(
+        chunk.map(
+          (assignment) =>
+            sql`(${assignment.id}::uuid, ${assignment.sortOrder}::integer)`,
+        ),
+        sql.raw(', '),
+      );
+      await tx.execute(sql`
+        UPDATE cards AS target
+        SET sort_order = updates.sort_order
+        FROM (VALUES ${values}) AS updates(id, sort_order)
+        WHERE target.id = updates.id
+      `);
+    }
   });
 
   return { reordered: cardIds.length };

@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { resetMocks, setMockReturn, setMockReturnSequence } from '../../helpers/db-mock';
+import {
+  mockDbChain,
+  resetMocks,
+  setMockReturn,
+  setMockReturnSequence,
+} from '../../helpers/db-mock';
 import { createCard, createDeck } from '../../helpers/fixtures';
 
 // Mock embedding service (fire-and-forget calls)
@@ -41,6 +46,46 @@ describe('cards.service', () => {
       await expect(
         cardsService.create('deck-1', 'wrong-user', { fieldValues: [] }),
       ).rejects.toThrow('Deck not found');
+    });
+  });
+
+  describe('createBatch', () => {
+    test('batch inserts cards and field values while preserving input order', async () => {
+      const deck = createDeck();
+      setMockReturnSequence([
+        [deck],
+        [],
+        [{ sortOrder: 4 }],
+        [
+          { id: 'card-2', deckId: deck.id, sortOrder: 6 },
+          { id: 'card-1', deckId: deck.id, sortOrder: 5 },
+        ],
+        [],
+      ]);
+
+      const result = await cardsService.createBatch(deck.id, 'user-1', [
+        {
+          fieldValues: [{ templateFieldId: 'field-1', value: 'first' }],
+        },
+        {
+          fieldValues: [{ templateFieldId: 'field-1', value: 'second' }],
+        },
+      ]);
+
+      expect(result.cards.map((card) => card.id)).toEqual(['card-1', 'card-2']);
+      expect(mockDbChain.insert).toHaveBeenCalledTimes(2);
+      expect(mockDbChain.values.mock.calls[1]?.[0]).toEqual([
+        {
+          cardId: 'card-1',
+          templateFieldId: 'field-1',
+          value: 'first',
+        },
+        {
+          cardId: 'card-2',
+          templateFieldId: 'field-1',
+          value: 'second',
+        },
+      ]);
     });
   });
 

@@ -49,13 +49,18 @@ export async function getStudyQueue(
   const limit = Math.min(Math.max(normalized.limit ?? 50, 1), 200);
   const rows = await loaders.loadQueueRows(userId, { ...normalized, limit }, scope);
   const cards = rows.map((row) => toQueueCard(row, normalized.mode));
+  const sortOrderByCard = new Map<string, number>();
+  for (const row of rows) {
+    if (!sortOrderByCard.has(row.id)) {
+      sortOrderByCard.set(row.id, row.sortOrder);
+    }
+  }
 
   cards.sort((a, b) => {
     const reasonDiff = reasonRank(a.reason) - reasonRank(b.reason);
     if (reasonDiff !== 0) return reasonDiff;
-    const aRow = rows.find((row) => row.id === a.id);
-    const bRow = rows.find((row) => row.id === b.id);
-    const orderDiff = (aRow?.sortOrder ?? 0) - (bRow?.sortOrder ?? 0);
+    const orderDiff =
+      (sortOrderByCard.get(a.id) ?? 0) - (sortOrderByCard.get(b.id) ?? 0);
     if (orderDiff !== 0) return orderDiff;
     return a.id.localeCompare(b.id);
   });

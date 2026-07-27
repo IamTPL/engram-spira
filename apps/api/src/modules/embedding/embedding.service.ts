@@ -2,11 +2,23 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { sql, eq, inArray } from 'drizzle-orm';
 import { db, pgClient } from '../../db';
 import { cardFieldValues, templateFields } from '../../db/schema';
-import { getCardText } from '../../shared/embedding-utils';
+import { getCardText, getCardTexts } from '../../shared/embedding-utils';
+import {
+  createCoalescingEnqueuer,
+  createConcurrencyLimiter,
+} from '../../shared/concurrency';
 import { ENV } from '../../config/env';
 import { logger } from '../../shared/logger';
 
 const embLogger = logger.child({ module: 'embedding' });
+const MAX_CONCURRENT_CARD_EMBEDDINGS = 4;
+const MAX_CONCURRENT_GEMINI_EMBEDDING_REQUESTS = 6;
+const runWithCardEmbeddingSlot = createConcurrencyLimiter(
+  MAX_CONCURRENT_CARD_EMBEDDINGS,
+);
+const runWithGeminiEmbeddingSlot = createConcurrencyLimiter(
+  MAX_CONCURRENT_GEMINI_EMBEDDING_REQUESTS,
+);
 
 /** Output dimension for embeddings — 768d is the sweet spot for accuracy vs performance */
 const EMBEDDING_DIMENSIONS = 768;
@@ -24,6 +36,19 @@ function getGenAI(): GoogleGenerativeAI {
   return _genAI;
 }
 
+function createGeminiRequestSignal() {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    ENV.GEMINI_REQUEST_TIMEOUT_MS,
+  );
+  timeout.unref();
+  return {
+    signal: controller.signal,
+    dispose: () => clearTimeout(timeout),
+  };
+}
+
 // ── Core embedding generation ────────────────────────────────────────────────
 
 /**
@@ -34,11 +59,21 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const model = getGenAI().getGenerativeModel({
     model: ENV.GEMINI_EMBEDDING_MODEL,
   });
-  const result = await model.embedContent({
-    content: { parts: [{ text }], role: 'user' },
-    outputDimensionality: EMBEDDING_DIMENSIONS,
-  } as any);
-  return result.embedding.values;
+  return runWithGeminiEmbeddingSlot(async () => {
+    const requestSignal = createGeminiRequestSignal();
+    try {
+      const result = await model.embedContent(
+        {
+          content: { parts: [{ text }], role: 'user' },
+          outputDimensionality: EMBEDDING_DIMENSIONS,
+        } as any,
+        { signal: requestSignal.signal },
+      );
+      return result.embedding.values;
+    } finally {
+      requestSignal.dispose();
+    }
+  });
 }
 
 /**
@@ -55,13 +90,23 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const model = getGenAI().getGenerativeModel({
     model: ENV.GEMINI_EMBEDDING_MODEL,
   });
-  const result = await model.batchEmbedContents({
-    requests: texts.map((text) => ({
-      content: { parts: [{ text }], role: 'user' },
-      outputDimensionality: EMBEDDING_DIMENSIONS,
-    } as any)),
+  return runWithGeminiEmbeddingSlot(async () => {
+    const requestSignal = createGeminiRequestSignal();
+    try {
+      const result = await model.batchEmbedContents(
+        {
+          requests: texts.map((text) => ({
+            content: { parts: [{ text }], role: 'user' },
+            outputDimensionality: EMBEDDING_DIMENSIONS,
+          } as any)),
+        },
+        { signal: requestSignal.signal },
+      );
+      return result.embeddings.map((e) => e.values);
+    } finally {
+      requestSignal.dispose();
+    }
   });
-  return result.embeddings.map((e) => e.values);
 }
 
 // ── Card embedding helpers ───────────────────────────────────────────────────
@@ -70,8 +115,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
 /**
  * Generate and store embedding for a single card.
- * Updates the FIRST card_field_value row (typically "front") with the embedding.
- * This is the primary searchable vector for the card.
+ * Stores one searchable vector for the card.
  */
 export async function embedCard(cardId: string): Promise<boolean> {
   const text = await getCardText(cardId);
@@ -79,32 +123,25 @@ export async function embedCard(cardId: string): Promise<boolean> {
 
   const embedding = await generateEmbedding(text);
 
-  // Store embedding on the first field value row of this card
-  // (pgvector column on card_field_values)
-  const [firstField] = await db
-    .select({ id: cardFieldValues.id })
-    .from(cardFieldValues)
-    .where(eq(cardFieldValues.cardId, cardId))
-    .limit(1);
-
-  if (!firstField) return false;
-
-  await storeEmbedding(firstField.id, embedding);
-
-  return true;
+  return storeCardEmbedding(cardId, embedding);
 }
+
+const enqueueCardEmbedding = createCoalescingEnqueuer(
+  (cardId: string) => runWithCardEmbeddingSlot(() => embedCard(cardId)),
+  (cardId, err) => {
+    embLogger.warn(
+      { cardId, err: err instanceof Error ? err.message : String(err) },
+      'Failed to generate embedding for card',
+    );
+  },
+);
 
 /**
  * Enqueue a card for async embedding. Fire-and-forget pattern.
  * Logs errors but never throws — card creation must not be blocked.
  */
 export function enqueueEmbedding(cardId: string): void {
-  embedCard(cardId).catch((err) =>
-    embLogger.warn(
-      { cardId, err: err instanceof Error ? err.message : String(err) },
-      'Failed to generate embedding for card',
-    ),
-  );
+  enqueueCardEmbedding(cardId);
 }
 
 /**
@@ -112,13 +149,17 @@ export function enqueueEmbedding(cardId: string): void {
  * Much more efficient than calling embedCard() N times sequentially.
  * Uses generateEmbeddings() for a single API roundtrip.
  */
-export async function embedCardBatch(cardIds: string[]): Promise<number> {
+export async function embedCardBatch(
+  cardIds: string[],
+  onlyIfMissing = false,
+): Promise<number> {
   if (cardIds.length === 0) return 0;
 
-  // Fetch text for all cards
+  // Fetch all card texts in one query, then restore caller order and duplicates.
+  const textByCard = await getCardTexts(cardIds);
   const cardTexts: { cardId: string; text: string }[] = [];
   for (const id of cardIds) {
-    const text = await getCardText(id);
+    const text = textByCard.get(id);
     if (text) cardTexts.push({ cardId: id, text });
   }
 
@@ -127,18 +168,15 @@ export async function embedCardBatch(cardIds: string[]): Promise<number> {
   // Batch generate embeddings (single API call)
   const embeddings = await generateEmbeddings(cardTexts.map((c) => c.text));
 
-  // Store embeddings
   let stored = 0;
   for (let i = 0; i < cardTexts.length; i++) {
-    const cardId = cardTexts[i].cardId;
-    const [firstField] = await db
-      .select({ id: cardFieldValues.id })
-      .from(cardFieldValues)
-      .where(eq(cardFieldValues.cardId, cardId))
-      .limit(1);
-
-    if (firstField) {
-      await storeEmbedding(firstField.id, embeddings[i]);
+    if (
+      await storeCardEmbedding(
+        cardTexts[i].cardId,
+        embeddings[i],
+        onlyIfMissing,
+      )
+    ) {
       stored++;
     }
   }
@@ -159,36 +197,79 @@ export async function embedCardBatch(cardIds: string[]): Promise<number> {
  * Drizzle's sql.raw() chokes on 3072-dim vectors (~25KB),
  * so we build a minimal raw query string here.
  */
-async function storeEmbedding(cfvId: string, embedding: number[]): Promise<void> {
+async function storeCardEmbedding(
+  cardId: string,
+  embedding: number[],
+  onlyIfMissing = false,
+): Promise<boolean> {
   const vectorLiteral = `[${embedding.join(',')}]`;
   // Use postgres-js tagged template directly — bypasses Drizzle's query builder
   // which chokes on 3072-dim vector strings (~25KB).
   // postgres-js properly handles parameterized queries of any size.
-  await pgClient`
-    UPDATE card_field_values
+  const updated = await pgClient`
+    UPDATE card_field_values AS target
     SET embedding = ${vectorLiteral}::vector
-    WHERE id = ${cfvId}
+    WHERE target.id = (
+      SELECT candidate.id
+      FROM card_field_values AS candidate
+      WHERE candidate.card_id = ${cardId}
+      ORDER BY (candidate.embedding IS NOT NULL) DESC, candidate.id
+      LIMIT 1
+    )
+      AND (NOT ${onlyIfMissing} OR target.embedding IS NULL)
+      AND (
+        NOT ${onlyIfMissing}
+        OR NOT EXISTS (
+          SELECT 1
+          FROM card_field_values AS existing
+          WHERE existing.card_id = ${cardId}
+            AND existing.embedding IS NOT NULL
+        )
+      )
+    RETURNING target.id
   `;
+  return updated.length > 0;
 }
 
 // ── Batch backfill ───────────────────────────────────────────────────────────
 
 const BACKFILL_BATCH_SIZE = 50;
 const BACKFILL_YIELD_MS = 200;
+let activeBackfill: Promise<number> | null = null;
 
 /**
  * Backfill embeddings for all cards that don't have one yet.
  * Runs in chunked batches with yielding to avoid blocking the event loop.
  * Returns the count of newly embedded cards.
  */
-export async function backfillEmbeddings(): Promise<number> {
+export function backfillEmbeddings(): Promise<number> {
+  if (activeBackfill) return activeBackfill;
+
+  const promise = runBackfillEmbeddings().then(
+    (result) => {
+      if (activeBackfill === promise) activeBackfill = null;
+      return result;
+    },
+    (error) => {
+      if (activeBackfill === promise) activeBackfill = null;
+      throw error;
+    },
+  );
+  activeBackfill = promise;
+  return promise;
+}
+
+async function runBackfillEmbeddings(): Promise<number> {
   let totalEmbedded = 0;
+  let lastScannedCardId: string | null = null;
 
   while (true) {
     // Find cards that have NO embedding on any of their field value rows.
     // A card has multiple cfv rows (one per field); only one gets the vector.
     // We must skip cards that already have an embedding on ANY row.
-    const unembeddedCards = await db.execute<{ card_id: string }>(sql`
+    const unembeddedCards: { card_id: string }[] = await db.execute<{
+      card_id: string;
+    }>(sql`
       SELECT DISTINCT cfv.card_id
       FROM card_field_values cfv
       WHERE NOT EXISTS (
@@ -196,12 +277,19 @@ export async function backfillEmbeddings(): Promise<number> {
         WHERE cfv2.card_id = cfv.card_id
           AND cfv2.embedding IS NOT NULL
       )
+      ${
+        lastScannedCardId
+          ? sql`AND cfv.card_id > ${lastScannedCardId}::uuid`
+          : sql``
+      }
+      ORDER BY cfv.card_id
       LIMIT ${BACKFILL_BATCH_SIZE}
     `);
 
     if (unembeddedCards.length === 0) break;
 
-    const cardIds = unembeddedCards.map((r) => r.card_id);
+    const cardIds: string[] = unembeddedCards.map((r) => r.card_id);
+    lastScannedCardId = cardIds[cardIds.length - 1];
 
     // Fetch all text for these cards in parallel
     const allFields = await db
@@ -243,26 +331,22 @@ export async function backfillEmbeddings(): Promise<number> {
       }
     }
 
-    if (batchTexts.length === 0) break;
+    if (batchTexts.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, BACKFILL_YIELD_MS));
+      continue;
+    }
 
     try {
       // Batch generate embeddings in single API call
       const embeddings = await generateEmbeddings(batchTexts);
-
       // Store each embedding
       for (let i = 0; i < batchCardIds.length; i++) {
-        const [firstField] = await db
-          .select({ id: cardFieldValues.id })
-          .from(cardFieldValues)
-          .where(eq(cardFieldValues.cardId, batchCardIds[i]))
-          .limit(1);
-
-        if (firstField) {
-          await storeEmbedding(firstField.id, embeddings[i]);
+        if (
+          await storeCardEmbedding(batchCardIds[i], embeddings[i], true)
+        ) {
+          totalEmbedded++;
         }
       }
-
-      totalEmbedded += batchCardIds.length;
     } catch (err) {
       embLogger.error(
         { err: err instanceof Error ? err.message : String(err) },

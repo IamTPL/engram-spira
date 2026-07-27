@@ -96,6 +96,13 @@ export async function searchCommands(
     throw new ValidationError('Limit must be between 1 and 30');
   }
 
+  const includeActions = includeScope(query.scope, 'actions');
+  const includeCards = includeScope(query.scope, 'cards');
+  const includeDecks = includeScope(query.scope, 'decks');
+  const includeLibrary = includeScope(query.scope, 'library');
+  const includeDocs = includeScope(query.scope, 'docs');
+  const includeSettings = query.scope === undefined || query.scope === 'all';
+
   const [actions, cards, decks, folders, classes, docs, settings] =
     await Promise.all([
       loaders.loadActions(userId),
@@ -108,26 +115,17 @@ export async function searchCommands(
     ]);
 
   const groups: Record<CommandSearchResponse['groups'][number]['id'], RankedResult[]> = {
-    actions: includeScope(query.scope, 'actions')
-      ? rankActions(actions, q, query.currentRoute)
-      : [],
-    cards: includeScope(query.scope, 'cards')
+    actions: includeActions ? rankActions(actions, q, query.currentRoute) : [],
+    cards: includeCards
       ? rankCards(cards.filter((card) => matchesEntityScope(card, query)), q)
       : [],
-    decks: includeScope(query.scope, 'decks')
+    decks: includeDecks
       ? rankDecks(decks.filter((deck) => matchesEntityScope(deck, query)), q)
       : [],
-    folders: includeScope(query.scope, 'library')
-      ? rankFolders(folders, q)
-      : [],
-    classes: includeScope(query.scope, 'library')
-      ? rankClasses(classes, q)
-      : [],
-    docs: includeScope(query.scope, 'docs') ? rankStatic(docs, q, 'doc') : [],
-    settings:
-      query.scope === undefined || query.scope === 'all'
-        ? rankStatic(settings, q, 'setting')
-        : [],
+    folders: includeLibrary ? rankFolders(folders, q) : [],
+    classes: includeLibrary ? rankClasses(classes, q) : [],
+    docs: includeDocs ? rankStatic(docs, q, 'doc') : [],
+    settings: includeSettings ? rankStatic(settings, q, 'setting') : [],
   };
 
   let remaining = limit;
