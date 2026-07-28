@@ -1,22 +1,9 @@
 /**
- * AI Configuration — Google Gemini client + per-user rate limiting.
+ * AI Configuration — per-user rate limiting.
+ *
+ * Gemini client ownership lives in modules/ai/gemini-provider.ts.
  */
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { ENV } from './env';
 import { TooManyRequestsError } from '../shared/errors';
-
-let _genAI: GoogleGenerativeAI | null = null;
-
-/** Lazy-init Gemini client (only if key is configured). */
-export function getGenAI(): GoogleGenerativeAI {
-  if (!ENV.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not configured');
-  }
-  if (!_genAI) {
-    _genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-  }
-  return _genAI;
-}
 
 // ── Per-user rate limiting (in-memory, resets hourly) ──────────────────
 const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour

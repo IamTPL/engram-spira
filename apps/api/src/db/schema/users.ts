@@ -13,6 +13,10 @@ import { classes } from './classes';
 import { cardTemplates } from './card-templates';
 import { studyProgress } from './study-progress';
 import { emailVerificationOutbox } from './email-verification-outbox';
+import { lexemes } from './lexemes';
+import { senseRelations } from './sense-relations';
+import { kgRuns } from './kg-runs';
+import { kgRelationSuggestions } from './kg-relation-suggestions';
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -42,4 +46,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   cardTemplates: many(cardTemplates),
   studyProgress: many(studyProgress),
   emailVerificationOutbox: one(emailVerificationOutbox),
+  lexemes: many(lexemes),
+  senseRelations: many(senseRelations),
+  kgRuns: many(kgRuns),
+  kgRelationSuggestions: many(kgRelationSuggestions),
 }));

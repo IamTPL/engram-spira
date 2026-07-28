@@ -8,8 +8,9 @@ import {
   cardFieldValues,
   templateFields,
   studyProgress,
+  dismissedSuggestions,
 } from '../../db/schema';
-import { NotFoundError } from '../../shared/errors';
+import { NotFoundError, ValidationError } from '../../shared/errors';
 import { computeRetention, getCardLabels } from '../../shared/embedding-utils';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -35,6 +36,14 @@ export interface CardLink {
   createdAt: Date;
 }
 
+/**
+ * Canonicalize an undirected card pair. Callers for directed relationship types
+ * must retain their semantic source/target orientation instead.
+ */
+export function canonicalPair(a: string, b: string): [string, string] {
+  return a < b ? [a, b] : [b, a];
+}
+
 // ── Ownership verification ───────────────────────────────────────────────────
 
 async function verifyCardOwnership(cardId: string, userId: string) {
@@ -56,15 +65,50 @@ export async function createLink(
   targetCardId: string,
   linkType: 'related' = 'related',
 ): Promise<CardLink> {
+  if (sourceCardId === targetCardId) {
+    throw new ValidationError('A card cannot be linked to itself');
+  }
+
   // Verify ownership of both cards in parallel
   await Promise.all([
     verifyCardOwnership(sourceCardId, userId),
     verifyCardOwnership(targetCardId, userId),
   ]);
 
+  const [canonicalSourceCardId, canonicalTargetCardId] =
+    linkType === 'related'
+      ? canonicalPair(sourceCardId, targetCardId)
+      : [sourceCardId, targetCardId];
+
+  const [existingLegacyLink] = await db
+    .select()
+    .from(cardLinks)
+    .where(
+      and(
+        eq(cardLinks.linkType, 'related'),
+        or(
+          and(
+            eq(cardLinks.sourceCardId, canonicalSourceCardId),
+            eq(cardLinks.targetCardId, canonicalTargetCardId),
+          ),
+          and(
+            eq(cardLinks.sourceCardId, canonicalTargetCardId),
+            eq(cardLinks.targetCardId, canonicalSourceCardId),
+          ),
+        ),
+      ),
+    )
+    .limit(1);
+
+  if (existingLegacyLink) return existingLegacyLink;
+
   const [link] = await db
     .insert(cardLinks)
-    .values({ sourceCardId, targetCardId, linkType })
+    .values({
+      sourceCardId: canonicalSourceCardId,
+      targetCardId: canonicalTargetCardId,
+      linkType,
+    })
     .onConflictDoNothing()
     .returning();
 
@@ -75,8 +119,17 @@ export async function createLink(
       .from(cardLinks)
       .where(
         and(
-          eq(cardLinks.sourceCardId, sourceCardId),
-          eq(cardLinks.targetCardId, targetCardId),
+          eq(cardLinks.linkType, 'related'),
+          or(
+            and(
+              eq(cardLinks.sourceCardId, canonicalSourceCardId),
+              eq(cardLinks.targetCardId, canonicalTargetCardId),
+            ),
+            and(
+              eq(cardLinks.sourceCardId, canonicalTargetCardId),
+              eq(cardLinks.targetCardId, canonicalSourceCardId),
+            ),
+          ),
         ),
       )
       .limit(1);
@@ -84,6 +137,59 @@ export async function createLink(
   }
 
   return link;
+}
+
+export async function dismissSuggestion(
+  userId: string,
+  sourceCardId: string,
+  targetCardId: string,
+) {
+  if (sourceCardId === targetCardId) {
+    throw new ValidationError('A card cannot be dismissed against itself');
+  }
+
+  await Promise.all([
+    verifyCardOwnership(sourceCardId, userId),
+    verifyCardOwnership(targetCardId, userId),
+  ]);
+
+  const [canonicalSourceCardId, canonicalTargetCardId] = canonicalPair(
+    sourceCardId,
+    targetCardId,
+  );
+
+  const [existingDismissal] = await db
+    .select({ id: dismissedSuggestions.id })
+    .from(dismissedSuggestions)
+    .where(
+      and(
+        eq(dismissedSuggestions.userId, userId),
+        or(
+          and(
+            eq(dismissedSuggestions.sourceCardId, canonicalSourceCardId),
+            eq(dismissedSuggestions.targetCardId, canonicalTargetCardId),
+          ),
+          and(
+            eq(dismissedSuggestions.sourceCardId, canonicalTargetCardId),
+            eq(dismissedSuggestions.targetCardId, canonicalSourceCardId),
+          ),
+        ),
+      ),
+    )
+    .limit(1);
+
+  if (existingDismissal) return { dismissed: true };
+
+  await db
+    .insert(dismissedSuggestions)
+    .values({
+      userId,
+      sourceCardId: canonicalSourceCardId,
+      targetCardId: canonicalTargetCardId,
+    })
+    .onConflictDoNothing();
+
+  return { dismissed: true };
 }
 
 export async function deleteLink(userId: string, linkId: string) {

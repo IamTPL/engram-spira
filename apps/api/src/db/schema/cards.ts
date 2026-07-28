@@ -11,6 +11,9 @@ import { relations } from 'drizzle-orm';
 import { decks } from './decks';
 import { templateFields } from './card-templates';
 import { studyProgress } from './study-progress';
+import { cardSenses } from './card-senses';
+import { kgRelationSuggestions } from './kg-relation-suggestions';
+import { cardEmbeddingMetadata } from './card-embedding-metadata';
 
 export const cards = pgTable(
   'cards',
@@ -37,6 +40,14 @@ export const cardsRelations = relations(cards, ({ one, many }) => ({
   }),
   fieldValues: many(cardFieldValues),
   studyProgress: many(studyProgress),
+  senses: many(cardSenses),
+  sourceSuggestions: many(kgRelationSuggestions, {
+    relationName: 'suggestionSourceCard',
+  }),
+  targetSuggestions: many(kgRelationSuggestions, {
+    relationName: 'suggestionTargetCard',
+  }),
+  embeddingMetadata: one(cardEmbeddingMetadata),
 }));
 
 export const cardFieldValues = pgTable(

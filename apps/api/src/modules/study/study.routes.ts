@@ -8,6 +8,10 @@ import * as recommendationsService from './recommendations.service';
 import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
 import { db } from '../../db';
 import { users } from '../../db/schema';
+import {
+  parseStudyCardIds,
+  studyDeckQuerySchema,
+} from './study-cluster';
 
 const VALID_ACTIONS = Object.values(REVIEW_ACTIONS);
 const reviewActionSchema = t.Union(VALID_ACTIONS.map((a) => t.Literal(a)));
@@ -43,12 +47,21 @@ export const studyRoutes = new Elysia({ prefix: '/study' })
     }),
   )
   .use(requireAuth)
-  .get('/deck/:deckId', ({ currentUser, params, query }) =>
-    studyService.getDueCards(
-      params.deckId,
-      currentUser.id,
-      query.mode === 'all',
-    ),
+  .get(
+    '/deck/:deckId',
+    ({ currentUser, params, query }) =>
+      studyService.getDueCards(
+        params.deckId,
+        currentUser.id,
+        query.mode === 'all',
+        parseStudyCardIds(query.cardIds),
+      ),
+    {
+      params: t.Object({
+        deckId: t.String({ format: 'uuid' }),
+      }),
+      query: studyDeckQuerySchema,
+    },
   )
   .get('/deck/:deckId/schedule', ({ currentUser, params }) =>
     studyService.getDeckSchedule(params.deckId, currentUser.id),

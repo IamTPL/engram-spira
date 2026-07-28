@@ -6,22 +6,6 @@ import {
   setMockReturnSequence,
 } from '../../helpers/db-mock';
 
-mock.module('../../../src/config/ai', () => ({
-  getGenAI: mock(() => ({
-    getGenerativeModel: mock(() => ({
-      generateContent: mock(async () => ({
-        response: { text: () => '[]' },
-      })),
-      generateContentStream: mock(async () => ({
-        stream: (async function* () {
-          yield { text: () => '[]' };
-        })(),
-      })),
-    })),
-  })),
-  checkAiRateLimit: mock(() => {}),
-}));
-
 // Mock embedding service
 mock.module('../../../src/modules/embedding/embedding.service', () => ({
   enqueueEmbedding: mock(() => {}),
@@ -29,6 +13,7 @@ mock.module('../../../src/modules/embedding/embedding.service', () => ({
 }));
 
 import * as aiService from '../../../src/modules/ai/ai.service';
+import type { GeminiProvider } from '../../../src/modules/ai/gemini-provider';
 
 describe('ai.service', () => {
   beforeEach(() => resetMocks());
@@ -47,6 +32,47 @@ describe('ai.service', () => {
       await expect(
         aiService.getJob('user-1', 'non-existing'),
       ).rejects.toThrow('not found');
+    });
+  });
+
+  describe('processAiGenerationJob', () => {
+    test('preserves chunk concatenation and pending-job update protocol', async () => {
+      setMockReturn([]);
+      const requests: Array<{ prompt: string; timeoutMs?: number }> = [];
+      const provider = {
+        async generateTextStream(request: {
+          prompt: string;
+          timeoutMs?: number;
+        }) {
+          requests.push(request);
+          return {
+            stream: (async function* () {
+              yield '[{"front":"Question",';
+              yield '"back":"Answer"}]';
+            })(),
+            usage: Promise.resolve({
+              inputTokens: null,
+              outputTokens: null,
+            }),
+          };
+        },
+      } as Pick<GeminiProvider, 'generateTextStream'>;
+
+      await aiService.processAiGenerationJob(
+        'job-1',
+        'qa',
+        'source text',
+        'en',
+        provider,
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0].timeoutMs).toBe(3 * 60 * 1_000);
+      expect(mockDbChain.set).toHaveBeenCalledWith({
+        status: 'pending',
+        generatedCards: [{ front: 'Question', back: 'Answer' }],
+        cardCount: 1,
+      });
     });
   });
 

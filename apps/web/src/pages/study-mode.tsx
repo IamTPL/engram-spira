@@ -9,7 +9,7 @@ import {
   Show,
   For,
 } from 'solid-js';
-import { useParams, useNavigate } from '@solidjs/router';
+import { useParams, useNavigate, useSearchParams } from '@solidjs/router';
 import { createQuery, createMutation } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
@@ -34,15 +34,20 @@ import {
   Timer,
 } from 'lucide-solid';
 import RelatedCardsPanel from '@/components/study/related-cards-panel';
+import { buildStudyDeckQuery, isStudyCluster } from './study-mode-state';
 
 const StudyModePage: Component = () => {
   const params = useParams<{ deckId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams<{ cardIds: string }>();
 
   const [currentIndex, setCurrentIndex] = createSignal(0);
   const [isFlipped, setIsFlipped] = createSignal(false);
   const [reviewing, setReviewing] = createSignal(false);
   const [studyMode, setStudyMode] = createSignal<'due' | 'all'>('due');
+  const clusterStudy = () => isStudyCluster(searchParams.cardIds);
+  const effectiveStudyMode = () =>
+    clusterStudy() ? 'all' : studyMode();
   const [checkingMore, setCheckingMore] = createSignal(false);
   const [pendingReviews, setPendingReviews] = createSignal<
     { cardId: string; action: ReviewAction }[]
@@ -69,10 +74,15 @@ const StudyModePage: Component = () => {
   }));
 
   const studyQuery = createQuery(() => ({
-    queryKey: ['studyData', params.deckId, studyMode()],
+    queryKey: [
+      'studyData',
+      params.deckId,
+      effectiveStudyMode(),
+      searchParams.cardIds ?? '',
+    ],
     queryFn: async () => {
       const { data, error } = await (api.study.deck as any)[params.deckId].get({
-        query: studyMode() === 'all' ? { mode: 'all' } : {},
+        query: buildStudyDeckQuery(effectiveStudyMode(), searchParams.cardIds),
       });
       if (error || !data) {
         setStudyError(
@@ -116,7 +126,9 @@ const StudyModePage: Component = () => {
       } | null;
     },
     enabled:
-      !!params.deckId && studyQuery.data?.due === 0 && studyMode() === 'due',
+      !!params.deckId &&
+      studyQuery.data?.due === 0 &&
+      effectiveStudyMode() === 'due',
   }));
 
   const reviewBatchMutation = createMutation(() => ({
@@ -191,7 +203,11 @@ const StudyModePage: Component = () => {
       // If we just reviewed the last card in this batch, auto-refetch
       // to pick up learning/relearning cards that became due during the session
       const data = studyData();
-      if (data && nextIndex >= data.cards.length && studyMode() === 'due') {
+      if (
+        data &&
+        nextIndex >= data.cards.length &&
+        effectiveStudyMode() === 'due'
+      ) {
         await flushPendingReviews(true);
         setCheckingMore(true);
         // Brief delay for SM-2 learning cards to become due
@@ -350,7 +366,11 @@ const StudyModePage: Component = () => {
                 {studyData()!.cards.length}
                 <span class="hidden sm:inline">
                   {' '}
-                  {studyMode() === 'all' ? 'all cards' : 'due cards'}
+                  {clusterStudy()
+                    ? 'cluster cards'
+                    : effectiveStudyMode() === 'all'
+                      ? 'all cards'
+                      : 'due cards'}
                 </span>
                 <span class="ml-2 text-foreground">{progress()}%</span>
               </p>
@@ -526,7 +546,7 @@ const StudyModePage: Component = () => {
 
                   <Show
                     when={
-                      scheduleQuery.isLoading && studyMode() === 'due'
+                      scheduleQuery.isLoading && effectiveStudyMode() === 'due'
                     }
                   >
                     <Skeleton class="h-20 w-full rounded-xl" />
@@ -611,10 +631,19 @@ const StudyModePage: Component = () => {
                     <Show when={studyData()?.total && studyData()!.total > 0}>
                       <Button class="w-full" onClick={handleReviewAll}>
                         <RefreshCw class="h-4 w-4" />
-                        Review all cards ({studyData()?.total ?? 0})
+                        {clusterStudy()
+                          ? 'Review this cluster'
+                          : 'Review all cards'}{' '}
+                        ({studyData()?.total ?? 0})
                       </Button>
                     </Show>
-                    <Show when={studyData()?.total && studyData()!.total > 0}>
+                    <Show
+                      when={
+                        !clusterStudy() &&
+                        studyData()?.total &&
+                        studyData()!.total > 0
+                      }
+                    >
                       <Button
                         variant="outline"
                         class="w-full border-destructive/25 text-destructive hover:bg-destructive-surface hover:text-destructive"

@@ -31,8 +31,9 @@ mock.module(ENV_MODULE_PATH, () => ({
     FEEDBACK_RECIPIENT: 'test@test.com',
     GEMINI_API_KEY: 'test-key',
     GEMINI_MODEL: 'gemini-3-flash-preview',
-    GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+    GEMINI_EMBEDDING_MODEL: 'gemini-embedding-2',
     GEMINI_REQUEST_TIMEOUT_MS: 60_000,
+    KG_V2_ENABLED: false,
   },
 }));
 
@@ -54,8 +55,9 @@ mock.module('../config/env', () => ({
     FEEDBACK_RECIPIENT: 'test@test.com',
     GEMINI_API_KEY: 'test-key',
     GEMINI_MODEL: 'gemini-3-flash-preview',
-    GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+    GEMINI_EMBEDDING_MODEL: 'gemini-embedding-2',
     GEMINI_REQUEST_TIMEOUT_MS: 60_000,
+    KG_V2_ENABLED: false,
   },
 }));
 

@@ -30,12 +30,21 @@ export const cardLinks = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique('uq_card_link').on(table.sourceCardId, table.targetCardId),
+    unique('uq_card_link').on(
+      table.sourceCardId,
+      table.targetCardId,
+      table.linkType,
+    ),
     index('idx_card_links_source').on(table.sourceCardId),
     index('idx_card_links_target').on(table.targetCardId),
     check(
       'chk_no_self_link',
       sql`${table.sourceCardId} != ${table.targetCardId}`,
+    ),
+    check(
+      'chk_card_links_related_canonical_order',
+      sql`${table.linkType} != 'related'
+        OR ${table.sourceCardId} < ${table.targetCardId}`,
     ),
   ],
 );

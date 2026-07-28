@@ -18,10 +18,13 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../shared/errors';
-import { getGenAI, checkAiRateLimit } from '../../config/ai';
+import { checkAiRateLimit } from '../../config/ai';
 import { buildVocabPrompt } from './vocab.prompt';
 import { buildQAPrompt } from './qa.prompt';
-import { ENV } from '../../config/env';
+import {
+  getGeminiProvider,
+  type GeminiProvider,
+} from './gemini-provider';
 import {
   embedCardBatch,
   enqueueEmbedding,
@@ -142,13 +145,13 @@ export async function generateCardsFromText(
       sourceText: sourceText.slice(0, 10_000),
       cardCount: 0,
       generatedCards: null,
-      model: ENV.GEMINI_MODEL,
+      model: getGeminiProvider().generationModel,
       status: 'processing',
     })
     .returning();
 
   // Fire and forget — do not await
-  void processJobInBackground(job.id, mode, sourceText, backLanguage);
+  void processAiGenerationJob(job.id, mode, sourceText, backLanguage);
 
   return { jobId: job.id, status: 'processing' };
 }
@@ -157,22 +160,14 @@ export async function generateCardsFromText(
  * Calls Gemini and updates the job record when done.
  * Never throws — all errors become job status='failed'.
  */
-async function processJobInBackground(
+export async function processAiGenerationJob(
   jobId: string,
   mode: 'vocabulary' | 'qa',
   sourceText: string,
   backLanguage: BackLanguage,
+  provider: Pick<GeminiProvider, 'generateTextStream'> = getGeminiProvider(),
 ) {
-  const abortCtrl = new AbortController();
-  const timer = setTimeout(() => abortCtrl.abort(), AI_STREAM_TIMEOUT_MS);
-
   try {
-    const genAI = getGenAI();
-    const model = genAI.getGenerativeModel(
-      { model: ENV.GEMINI_MODEL },
-      // Pass the signal so the underlying fetch is cancelled on timeout/abort
-      { timeout: AI_STREAM_TIMEOUT_MS },
-    );
     const prompt =
       mode === 'vocabulary'
         ? buildVocabPrompt(sourceText, backLanguage)
@@ -180,16 +175,14 @@ async function processJobInBackground(
 
     // Stream response — Gemini sends tokens progressively, so the connection
     // is always active. No idle-wait problem regardless of text length.
-    const streamResult = await model.generateContentStream(prompt);
+    const streamResult = await provider.generateTextStream({
+      prompt,
+      timeoutMs: AI_STREAM_TIMEOUT_MS,
+    });
 
     let text = '';
     for await (const chunk of streamResult.stream) {
-      if (abortCtrl.signal.aborted) {
-        throw new Error(
-          `AI generation timed out after ${AI_STREAM_TIMEOUT_MS / 1000}s`,
-        );
-      }
-      text += chunk.text();
+      text += chunk;
     }
 
     const cleaned = text
@@ -239,8 +232,6 @@ async function processJobInBackground(
       .update(aiGenerationJobs)
       .set({ status: 'failed', errorMessage: message })
       .where(eq(aiGenerationJobs.id, jobId));
-  } finally {
-    clearTimeout(timer);
   }
 }
 

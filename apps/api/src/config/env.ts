@@ -15,7 +15,8 @@ const ENV = {
     : Math.max(1, parsedDbPoolMax),
   PORT: Number(process.env.PORT) || 3001,
   NODE_ENV:
-    (process.env.NODE_ENV as 'development' | 'production') || 'development',
+    (process.env.NODE_ENV as 'development' | 'production' | 'test') ||
+    'development',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3002',
   ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3002')
     .split(',')
@@ -39,10 +40,11 @@ const ENV = {
   // Override via GEMINI_MODEL env var to switch models without code changes.
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
   GEMINI_EMBEDDING_MODEL:
-    process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001',
+    process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-2',
   GEMINI_REQUEST_TIMEOUT_MS: Number.isNaN(parsedGeminiRequestTimeoutMs)
     ? 60_000
     : Math.max(1_000, parsedGeminiRequestTimeoutMs),
+  KG_V2_ENABLED: process.env.KG_V2_ENABLED === 'true',
 } as const;
 
 // Validate required env vars at startup

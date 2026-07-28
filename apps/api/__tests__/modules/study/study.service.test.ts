@@ -114,6 +114,9 @@ describe('study.service', () => {
   });
 
   describe('getDueCards', () => {
+    const firstCardId = '11111111-1111-4111-8111-111111111111';
+    const secondCardId = '22222222-2222-4222-8222-222222222222';
+
     test('returns empty when deck has no cards', async () => {
       const deck = createDeck();
       setMockReturnSequence([
@@ -131,6 +134,63 @@ describe('study.service', () => {
       await expect(
         studyService.getDueCards('deck-1', 'wrong-user'),
       ).rejects.toThrow('Deck not found');
+    });
+
+    test('returns only the selected same-deck cards in requested order', async () => {
+      const deck = createDeck();
+      setMockReturnSequence([
+        [deck],
+        [{ id: secondCardId }, { id: firstCardId }],
+        [
+          createCard({ id: secondCardId, sortOrder: 1 }),
+          createCard({ id: firstCardId, sortOrder: 0 }),
+        ],
+        [],
+        [],
+      ]);
+
+      const result = await studyService.getDueCards(
+        'deck-1',
+        'user-1',
+        false,
+        [secondCardId, firstCardId],
+      );
+
+      expect(result.cards.map((card) => card.id)).toEqual([
+        secondCardId,
+        firstCardId,
+      ]);
+      expect(result.total).toBe(2);
+      expect(result.due).toBe(2);
+    });
+
+    test('does not expose a selected card outside the owned deck', async () => {
+      const deck = createDeck();
+      setMockReturnSequence([
+        [deck],
+        [{ id: firstCardId }],
+      ]);
+
+      await expect(
+        studyService.getDueCards('deck-1', 'user-1', false, [
+          firstCardId,
+          secondCardId,
+        ]),
+      ).rejects.toThrow('Card not found');
+    });
+
+    test('rejects a study cluster larger than 12 cards', async () => {
+      const deck = createDeck();
+      setMockReturnSequence([[deck]]);
+      const cardIds = Array.from(
+        { length: 13 },
+        (_, index) =>
+          `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      );
+
+      await expect(
+        studyService.getDueCards('deck-1', 'user-1', false, cardIds),
+      ).rejects.toThrow('Study cluster cannot contain more than 12 cards');
     });
   });
 

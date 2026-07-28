@@ -4,6 +4,7 @@ import { users } from './users';
 import { folders } from './folders';
 import { cardTemplates } from './card-templates';
 import { cards } from './cards';
+import { kgRuns } from './kg-runs';
 
 export const decks = pgTable(
   'decks',
@@ -44,4 +45,5 @@ export const decksRelations = relations(decks, ({ one, many }) => ({
     references: [cardTemplates.id],
   }),
   cards: many(cards),
+  kgRuns: many(kgRuns),
 }));

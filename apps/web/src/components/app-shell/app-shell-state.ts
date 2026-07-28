@@ -12,6 +12,10 @@ export const shellPanelBounds = {
   context: { min: 280, max: 460, defaultWidth: 340 },
 } as const;
 
+export function getAppShellViewportClass() {
+  return 'relative flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground';
+}
+
 function widthKey(panel: ShellPanel) {
   return panel === 'explorer'
     ? shellStorageKeys.explorerWidth

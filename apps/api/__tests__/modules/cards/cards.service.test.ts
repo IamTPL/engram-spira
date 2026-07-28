@@ -16,6 +16,7 @@ mock.module('../../../src/modules/embedding/embedding.service', () => ({
 mock.module('../../../src/db/schema', () => ({
   cards: { id: 'id', deckId: 'deckId', sortOrder: 'sortOrder', createdAt: 'createdAt' },
   cardFieldValues: { cardId: 'cardId', templateFieldId: 'templateFieldId', value: 'value' },
+  cardEmbeddingMetadata: { cardId: 'cardId' },
   decks: { id: 'id', userId: 'userId', cardTemplateId: 'cardTemplateId' },
   templateFields: { id: 'id', templateId: 'templateId', name: 'name', fieldType: 'fieldType', side: 'side', sortOrder: 'sortOrder' },
 }));
@@ -101,7 +102,9 @@ describe('cards.service', () => {
       const card = createCard();
       setMockReturnSequence([
         [{ cardId: card.id, deckId: 'deck-1' }], // ownership check
+        [],    // lock card against embedding writers
         [],    // upsert field values
+        [],    // invalidate KG embedding provenance
         [card], // select updated card
       ]);
       const result = await cardsService.update('card-1', 'user-1', {

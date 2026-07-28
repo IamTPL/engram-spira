@@ -15,17 +15,17 @@ import Skeleton from '@/components/ui/skeleton';
 import { Network, Maximize2, ZoomIn, ZoomOut } from 'lucide-solid';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
+import fcose from 'cytoscape-fcose';
 import type { Core, NodeSingular } from 'cytoscape';
+import {
+  createGraphPresentation,
+  LEGACY_RELATED_EDGE_CURVE_STYLE,
+  type GraphData,
+} from './graph-view-state';
 
-// Register dagre layout (once)
+// Register supported layouts once.
 cytoscape.use(dagre);
-
-interface GraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  type: string;
-}
+cytoscape.use(fcose);
 
 interface GraphViewProps {
   deckId: string;
@@ -71,6 +71,7 @@ function retentionColor(r: number | null, colors: GraphColors): string {
 const GraphView: Component<GraphViewProps> = (props) => {
   let containerRef: HTMLDivElement | undefined;
   let cy: Core | null = null;
+  const [showIsolated, setShowIsolated] = createSignal(false);
   const [hoveredNode, setHoveredNode] = createSignal<{
     label: string;
     retention: number | null;
@@ -84,10 +85,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
       const { data } = await (api['knowledge-graph'] as any).decks[
         props.deckId
       ].graph.get();
-      return data as {
-        nodes: { id: string; label: string; retention: number | null }[];
-        edges: GraphEdge[];
-      } | null;
+      return data as GraphData | null;
     },
     enabled: !!props.deckId && !!currentUser()?.id,
     staleTime: 2 * 60_000,
@@ -108,13 +106,12 @@ const GraphView: Component<GraphViewProps> = (props) => {
     return d && d.nodes.length === 0;
   };
 
-  // Dynamic container height based on node count
-  const containerHeight = createMemo(() => {
-    const d = graphQuery.data;
-    if (!d) return 400;
-    const nodeCount = d.nodes.length;
-    return Math.min(800, Math.max(400, 300 + nodeCount * 15));
-  });
+  const graphPresentation = createMemo(() =>
+    createGraphPresentation(
+      graphQuery.data ?? { nodes: [], edges: [] },
+      showIsolated(),
+    ),
+  );
 
   const nodeLabels = createMemo(
     () =>
@@ -132,18 +129,12 @@ const GraphView: Component<GraphViewProps> = (props) => {
   createEffect(() => {
     resolvedTheme();
     const data = graphQuery.data;
-    if (!data || !containerRef || data.edges.length === 0) {
+    const presentation = graphPresentation();
+    if (!data || !containerRef || presentation.renderedEdges.length === 0) {
       if (cy) { cy.destroy(); cy = null; }
       return;
     }
 
-    // Only include connected nodes
-    const connectedIds = new Set<string>();
-    for (const e of data.edges) {
-      connectedIds.add(e.source);
-      connectedIds.add(e.target);
-    }
-    const connectedNodes = data.nodes.filter((n) => connectedIds.has(n.id));
     const colors = getGraphColors();
     const reduceMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
@@ -152,7 +143,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
 
     // Build cytoscape elements
     const elements = [
-      ...connectedNodes.map((n) => ({
+      ...presentation.renderedNodes.map((n) => ({
         data: {
           id: n.id,
           label: n.label.length > 20 ? n.label.slice(0, 18) + '…' : n.label,
@@ -161,7 +152,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
           color: retentionColor(n.retention, colors),
         },
       })),
-      ...data.edges.map((e) => ({
+      ...presentation.renderedEdges.map((e) => ({
         data: {
           id: e.id,
           source: e.source,
@@ -224,24 +215,35 @@ const GraphView: Component<GraphViewProps> = (props) => {
             'line-opacity': 0.7,
             width: 1.5,
             'line-style': 'dashed',
-            'curve-style': 'taxi',
-            'taxi-direction': 'downward',
-            'taxi-turn': '40px',
+            'curve-style': LEGACY_RELATED_EDGE_CURVE_STYLE,
           },
         },
       ],
-      layout: {
-        name: 'dagre',
-        rankDir: 'TB',          // Top to Bottom (tree direction)
-        nodeSep: 80,            // Horizontal spacing between nodes
-        rankSep: 100,           // Vertical spacing between levels
-        edgeSep: 30,            // Spacing between edges
-        ranker: 'network-simplex',
-        animate: !reduceMotion,
-        animationDuration: reduceMotion ? 0 : 450,
-        fit: true,
-        padding: 40,
-      } as any,
+      layout: presentation.layout === 'dagre'
+        ? {
+            name: 'dagre',
+            rankDir: 'TB',
+            nodeSep: 80,
+            rankSep: 100,
+            edgeSep: 30,
+            ranker: 'network-simplex',
+            animate: !reduceMotion,
+            animationDuration: reduceMotion ? 0 : 450,
+            fit: true,
+            padding: 40,
+          } as any
+        : {
+            name: 'fcose',
+            quality: 'default',
+            randomize: true,
+            nodeRepulsion: 4500,
+            idealEdgeLength: 120,
+            nodeSeparation: 80,
+            animate: !reduceMotion,
+            animationDuration: reduceMotion ? 0 : 450,
+            fit: true,
+            padding: 40,
+          } as any,
       userZoomingEnabled: true,
       userPanningEnabled: true,
       boxSelectionEnabled: false,
@@ -342,7 +344,7 @@ const GraphView: Component<GraphViewProps> = (props) => {
             class="relative overflow-hidden rounded-lg border bg-card"
             aria-labelledby="knowledge-graph-title"
           >
-            <div class="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div class="flex min-w-0 items-center gap-2">
                 <Network class="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div class="min-w-0">
@@ -353,14 +355,30 @@ const GraphView: Component<GraphViewProps> = (props) => {
                     Knowledge graph
                   </h3>
                   <p class="text-xs text-muted-foreground">
-                    {graphQuery.data?.nodes.length ?? 0} nodes,{' '}
-                    {graphQuery.data?.edges.length ?? 0} connections
+                    {graphPresentation().summary.totalCards} total cards ·{' '}
+                    {graphPresentation().summary.connectedCards} connected ·{' '}
+                    {graphPresentation().summary.isolatedCards} isolated ·{' '}
+                    {graphPresentation().summary.relationships} relationships
                   </p>
                 </div>
               </div>
-              <p class="text-xs text-muted-foreground">
-                Select a node to isolate its connections
-              </p>
+              <div class="flex flex-wrap items-center gap-3">
+                <p class="text-xs text-muted-foreground">
+                  Select a node to isolate its connections
+                </p>
+                <Show when={graphPresentation().summary.isolatedCards > 0}>
+                  <button
+                    type="button"
+                    class="rounded-md border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent active:translate-y-px"
+                    onClick={() => setShowIsolated((value) => !value)}
+                    aria-pressed={showIsolated()}
+                  >
+                    {showIsolated()
+                      ? 'Hide isolated cards'
+                      : `Show ${graphPresentation().summary.isolatedCards} isolated ${graphPresentation().summary.isolatedCards === 1 ? 'card' : 'cards'}`}
+                  </button>
+                </Show>
+              </div>
             </div>
 
             <Show when={hoveredNode()}>
@@ -421,17 +439,18 @@ const GraphView: Component<GraphViewProps> = (props) => {
             <div
               ref={containerRef}
               class="w-full cursor-grab active:cursor-grabbing"
-              style={{ height: `${containerHeight()}px` }}
+              style={{ height: `${graphPresentation().containerHeight}px` }}
               role="img"
               aria-label="Interactive knowledge graph of related cards"
               aria-describedby="knowledge-graph-canvas-description"
             />
 
             <p id="knowledge-graph-canvas-description" class="sr-only">
-              This graph contains {graphQuery.data?.nodes.length ?? 0} nodes
-              and {graphQuery.data?.edges.length ?? 0} relationships. Use the
-              accessible graph data section after the canvas to inspect every
-              item without using pointer controls.
+              This graph renders {graphPresentation().renderedNodes.length}{' '}
+              of {graphPresentation().summary.totalCards} cards and{' '}
+              {graphPresentation().summary.relationships} relationships. Use
+              the accessible graph data section after the canvas to inspect
+              every item without using pointer controls.
             </p>
 
             <details class="border-t bg-card">

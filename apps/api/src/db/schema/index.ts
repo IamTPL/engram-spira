@@ -37,3 +37,22 @@ export {
   dismissedSuggestions,
   dismissedSuggestionsRelations,
 } from './dismissed-suggestions';
+export { lexemes, lexemesRelations } from './lexemes';
+export {
+  lexicalSenses,
+  lexicalSensesRelations,
+} from './lexical-senses';
+export { cardSenses, cardSensesRelations } from './card-senses';
+export {
+  senseRelations,
+  senseRelationsRelations,
+} from './sense-relations';
+export { kgRuns, kgRunsRelations } from './kg-runs';
+export {
+  kgRelationSuggestions,
+  kgRelationSuggestionsRelations,
+} from './kg-relation-suggestions';
+export {
+  cardEmbeddingMetadata,
+  cardEmbeddingMetadataRelations,
+} from './card-embedding-metadata';

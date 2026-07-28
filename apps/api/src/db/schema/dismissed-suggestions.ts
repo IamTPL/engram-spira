@@ -4,8 +4,9 @@ import {
   timestamp,
   unique,
   index,
+  check,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { users } from './users';
 import { cards } from './cards';
 
@@ -36,6 +37,10 @@ export const dismissedSuggestions = pgTable(
       table.targetCardId,
     ),
     index('idx_dismissed_suggestions_user').on(table.userId),
+    check(
+      'chk_dismissed_suggestions_canonical_order',
+      sql`${table.sourceCardId} < ${table.targetCardId}`,
+    ),
   ],
 );
 

@@ -30,8 +30,14 @@ import {
 } from './modules/ai/ai.service';
 import { cleanupOldReviewLogs } from './modules/study/review-logs-cleanup';
 import { startVerificationEmailWorker } from './modules/auth/verification-email-outbox';
+import {
+  startKgWorker,
+  startKgWorkerIfEnabled,
+  type KgWorkerController,
+} from './modules/knowledge-graph/kg-worker';
 
 const AI_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000; // every hour
+let kgWorker: KgWorkerController | null = null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -143,6 +149,10 @@ const app = new Elysia({ aot: true })
     set.headers['Permissions-Policy'] =
       'camera=(), microphone=(), geolocation=()';
   })
+  .onStop(async () => {
+    await kgWorker?.stop();
+    kgWorker = null;
+  })
   .onError(({ error, set }) => {
     if (error instanceof AppError) {
       set.status = error.statusCode;
@@ -210,6 +220,11 @@ logger.info(
 
 // ── Background maintenance ─────────────────────────────────────────────────
 startVerificationEmailWorker();
+kgWorker = startKgWorkerIfEnabled({
+  enabled: ENV.KG_V2_ENABLED,
+  isTest: ENV.NODE_ENV === 'test',
+  start: startKgWorker,
+});
 
 // 1. Recover orphaned jobs first — any 'processing' row left over from a
 //    previous server crash/restart will never complete. Mark them failed NOW

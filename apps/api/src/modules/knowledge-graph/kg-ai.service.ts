@@ -1,6 +1,6 @@
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, sql, inArray } from 'drizzle-orm';
 import { db } from '../../db';
-import { cards, decks, cardFieldValues, dismissedSuggestions } from '../../db/schema';
+import { cards, decks, dismissedSuggestions } from '../../db/schema';
 import { logger } from '../../shared/logger';
 import { NotFoundError } from '../../shared/errors';
 import {
@@ -8,6 +8,9 @@ import {
   getCardTexts,
 } from '../../shared/embedding-utils';
 import { verifyRelationships } from './relationship-verifier';
+import { canonicalPair } from './kg.service';
+
+export { canonicalPair } from './kg.service';
 
 const kgAiLogger = logger.child({ module: 'kg-ai' });
 
@@ -23,6 +26,155 @@ export interface RelationshipSuggestion {
   reason?: string;
 }
 
+export interface RelationshipCandidate {
+  sourceCardId: string;
+  targetCardId: string;
+  similarity: number;
+}
+
+function pairKey(sourceCardId: string, targetCardId: string) {
+  return canonicalPair(sourceCardId, targetCardId).join(':');
+}
+
+export function filterKnownPairs(
+  candidates: RelationshipCandidate[],
+  knownPairs: Set<string>,
+): RelationshipCandidate[] {
+  return candidates
+    .map((candidate) => {
+      const [sourceCardId, targetCardId] = canonicalPair(
+        candidate.sourceCardId,
+        candidate.targetCardId,
+      );
+      return { ...candidate, sourceCardId, targetCardId };
+    })
+    .filter(
+      (candidate) =>
+        !knownPairs.has(pairKey(candidate.sourceCardId, candidate.targetCardId)),
+    );
+}
+
+/**
+ * Greedily favor pairs that introduce the most cards not yet represented in
+ * the suggestion set, using similarity as the deterministic tie-breaker.
+ */
+export function rankCandidatesForCoverage(
+  candidates: RelationshipCandidate[],
+  maxSuggestions: number,
+): RelationshipCandidate[] {
+  const remaining = [...candidates].sort((a, b) => b.similarity - a.similarity);
+  const selected: RelationshipCandidate[] = [];
+  const coveredCardIds = new Set<string>();
+
+  while (remaining.length > 0 && selected.length < maxSuggestions) {
+    let bestIndex = 0;
+    let bestNewCards = -1;
+
+    for (let index = 0; index < remaining.length; index++) {
+      const candidate = remaining[index];
+      const newCards = Number(!coveredCardIds.has(candidate.sourceCardId)) +
+        Number(!coveredCardIds.has(candidate.targetCardId));
+
+      if (newCards > bestNewCards) {
+        bestNewCards = newCards;
+        bestIndex = index;
+      }
+    }
+
+    const [candidate] = remaining.splice(bestIndex, 1);
+    selected.push(candidate);
+    coveredCardIds.add(candidate.sourceCardId);
+    coveredCardIds.add(candidate.targetCardId);
+  }
+
+  return selected;
+}
+
+export type RelationshipDetectorLoaders = {
+  loadDeck: (userId: string, deckId: string) => Promise<{ id: string } | null>;
+  loadEmbeddedCards: (
+    deckId: string,
+  ) => Promise<Array<{ cardId: string; embedding: string }>>;
+  loadExistingLinks: (cardIds: string[]) => Promise<Array<{
+    sourceCardId: string;
+    targetCardId: string;
+    linkType: string;
+  }>>;
+  loadDismissedSuggestions: (
+    userId: string,
+    cardIds: string[],
+  ) => Promise<Array<{ sourceCardId: string; targetCardId: string }>>;
+  getCardLabels: typeof getCardLabels;
+  getCardTexts: typeof getCardTexts;
+  verifyRelationships: typeof verifyRelationships;
+};
+
+const defaultRelationshipDetectorLoaders: RelationshipDetectorLoaders = {
+  async loadDeck(userId, deckId) {
+    const [deck] = await db
+      .select({ id: decks.id })
+      .from(decks)
+      .where(and(eq(decks.id, deckId), eq(decks.userId, userId)))
+      .limit(1);
+    return deck ?? null;
+  },
+  async loadEmbeddedCards(deckId) {
+    const rows = await db.execute<{
+      card_id: string;
+      embedding: string;
+    }>(sql`
+      SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
+      FROM card_field_values cfv
+      JOIN cards c ON cfv.card_id = c.id
+      WHERE c.deck_id = ${deckId}
+        AND cfv.embedding IS NOT NULL
+      ORDER BY cfv.card_id, cfv.id
+      LIMIT 500
+    `);
+    return rows.map((row) => ({ cardId: row.card_id, embedding: row.embedding }));
+  },
+  async loadExistingLinks(cardIds) {
+    if (cardIds.length === 0) return [];
+    const { pgClient } = await import('../../db');
+    const rows = await pgClient<
+      { source_card_id: string; target_card_id: string; link_type: string }[]
+    >`
+      SELECT source_card_id, target_card_id, link_type FROM card_links
+      WHERE link_type = 'related'
+        AND (
+          source_card_id = ANY(${cardIds}::uuid[])
+          OR target_card_id = ANY(${cardIds}::uuid[])
+        )
+    `;
+    return rows.map((row) => ({
+      sourceCardId: row.source_card_id,
+      targetCardId: row.target_card_id,
+      linkType: row.link_type,
+    }));
+  },
+  async loadDismissedSuggestions(userId, cardIds) {
+    if (cardIds.length === 0) return [];
+    return db
+      .select({
+        sourceCardId: dismissedSuggestions.sourceCardId,
+        targetCardId: dismissedSuggestions.targetCardId,
+      })
+      .from(dismissedSuggestions)
+      .where(
+        and(
+          eq(dismissedSuggestions.userId, userId),
+          or(
+            inArray(dismissedSuggestions.sourceCardId, cardIds),
+            inArray(dismissedSuggestions.targetCardId, cardIds),
+          ),
+        ),
+      );
+  },
+  getCardLabels,
+  getCardTexts,
+  verifyRelationships,
+};
+
 // ── AI Relationship Detection ────────────────────────────────────────────────
 
 /**
@@ -35,34 +187,18 @@ export interface RelationshipSuggestion {
  *
  * Cost: ~$0.002 per deck of 200 cards (10 LLM calls × ~290 tokens each)
  */
-export async function detectRelationships(
+async function detectRelationshipsWithLoaders(
+  loaders: RelationshipDetectorLoaders,
   userId: string,
   deckId: string,
   threshold = 0.75,
   maxSuggestions = 20,
 ): Promise<{ suggestions: RelationshipSuggestion[] }> {
-  // Verify ownership
-  const [deck] = await db
-    .select({ id: decks.id })
-    .from(decks)
-    .where(and(eq(decks.id, deckId), eq(decks.userId, userId)))
-    .limit(1);
+  const deck = await loaders.loadDeck(userId, deckId);
 
   if (!deck) throw new NotFoundError('Deck');
 
-  // Fetch all cards with embeddings in this deck
-  const rows = await db.execute<{
-    card_id: string;
-    embedding: string;
-  }>(sql`
-    SELECT DISTINCT ON (cfv.card_id) cfv.card_id, cfv.embedding::text
-    FROM card_field_values cfv
-    JOIN cards c ON cfv.card_id = c.id
-    WHERE c.deck_id = ${deckId}
-      AND cfv.embedding IS NOT NULL
-    ORDER BY cfv.card_id, cfv.id
-    LIMIT 500
-  `);
+  const rows = await loaders.loadEmbeddedCards(deckId);
 
   if (rows.length < 2) return { suggestions: [] };
 
@@ -72,14 +208,14 @@ export async function detectRelationships(
     let squaredNorm = 0;
     for (const value of vec) squaredNorm += value * value;
     return {
-      cardId: row.card_id,
+      cardId: row.cardId,
       vec,
       norm: Math.sqrt(squaredNorm),
     };
   });
 
   // Half-matrix: only i < j (symmetric similarity, no need for full N²)
-  const rawCandidates: { src: string; tgt: string; sim: number }[] = [];
+  const rawCandidates: RelationshipCandidate[] = [];
 
   for (let i = 0; i < parsed.length; i++) {
     for (let j = i + 1; j < parsed.length; j++) {
@@ -91,123 +227,99 @@ export async function detectRelationships(
       const sim = denominator === 0 ? 0 : dot / denominator;
 
       if (sim >= threshold) {
-        const [a, b] =
-          parsed[i].cardId < parsed[j].cardId
-            ? [parsed[i].cardId, parsed[j].cardId]
-            : [parsed[j].cardId, parsed[i].cardId];
-        rawCandidates.push({ src: a, tgt: b, sim });
+        const [sourceCardId, targetCardId] = canonicalPair(
+          parsed[i].cardId,
+          parsed[j].cardId,
+        );
+        rawCandidates.push({ sourceCardId, targetCardId, similarity: sim });
       }
     }
   }
 
   if (rawCandidates.length === 0) return { suggestions: [] };
 
-  // Sort by similarity descending and limit candidates for LLM verification
-  rawCandidates.sort((a, b) => b.sim - a.sim);
-  const topCandidates = rawCandidates.slice(0, maxSuggestions);
-
-  // Filter out already-linked pairs
+  // Canonicalize and reject same-label pairs before applying the suggestion cap.
   const candidateCardIds = [
-    ...new Set(topCandidates.flatMap((candidate) => [candidate.src, candidate.tgt])),
+    ...new Set(
+      rawCandidates.flatMap((candidate) => [
+        candidate.sourceCardId,
+        candidate.targetCardId,
+      ]),
+    ),
   ];
 
-  let existingLinks: { source_card_id: string; target_card_id: string }[] = [];
-  if (candidateCardIds.length > 0) {
-    const { pgClient } = await import('../../db');
-    existingLinks = await pgClient<
-      { source_card_id: string; target_card_id: string }[]
-    >`
-      SELECT source_card_id, target_card_id FROM card_links
-      WHERE source_card_id = ANY(${candidateCardIds}::uuid[])
-         OR target_card_id = ANY(${candidateCardIds}::uuid[])
-    `;
-  }
+  const labels = await loaders.getCardLabels(candidateCardIds);
+  const distinctLabelCandidates = rawCandidates.filter((candidate) => {
+    const sourceLabel = (labels.get(candidate.sourceCardId) ?? '').trim().toLowerCase();
+    const targetLabel = (labels.get(candidate.targetCardId) ?? '').trim().toLowerCase();
+    return sourceLabel !== targetLabel;
+  });
 
-  const linkedSet = new Set(
-    existingLinks.map((l) =>
-      l.source_card_id < l.target_card_id
-        ? `${l.source_card_id}:${l.target_card_id}`
-        : `${l.target_card_id}:${l.source_card_id}`,
+  if (distinctLabelCandidates.length === 0) return { suggestions: [] };
+
+  const filteredCardIds = [
+    ...new Set(
+      distinctLabelCandidates.flatMap((candidate) => [
+        candidate.sourceCardId,
+        candidate.targetCardId,
+      ]),
     ),
-  );
+  ];
 
-  // Remove already-linked candidates before LLM verification (save API calls)
-  const unlinkedCandidates = topCandidates.filter(
-    (c) => !linkedSet.has(`${c.src}:${c.tgt}`),
-  );
+  const [existingLinks, dismissedRows] = await Promise.all([
+    loaders.loadExistingLinks(filteredCardIds),
+    loaders.loadDismissedSuggestions(userId, filteredCardIds),
+  ]);
 
-  if (unlinkedCandidates.length === 0) return { suggestions: [] };
+  const knownPairs = new Set([
+    ...existingLinks
+      .filter((link) => link.linkType === 'related')
+      .map((link) => pairKey(link.sourceCardId, link.targetCardId)),
+    ...dismissedRows.map((dismissed) =>
+      pairKey(dismissed.sourceCardId, dismissed.targetCardId),
+    ),
+  ]);
 
-  // Filter out dismissed suggestions
-  const dismissedRows = await db
-    .select({
-      sourceCardId: dismissedSuggestions.sourceCardId,
-      targetCardId: dismissedSuggestions.targetCardId,
-    })
-    .from(dismissedSuggestions)
-    .where(
-      and(
-        eq(dismissedSuggestions.userId, userId),
-        inArray(
-          dismissedSuggestions.sourceCardId,
-          unlinkedCandidates.map((c) => c.src),
-        ),
-      ),
-    );
-
-  const dismissedSet = new Set(
-    dismissedRows.map((d) => {
-      const [a, b] =
-        d.sourceCardId < d.targetCardId
-          ? [d.sourceCardId, d.targetCardId]
-          : [d.targetCardId, d.sourceCardId];
-      return `${a}:${b}`;
-    }),
-  );
-
-  const activeCandidates = unlinkedCandidates.filter(
-    (c) => !dismissedSet.has(`${c.src}:${c.tgt}`),
+  const activeCandidates = rankCandidatesForCoverage(
+    filterKnownPairs(distinctLabelCandidates, knownPairs),
+    maxSuggestions,
   );
 
   if (activeCandidates.length === 0) return { suggestions: [] };
 
-  // Filter out same-word pairs (these are duplicates, not relationships)
-  const candidateCardIdsForWords = [
-    ...new Set(activeCandidates.flatMap((c) => [c.src, c.tgt])),
-  ];
-  const wordLabels = await getCardLabels(candidateCardIdsForWords);
-  const filteredCandidates = activeCandidates.filter((c) => {
-    const wordA = (wordLabels.get(c.src) ?? '').trim().toLowerCase();
-    const wordB = (wordLabels.get(c.tgt) ?? '').trim().toLowerCase();
-    return wordA !== wordB;
-  });
-
-  if (filteredCandidates.length === 0) return { suggestions: [] };
-
   // ── LLM Verification Step ──────────────────────────────────────────────────
   // Fetch card texts for each unique card in candidates
-  const filteredCardIds = [
-    ...new Set(filteredCandidates.flatMap((c) => [c.src, c.tgt])),
+  const activeCardIds = [
+    ...new Set(activeCandidates.flatMap((c) => [c.sourceCardId, c.targetCardId])),
   ];
-  const labels = await getCardLabels(filteredCardIds);
-  const cardTexts = await getCardTexts(filteredCardIds);
+  const cardTexts = await loaders.getCardTexts(activeCardIds);
 
   // Call LLM to verify each candidate
-  const verificationInput = filteredCandidates
-    .filter((c) => cardTexts.has(c.src) && cardTexts.has(c.tgt))
-    .map((c) => ({
-      sourceCardId: c.src,
-      targetCardId: c.tgt,
-      sourceText: cardTexts.get(c.src)!,
-      targetText: cardTexts.get(c.tgt)!,
+  const verificationInput = activeCandidates
+    .filter(
+      (candidate) =>
+        cardTexts.has(candidate.sourceCardId) &&
+        cardTexts.has(candidate.targetCardId),
+    )
+    .map((candidate) => ({
+      sourceCardId: candidate.sourceCardId,
+      targetCardId: candidate.targetCardId,
+      sourceText: cardTexts.get(candidate.sourceCardId)!,
+      targetText: cardTexts.get(candidate.targetCardId)!,
     }));
 
   kgAiLogger.info(
-    { deckId, embeddingCandidates: rawCandidates.length, dismissed: dismissedSet.size, sameWordFiltered: activeCandidates.length - filteredCandidates.length, llmVerifying: verificationInput.length },
+    {
+      deckId,
+      embeddingCandidates: rawCandidates.length,
+      knownPairs: knownPairs.size,
+      sameWordFiltered: rawCandidates.length - distinctLabelCandidates.length,
+      llmVerifying: verificationInput.length,
+    },
     'LLM verification starting',
   );
 
-  const verified = await verifyRelationships(verificationInput);
+  const verified = await loaders.verifyRelationships(verificationInput);
 
   // Build a map of verified results for lookup
   const verifiedMap = new Map(
@@ -216,18 +328,18 @@ export async function detectRelationships(
 
   // Build suggestions from only LLM-confirmed pairs
   const suggestions: RelationshipSuggestion[] = [];
-  for (const candidate of filteredCandidates) {
-    const key = `${candidate.src}:${candidate.tgt}`;
+  for (const candidate of activeCandidates) {
+    const key = pairKey(candidate.sourceCardId, candidate.targetCardId);
     const verification = verifiedMap.get(key);
 
     // Only include LLM-confirmed relationships
     if (verification?.related) {
       suggestions.push({
-        sourceCardId: candidate.src,
-        targetCardId: candidate.tgt,
-        sourceLabel: labels.get(candidate.src) ?? '',
-        targetLabel: labels.get(candidate.tgt) ?? '',
-        similarity: Math.round(candidate.sim * 1000) / 1000,
+        sourceCardId: candidate.sourceCardId,
+        targetCardId: candidate.targetCardId,
+        sourceLabel: labels.get(candidate.sourceCardId) ?? '',
+        targetLabel: labels.get(candidate.targetCardId) ?? '',
+        similarity: Math.round(candidate.similarity * 1000) / 1000,
         suggestedType: 'related',
         reason: verification.reason,
       });
@@ -241,3 +353,22 @@ export async function detectRelationships(
 
   return { suggestions };
 }
+
+export function createRelationshipDetector(
+  loaders: RelationshipDetectorLoaders = defaultRelationshipDetectorLoaders,
+) {
+  return (
+    userId: string,
+    deckId: string,
+    threshold = 0.75,
+    maxSuggestions = 20,
+  ) => detectRelationshipsWithLoaders(
+    loaders,
+    userId,
+    deckId,
+    threshold,
+    maxSuggestions,
+  );
+}
+
+export const detectRelationships = createRelationshipDetector();

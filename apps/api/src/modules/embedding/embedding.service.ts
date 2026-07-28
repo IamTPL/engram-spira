@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { sql, eq, inArray } from 'drizzle-orm';
 import { db, pgClient } from '../../db';
 import { cardFieldValues, templateFields } from '../../db/schema';
@@ -7,47 +6,18 @@ import {
   createCoalescingEnqueuer,
   createConcurrencyLimiter,
 } from '../../shared/concurrency';
-import { ENV } from '../../config/env';
 import { logger } from '../../shared/logger';
+import {
+  getGeminiProvider,
+  type GeminiProvider,
+} from '../ai/gemini-provider';
+import { writeLegacyCardEmbedding } from './card-embedding-storage';
 
 const embLogger = logger.child({ module: 'embedding' });
 const MAX_CONCURRENT_CARD_EMBEDDINGS = 4;
-const MAX_CONCURRENT_GEMINI_EMBEDDING_REQUESTS = 6;
 const runWithCardEmbeddingSlot = createConcurrencyLimiter(
   MAX_CONCURRENT_CARD_EMBEDDINGS,
 );
-const runWithGeminiEmbeddingSlot = createConcurrencyLimiter(
-  MAX_CONCURRENT_GEMINI_EMBEDDING_REQUESTS,
-);
-
-/** Output dimension for embeddings — 768d is the sweet spot for accuracy vs performance */
-const EMBEDDING_DIMENSIONS = 768;
-
-// ── Lazy-init Gemini client ──────────────────────────────────────────────────
-let _genAI: GoogleGenerativeAI | null = null;
-
-function getGenAI(): GoogleGenerativeAI {
-  if (!_genAI) {
-    if (!ENV.GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY not configured — embedding disabled');
-    }
-    _genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-  }
-  return _genAI;
-}
-
-function createGeminiRequestSignal() {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    ENV.GEMINI_REQUEST_TIMEOUT_MS,
-  );
-  timeout.unref();
-  return {
-    signal: controller.signal,
-    dispose: () => clearTimeout(timeout),
-  };
-}
 
 // ── Core embedding generation ────────────────────────────────────────────────
 
@@ -55,58 +25,25 @@ function createGeminiRequestSignal() {
  * Generate embedding for a single text string.
  * Returns a 768-dimensional float array (Matryoshka truncation from 3072d).
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const model = getGenAI().getGenerativeModel({
-    model: ENV.GEMINI_EMBEDDING_MODEL,
-  });
-  return runWithGeminiEmbeddingSlot(async () => {
-    const requestSignal = createGeminiRequestSignal();
-    try {
-      const result = await model.embedContent(
-        {
-          content: { parts: [{ text }], role: 'user' },
-          outputDimensionality: EMBEDDING_DIMENSIONS,
-        } as any,
-        { signal: requestSignal.signal },
-      );
-      return result.embedding.values;
-    } finally {
-      requestSignal.dispose();
-    }
-  });
+export async function generateEmbedding(
+  text: string,
+  provider: Pick<GeminiProvider, 'embedTexts'> = getGeminiProvider(),
+): Promise<number[]> {
+  const result = await provider.embedTexts([text]);
+  return result.value[0];
 }
 
 /**
  * Generate embeddings for multiple texts in a single batch API call.
  * Reduces roundtrips: 50 texts in 1 call vs 50 separate calls.
  */
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+export async function generateEmbeddings(
+  texts: string[],
+  provider: Pick<GeminiProvider, 'embedTexts'> = getGeminiProvider(),
+): Promise<number[][]> {
   if (texts.length === 0) return [];
-  if (texts.length === 1) {
-    const single = await generateEmbedding(texts[0]);
-    return [single];
-  }
-
-  const model = getGenAI().getGenerativeModel({
-    model: ENV.GEMINI_EMBEDDING_MODEL,
-  });
-  return runWithGeminiEmbeddingSlot(async () => {
-    const requestSignal = createGeminiRequestSignal();
-    try {
-      const result = await model.batchEmbedContents(
-        {
-          requests: texts.map((text) => ({
-            content: { parts: [{ text }], role: 'user' },
-            outputDimensionality: EMBEDDING_DIMENSIONS,
-          } as any)),
-        },
-        { signal: requestSignal.signal },
-      );
-      return result.embeddings.map((e) => e.values);
-    } finally {
-      requestSignal.dispose();
-    }
-  });
+  const result = await provider.embedTexts(texts);
+  return result.value;
 }
 
 // ── Card embedding helpers ───────────────────────────────────────────────────
@@ -202,33 +139,7 @@ async function storeCardEmbedding(
   embedding: number[],
   onlyIfMissing = false,
 ): Promise<boolean> {
-  const vectorLiteral = `[${embedding.join(',')}]`;
-  // Use postgres-js tagged template directly — bypasses Drizzle's query builder
-  // which chokes on 3072-dim vector strings (~25KB).
-  // postgres-js properly handles parameterized queries of any size.
-  const updated = await pgClient`
-    UPDATE card_field_values AS target
-    SET embedding = ${vectorLiteral}::vector
-    WHERE target.id = (
-      SELECT candidate.id
-      FROM card_field_values AS candidate
-      WHERE candidate.card_id = ${cardId}
-      ORDER BY (candidate.embedding IS NOT NULL) DESC, candidate.id
-      LIMIT 1
-    )
-      AND (NOT ${onlyIfMissing} OR target.embedding IS NULL)
-      AND (
-        NOT ${onlyIfMissing}
-        OR NOT EXISTS (
-          SELECT 1
-          FROM card_field_values AS existing
-          WHERE existing.card_id = ${cardId}
-            AND existing.embedding IS NOT NULL
-        )
-      )
-    RETURNING target.id
-  `;
-  return updated.length > 0;
+  return writeLegacyCardEmbedding(cardId, embedding, onlyIfMissing);
 }
 
 // ── Batch backfill ───────────────────────────────────────────────────────────

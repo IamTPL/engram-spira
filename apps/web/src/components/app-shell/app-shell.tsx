@@ -25,6 +25,7 @@ import type {
 } from './types';
 import {
   clampPanelWidth,
+  getAppShellViewportClass,
   readStoredPanelWidth,
   shellPanelBounds,
   shellStorageKeys,
@@ -184,7 +185,7 @@ export const AppShell: Component<AppShellProps> = (props) => {
 
   return (
     <AppShellContext.Provider value={shellContext}>
-      <div class="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
+      <div class={getAppShellViewportClass()}>
         <TaskRail onOpenExplorer={openExplorerPanel} />
 
         <aside

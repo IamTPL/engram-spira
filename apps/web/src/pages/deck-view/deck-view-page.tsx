@@ -11,6 +11,7 @@ import {
   Suspense,
 } from 'solid-js';
 import { createQuery } from '@tanstack/solid-query';
+import { useSearchParams } from '@solidjs/router';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
 import PageShell from '@/components/layout/page-shell';
@@ -31,7 +32,16 @@ import {
 } from '@/constants';
 
 import { createDebouncedSignal } from '@/lib/create-debounced-signal';
+import { createAnimationFrameScheduler } from '@/lib/create-animation-frame-scheduler';
 import { createDragAutoScroller } from '@/lib/drag-auto-scroll';
+import {
+  createKnowledgeGraphRunRequest,
+  type KnowledgeGraphRunRequest,
+} from '@/components/deck-view/knowledge-graph-review-state';
+import {
+  isKnowledgeGraphV2Enabled,
+  knowledgeGraphKeys,
+} from '@/components/deck-view/knowledge-graph-state';
 import { useDeckData } from './use-deck-data';
 import type { CardItem } from './types';
 import DeckHeader from './deck-header';
@@ -44,6 +54,7 @@ import {
   reorderCards,
   type DropPosition,
 } from './deck-reorder';
+import { getDeckViewLayout } from './deck-view-layout';
 
 // Lazy-load AI modal (heavy component with its own store)
 const AiGenerateModal = lazy(() => import('./ai-generate-modal'));
@@ -54,6 +65,12 @@ const RetentionHeatmap = lazy(
   () => import('@/components/deck-view/retention-heatmap'),
 );
 const GraphView = lazy(() => import('@/components/deck-view/graph-view'));
+const FocusedKnowledgeGraph = lazy(
+  () => import('@/components/deck-view/focused-knowledge-graph'),
+);
+const KnowledgeGraphReview = lazy(
+  () => import('@/components/deck-view/knowledge-graph-review'),
+);
 const DuplicateScanner = lazy(
   () => import('@/components/deck-view/duplicate-scanner'),
 );
@@ -62,6 +79,8 @@ const AiSuggestions = lazy(
 );
 
 const DeckViewPage: Component = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const scheduleAnimationFrame = createAnimationFrameScheduler();
   const {
     params,
     deck,
@@ -78,6 +97,26 @@ const DeckViewPage: Component = () => {
     fetchMore,
     fetchingMore,
   } = useDeckData();
+
+  const knowledgeGraphCapabilitiesQuery = createQuery(() => ({
+    queryKey: knowledgeGraphKeys.capabilities(),
+    queryFn: async () => {
+      const { data, error } =
+        await api['knowledge-graph'].capabilities.get();
+      if (error || !data) {
+        throw new Error(
+          error
+            ? getApiError(error)
+            : 'Knowledge graph capabilities are unavailable',
+        );
+      }
+      return data;
+    },
+    staleTime: 5 * 60_000,
+    retry: 1,
+  }));
+  const knowledgeGraphV2Enabled = () =>
+    isKnowledgeGraphV2Enabled(knowledgeGraphCapabilitiesQuery.data);
 
   // ── Add card state ──────────────────────────────────────────────
   const [showAddCard, setShowAddCard] = createSignal(false);
@@ -166,6 +205,18 @@ const DeckViewPage: Component = () => {
 
   // ── Analytics panel state ─────────────────────────────────────
   const [showAnalytics, setShowAnalytics] = createSignal(false);
+  const [requestedKnowledgeGraphRun, setRequestedKnowledgeGraphRun] =
+    createSignal<KnowledgeGraphRunRequest>();
+  const focusedGraphCardId = () =>
+    knowledgeGraphV2Enabled() &&
+    searchParams.view === 'graph' &&
+    typeof searchParams.card === 'string'
+      ? searchParams.card
+      : '';
+
+  createEffect(() => {
+    if (focusedGraphCardId()) setShowAnalytics(true);
+  });
 
   // ── Bulk selection state ────────────────────────────────────────
   const [selectMode, setSelectMode] = createSignal(false);
@@ -179,6 +230,7 @@ const DeckViewPage: Component = () => {
     createSignal<DropPosition | null>(null);
   const [isDragging, setIsDragging] = createSignal(false);
   const [isReordering, setIsReordering] = createSignal(false);
+  let contentScrollRef: HTMLDivElement | undefined;
   let cardListRef: HTMLDivElement | undefined;
   let isTrackingDocumentDrag = false;
   let lastDragPointer: { x: number; y: number } | null = null;
@@ -193,6 +245,7 @@ const DeckViewPage: Component = () => {
     if (isReordering()) return 'Saving the current card order';
     return null;
   });
+  const deckViewLayout = () => getDeckViewLayout(showAnalytics());
 
   // Server-side search when query is non-empty (searches ALL cards, not just loaded pages)
   const searchResultsQuery = createQuery(() => ({
@@ -433,7 +486,10 @@ const DeckViewPage: Component = () => {
     }
   };
   const dragAutoScroller = createDragAutoScroller(
-    () => cardListRef,
+    () =>
+      deckViewLayout().verticalScrollOwner === 'content'
+        ? contentScrollRef
+        : cardListRef,
     updateDropTargetFromPoint,
   );
   const trackDragPointer = (e: DragEvent) => {
@@ -528,7 +584,7 @@ const DeckViewPage: Component = () => {
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleCardListScroll = (container: HTMLDivElement) => {
+  const handleDeckScroll = (container: HTMLDivElement) => {
     if (isDragging() && lastDragPointer) {
       updateDropTargetFromPoint(lastDragPointer.x, lastDragPointer.y);
     }
@@ -632,6 +688,43 @@ const DeckViewPage: Component = () => {
     refetchCards();
   };
 
+  const openCardConnections = (cardId: string) => {
+    setSearchParams({ view: 'graph', card: cardId });
+    setShowAnalytics(true);
+    scheduleAnimationFrame(() => {
+      document
+        .getElementById('focused-knowledge-graph-section')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const closeFocusedGraph = () => {
+    setSearchParams({ view: undefined, card: undefined });
+  };
+
+  const viewCardFromGraph = (cardId: string) => {
+    closeFocusedGraph();
+    setShowAnalytics(false);
+    scheduleAnimationFrame(() => {
+      const row = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-deck-card-id]'),
+      ).find((element) => element.dataset.deckCardId === cardId);
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+    });
+  };
+
+  const reviewKnowledgeGraphRun = (runId: string) => {
+    setRequestedKnowledgeGraphRun((current) =>
+      createKnowledgeGraphRunRequest(current, params.deckId, runId),
+    );
+    scheduleAnimationFrame(() => {
+      document
+        .getElementById('knowledge-graph-review-section')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   // ── Render ──────────────────────────────────────────────────────
   return (
     <PageShell maxWidth={false} class="p-0" noScroll>
@@ -657,18 +750,24 @@ const DeckViewPage: Component = () => {
         selectMode={selectMode}
         toggleSelectMode={toggleSelectMode}
         showAnalytics={showAnalytics}
-        toggleAnalytics={() => setShowAnalytics((v) => !v)}
+        toggleAnalytics={() => {
+          setShowAnalytics((visible) => {
+            const next = !visible;
+            if (!next) closeFocusedGraph();
+            return next;
+          });
+        }}
       />
 
       <div
-        class={`min-h-0 flex-1 bg-surface px-4 py-3 sm:px-6 sm:py-4 ${
-          showAnalytics() ? 'overflow-y-auto' : 'overflow-hidden'
-        }`}
+        class={`min-h-0 flex-1 bg-surface px-4 py-3 sm:px-6 sm:py-4 ${deckViewLayout().contentOverflowClass}`}
+        ref={(element) => {
+          contentScrollRef = element;
+        }}
+        onScroll={(event) => handleDeckScroll(event.currentTarget)}
       >
         <div
-          class={`mx-auto flex min-h-0 max-w-6xl flex-col gap-4 ${
-            showAnalytics() ? '' : 'h-full'
-          }`}
+          class={`mx-auto flex min-h-0 max-w-6xl flex-col gap-4 ${deckViewLayout().contentColumnClass}`}
         >
           {/* ── Pending AI job resume banner ── */}
           <Show when={pendingJob() && !pendingJobDismissed() && !showAiModal()}>
@@ -756,8 +855,65 @@ const DeckViewPage: Component = () => {
                   <div class="h-80 rounded-lg border bg-card motion-safe:animate-pulse" />
                 }
               >
-                <GraphView deckId={params.deckId} />
+                <Show
+                  when={focusedGraphCardId()}
+                  keyed
+                  fallback={<GraphView deckId={params.deckId} />}
+                >
+                  {(cardId) => (
+                    <div
+                      id="focused-knowledge-graph-section"
+                      class="scroll-mt-4 space-y-3"
+                    >
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <p class="text-xs font-medium uppercase tracking-wide text-info">
+                            Focused explorer
+                          </p>
+                          <p class="mt-0.5 text-xs text-muted-foreground">
+                            One word, its exact meaning, and the connections
+                            worth learning next.
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class="min-h-11 shrink-0 text-xs sm:min-h-9"
+                          onClick={closeFocusedGraph}
+                        >
+                          <X class="h-3.5 w-3.5" />
+                          Close
+                        </Button>
+                      </div>
+                      <FocusedKnowledgeGraph
+                        deckId={params.deckId}
+                        rootCardId={cardId}
+                        templateFields={sortedFields()}
+                        onViewCard={viewCardFromGraph}
+                        onCardsChanged={refetchCards}
+                        onRunCreated={reviewKnowledgeGraphRun}
+                      />
+                    </div>
+                  )}
+                </Show>
               </Suspense>
+              <Show when={knowledgeGraphV2Enabled()}>
+                <Suspense
+                  fallback={
+                    <div class="h-32 rounded-lg border bg-card motion-safe:animate-pulse" />
+                  }
+                >
+                  <div
+                    id="knowledge-graph-review-section"
+                    class="scroll-mt-4"
+                  >
+                    <KnowledgeGraphReview
+                      deckId={params.deckId}
+                      requestedRun={requestedKnowledgeGraphRun()}
+                    />
+                  </div>
+                </Suspense>
+              </Show>
               <div class="grid gap-3 lg:grid-cols-2">
                 <Suspense
                   fallback={
@@ -814,13 +970,9 @@ const DeckViewPage: Component = () => {
           {/* Card list */}
           <Show when={!cardLoading()}>
             <div
-              class={`flex min-h-0 flex-col ${
-                showAnalytics() ? 'flex-none' : 'flex-1'
-              }`}
+              class={`flex min-h-0 flex-col ${deckViewLayout().cardRegionClass}`}
               style={{
-                height: showAnalytics()
-                  ? 'clamp(25rem, 70vh, 45rem)'
-                  : undefined,
+                height: deckViewLayout().cardRegionHeight,
               }}
               aria-label="Cards in this deck"
             >
@@ -871,13 +1023,13 @@ const DeckViewPage: Component = () => {
                 }
               >
                 <div
-                  class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                  class={deckViewLayout().cardViewportOverflowClass}
                   style={{ 'overflow-anchor': 'none' }}
                   ref={(element) => {
                     cardListRef = element;
                   }}
                   onScroll={(event) =>
-                    handleCardListScroll(event.currentTarget)
+                    handleDeckScroll(event.currentTarget)
                   }
                   onDragOver={handleListDragOver}
                   onDrop={handleListDrop}
@@ -932,7 +1084,11 @@ const DeckViewPage: Component = () => {
                             isDragging={isDragging()}
                             dragDisabledReason={reorderUnavailableReason()}
                             confirmDeleteId={confirmDeleteId()}
+                            showExploreConnections={
+                              knowledgeGraphV2Enabled()
+                            }
                             onToggleSelection={toggleCardSelection}
+                            onExploreConnections={openCardConnections}
                             onStartEdit={startEdit}
                             onDelete={handleDeleteCard}
                             onConfirmDelete={setConfirmDeleteId}

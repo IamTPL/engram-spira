@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Square,
   GripVertical,
+  Network,
 } from 'lucide-solid';
 import type { CardItem, CardField } from './types';
 
@@ -56,7 +57,9 @@ interface CardItemRowProps {
   isDragging: boolean;
   dragDisabledReason: string | null;
   confirmDeleteId: string | null;
+  showExploreConnections: boolean;
   onToggleSelection: (cardId: string) => void;
+  onExploreConnections: (cardId: string) => void;
   onStartEdit: (card: CardItem) => void;
   onDelete: (cardId: string) => void;
   onConfirmDelete: (cardId: string | null) => void;
@@ -231,6 +234,18 @@ const CardItemRow: Component<CardItemRowProps> = (props) => {
 
           {/* Action buttons (visible on hover or focus-within) */}
           <div class="flex shrink-0 gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+            <Show when={props.showExploreConnections}>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-11 w-11 text-muted-foreground hover:text-info sm:h-8 sm:w-8"
+                aria-label="Explore connections"
+                title="Explore connections"
+                onClick={() => props.onExploreConnections(props.card.id)}
+              >
+                <Network class="h-3.5 w-3.5" />
+              </Button>
+            </Show>
             <Button
               variant="ghost"
               size="icon"

@@ -14,11 +14,12 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "test:watch": "bun test --watch"
+    "test:watch": "bun test --watch",
+    "kg:evaluate": "bun run src/scripts/kg-evaluate.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.13.0",
     "@node-rs/argon2": "^2.0.2",
     "@oslojs/crypto": "^1.0.1",
     "@oslojs/encoding": "^1.1.0",

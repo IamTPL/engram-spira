@@ -176,6 +176,13 @@
       "when": 1785125637081,
       "tag": "0024_email_verification_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785125637082,
+      "tag": "0025_language_knowledge_graph",
+      "breakpoints": true
     }
   ]
 }

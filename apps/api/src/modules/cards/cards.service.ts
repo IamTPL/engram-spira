@@ -1,6 +1,12 @@
 import { eq, and, inArray, desc, sql, count, asc, gt } from 'drizzle-orm';
 import { db } from '../../db';
-import { cards, cardFieldValues, decks, templateFields } from '../../db/schema';
+import {
+  cards,
+  cardEmbeddingMetadata,
+  cardFieldValues,
+  decks,
+  templateFields,
+} from '../../db/schema';
 import { NotFoundError } from '../../shared/errors';
 import {
   buildSortOrderAssignments,
@@ -239,19 +245,28 @@ export async function update(
 
   // Batch upsert field values in a single query
   if (data.fieldValues.length > 0) {
-    await db
-      .insert(cardFieldValues)
-      .values(
-        data.fieldValues.map((fv) => ({
-          cardId,
-          templateFieldId: fv.templateFieldId,
-          value: fv.value,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [cardFieldValues.cardId, cardFieldValues.templateFieldId],
-        set: { value: sql`excluded.value` },
-      });
+    await db.transaction(async (tx) => {
+      // Serialize content edits with both legacy and KG embedding writers.
+      await tx.execute(
+        sql`SELECT id FROM cards WHERE id = ${cardId} FOR UPDATE`,
+      );
+      await tx
+        .insert(cardFieldValues)
+        .values(
+          data.fieldValues.map((fv) => ({
+            cardId,
+            templateFieldId: fv.templateFieldId,
+            value: fv.value,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [cardFieldValues.cardId, cardFieldValues.templateFieldId],
+          set: { value: sql`excluded.value` },
+        });
+      await tx
+        .delete(cardEmbeddingMetadata)
+        .where(eq(cardEmbeddingMetadata.cardId, cardId));
+    });
   }
 
   // Re-embed after update (content changed)

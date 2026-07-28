@@ -11,7 +11,7 @@ import {
   users,
   fsrsUserParams,
 } from '../../db/schema';
-import { NotFoundError } from '../../shared/errors';
+import { NotFoundError, ValidationError } from '../../shared/errors';
 import {
   calculateNextReview,
   dispatchReview,
@@ -19,6 +19,7 @@ import {
 } from './srs.engine';
 import { STREAK, type ReviewAction } from '../../shared/constants';
 import * as notificationsService from '../notifications/notifications.service';
+import { MAX_STUDY_CLUSTER_CARDS } from './study-cluster';
 
 // --------------- Helpers ---------------
 
@@ -139,21 +140,63 @@ async function enrichCards(
   }
   const progressByCard = new Map(progressRows.map((p) => [p.cardId, p]));
 
-  return targetCardsData.map((card) => ({
+  const enrichedCards = targetCardsData.map((card) => ({
     ...card,
     fields: (fieldsByCard.get(card.id) ?? []).sort(
       (a, b) => a.sortOrder - b.sortOrder,
     ),
     progress: progressByCard.get(card.id) ?? null,
   }));
+
+  if (sortByCardOrder) return enrichedCards;
+
+  const cardsById = new Map(enrichedCards.map((card) => [card.id, card]));
+  return cardIds.flatMap((cardId) => {
+    const card = cardsById.get(cardId);
+    return card ? [card] : [];
+  });
 }
 
 export async function getDueCards(
   deckId: string,
   userId: string,
   reviewAll = false,
+  selectedCardIds?: string[],
 ) {
   await verifyDeckOwnership(deckId, userId);
+
+  if (selectedCardIds) {
+    const requestedCardIds = Array.from(new Set(selectedCardIds));
+    if (requestedCardIds.length > MAX_STUDY_CLUSTER_CARDS) {
+      throw new ValidationError(
+        `Study cluster cannot contain more than ${MAX_STUDY_CLUSTER_CARDS} cards`,
+      );
+    }
+    if (requestedCardIds.length === 0) {
+      return { cards: [], total: 0, due: 0 };
+    }
+
+    const selectedRows = await db
+      .select({ id: cards.id })
+      .from(cards)
+      .where(
+        and(
+          eq(cards.deckId, deckId),
+          inArray(cards.id, requestedCardIds),
+        ),
+      );
+    if (selectedRows.length !== requestedCardIds.length) {
+      throw new NotFoundError('Card');
+    }
+
+    const enrichedCards = await enrichCards(requestedCardIds, userId, false);
+    return {
+      cards: enrichedCards,
+      total: requestedCardIds.length,
+      due: requestedCardIds.length,
+    };
+  }
+
   const now = new Date();
 
   // Run total count + due-card query in parallel (SQL-level filter instead of JS filter)

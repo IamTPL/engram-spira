@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   clampPanelWidth,
+  getAppShellViewportClass,
   readStoredBoolean,
   readStoredPanelWidth,
 } from './app-shell-state';
@@ -21,6 +22,16 @@ function storageWith(value: string | null): Storage {
 }
 
 describe('app shell state helpers', () => {
+  test('contains protected-page overflow inside the viewport shell', () => {
+    // Catches absolutely positioned controls in nested scrollers escaping the
+    // shell and creating a second document-level scrollbar.
+    const className = getAppShellViewportClass();
+
+    expect(className).toContain('relative');
+    expect(className).toContain('h-dvh');
+    expect(className).toContain('overflow-hidden');
+  });
+
   test('clamps explorer and context widths to their configured bounds', () => {
     expect(clampPanelWidth('explorer', 120)).toBe(240);
     expect(clampPanelWidth('explorer', 320)).toBe(320);

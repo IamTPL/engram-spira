@@ -27,6 +27,7 @@ function createChainMock(returnValue: any[] = []) {
     insert: mock(() => chain),
     values: mock(() => chain),
     returning: mock(() => Promise.resolve(chain._returnValue)),
+    onConflictDoNothing: mock(() => chain),
     onConflictDoUpdate: mock(() => chain),
     update: mock(() => chain),
     set: mock(() => chain),

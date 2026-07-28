@@ -1,5 +1,5 @@
 /**
- * Mocks for external dependencies: Gemini AI, nodemailer, argon2, email, logger
+ * Mocks for external dependencies: nodemailer, argon2, email, logger, and ENV
  */
 import { mock } from 'bun:test';
 
@@ -20,40 +20,6 @@ export function mockNodemailer() {
     createTransport: mock(() => ({ sendMail })),
   }));
   return { sendMail };
-}
-
-// Mock Google Generative AI — return canned responses
-export function mockGeminiAI(responseText = '[]') {
-  const generateContent = mock(async () => ({
-    response: { text: () => responseText },
-  }));
-  const generateContentStream = mock(async () => ({
-    stream: (async function* () {
-      yield { text: () => responseText };
-    })(),
-  }));
-  const getGenerativeModel = mock(() => ({
-    generateContent,
-    generateContentStream,
-  }));
-  const embedContent = mock(async () => ({
-    embedding: { values: new Array(768).fill(0.1) },
-  }));
-
-  mock.module('@google/generative-ai', () => ({
-    GoogleGenerativeAI: mock(function () {
-      return {
-        getGenerativeModel,
-      };
-    }),
-  }));
-
-  return {
-    generateContent,
-    generateContentStream,
-    getGenerativeModel,
-    embedContent,
-  };
 }
 
 // Mock email shared module
@@ -98,8 +64,9 @@ export function mockEnv(overrides: Record<string, any> = {}) {
       FEEDBACK_RECIPIENT: 'test@test.com',
       GEMINI_API_KEY: 'test-key',
       GEMINI_MODEL: 'gemini-3-flash-preview',
-      GEMINI_EMBEDDING_MODEL: 'gemini-embedding-001',
+      GEMINI_EMBEDDING_MODEL: 'gemini-embedding-2',
       GEMINI_REQUEST_TIMEOUT_MS: 60_000,
+      KG_V2_ENABLED: false,
       ...overrides,
     },
   }));

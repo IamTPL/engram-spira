@@ -1,14 +1,10 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { ENV } from '../../config/env';
 import { logger } from '../../shared/logger';
+import {
+  getGeminiProvider,
+  type GeminiProvider,
+} from '../ai/gemini-provider';
 
 const verifierLogger = logger.child({ module: 'relationship-verifier' });
-
-let _genAI: GoogleGenerativeAI | null = null;
-function getGenAI(): GoogleGenerativeAI {
-  if (!_genAI) _genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-  return _genAI;
-}
 
 export interface VerificationResult {
   sourceCardId: string;
@@ -51,12 +47,9 @@ export async function verifyRelationships(
     sourceText: string;
     targetText: string;
   }[],
+  provider: Pick<GeminiProvider, 'generateText'> = getGeminiProvider(),
 ): Promise<VerificationResult[]> {
   if (candidates.length === 0) return [];
-
-  const model = getGenAI().getGenerativeModel({
-    model: ENV.GEMINI_MODEL ?? 'gemini-3-flash-preview',
-  });
 
   const results: VerificationResult[] = [];
 
@@ -67,8 +60,8 @@ export async function verifyRelationships(
         candidate.sourceText.slice(0, 200),
       ).replace('{cardB}', candidate.targetText.slice(0, 200));
 
-      const result = await model.generateContent(prompt);
-      const text = result.response.text().trim();
+      const result = await provider.generateText({ prompt });
+      const text = result.value.trim();
 
       // Parse JSON response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
