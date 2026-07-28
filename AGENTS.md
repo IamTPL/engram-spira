@@ -13,22 +13,23 @@ Canonical agent instructions for this repository. Tool-agnostic; `CLAUDE.md` imp
 | Fact | Command | Truth today |
 |---|---|---|
 | API modules | `ls -d apps/api/src/modules/*/ \| wc -l` | **16** |
-| Postgres tables | `grep -rho 'pgTable(' apps/api/src/db/schema/ \| wc -l` | **18** |
-| HTTP routes | `grep -rhE '^\s*\.(get\|post\|put\|patch\|delete)\(' apps/api/src/modules/*/*.routes.ts \| wc -l` | **90** + `GET /health` = **91** |
-| SQL migrations | `ls apps/api/src/db/migrations/*.sql \| wc -l` | **24** (`0000`–`0023`) |
-| API tests | `cd apps/api && bun test` | **274** in 24 files — 271 pass / **3 fail** |
-| Web tests | `cd apps/web && bun test` | **16** in 4 files, all pass |
+| Postgres tables | `grep -rho 'pgTable(' apps/api/src/db/schema/ \| wc -l` | **30** |
+| HTTP routes | `grep -rhE '^\s*\.(get\|post\|put\|patch\|delete)\(' apps/api/src/modules/*/*.routes.ts \| wc -l` | **103** + `GET /health` = **104** |
+| SQL migrations | `ls apps/api/src/db/migrations/*.sql \| wc -l` | **27** (`0000`–`0026`) |
+| API tests | `cd apps/api && bun test` | **601** in 67 files — 599 pass / **2 fail** |
+| Web tests | `cd apps/web && bun test` | **87** in 16 files, all pass |
 | Web routes | `apps/web/src/app.tsx` | **13** `<Route>` |
+
+Re-measured 2026-07-28. The table drifts fast — a 12-table, 13-migration jump happened across a handful of commits (knowledge graph, folder view, FSRS-only persistence). Re-derive before trusting any of these, including this row.
 
 Toolchain: Bun 1.3.10, TypeScript 5.9.3, Node 22.22.2. Ports: API 3001, Vite dev 3002, Vite preview 4173, Postgres **5435** (host) → 5432 (container), Structurizr 8080.
 
 ## 2. The red baseline — do not mistake it for your regression
 
-Capture this before you change anything; it is pre-existing on `master`.
+Capture this before you change anything; it is pre-existing on `master`. It is **not** what the section name implies anymore — typecheck is currently green — but the name stays because there are still 2 pre-existing test failures to not misattribute to your own change.
 
-- **`bun run typecheck` FAILS (exit 2).** `@engram/api` is clean; `@engram/web` emits **22 errors in 7 files** (11× TS2339, 11× TS7053), all Eden Treaty path-inference failures. **CI's only job is typecheck, so CI is red.**
-  - Root cause: `apps/api/src/modules/experience/experience.routes.ts` types every handler context as `any` and declares no Elysia `t` schemas, which collapses the exported `App` type to an index signature. Verified: commenting out `.use(experienceRoutes)` in `apps/api/src/index.ts:202` drops the count **22 → 2**. The fix is typed handlers + `t` schemas on the experience routes — **not** more `as any` in `apps/web`.
-- **3 API tests fail.** Two (`checkAiRateLimit` in `__tests__/modules/ai/config-ai.test.ts`) are cross-file `mock.module` leakage from `__tests__/modules/knowledge-graph/kg.service.test.ts:4` — that file passes 4/4 in isolation; do not "fix" `config/ai.ts`. One (`experience.service.test.ts:780`) is real: `__tests__/helpers/fixtures.ts:110-113` hard-codes `2026-06-27/28/29`, now all in the past.
+- **`bun run typecheck` PASSES (exit 0).** Both `@engram/api` and `@engram/web` are clean. **CI is green.** The 22-error Eden Treaty path-inference collapse this section used to describe (blamed on untyped handlers in `experience.routes.ts`) no longer reproduces — that file has since been refactored to an injectable-services pattern. Re-verify with `bun run typecheck` before trusting this; it has flipped between red and green across recent commits and will likely do so again.
+- **2 API tests fail**, of 601 across 67 files. One (`study queue service > covers non-empty…`, `experience.service.test.ts:780`) is the same longstanding issue: `__tests__/helpers/fixtures.ts:110-113` hard-codes calendar dates that are now in the past. The other is new: `fsrs-only.migration.test.ts` → *"provides a supporting index for every foreign key"* fails with Postgres error 42702 `column reference "table_name" is ambiguous` — a bug in that test's own introspection SQL (an unqualified `table_name` where both joined `information_schema` views expose the column), not a missing index; every FK in the new `fsrs_*` tables does have a covering index. The previously-documented `config-ai.test.ts` mock-leak from `kg.service.test.ts` is also gone — that file no longer stubs `checkAiRateLimit`.
 
 See [docs/agents/known-issues.md](docs/agents/known-issues.md) for the full list and which are safe to fix.
 

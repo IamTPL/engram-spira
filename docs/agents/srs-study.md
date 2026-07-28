@@ -48,7 +48,16 @@ Two literals are **not** in the constants object — the `1.2` HARD growth facto
 
 ## FSRS engine
 
-Wraps `ts-fsrs@5.2.3`, which self-identifies as **`v5.2.3 using FSRS-6.0`** — the algorithm generation is FSRS-6, despite the `FSRS v5` comments in the code and tests. Ratings map to `Rating.Again|Hard|Good|Easy` = 1|2|3|4.
+Wraps `ts-fsrs@5.4.1` (bumped from `5.2.3`; `f.repeat(card, now)[rating]` became `f.next(card, now, rating)` — same semantics, new call shape), which self-identifies as FSRS generation **FSRS-6** — despite the `FSRS v5` comments in the code and tests. Ratings map to `Rating.Again|Hard|Good|Easy` = 1|2|3|4. Three version-tag constants now live at the top of the file: `FSRS_ALGORITHM_VERSION = 'FSRS-6'`, `FSRS_LIBRARY_VERSION = 'ts-fsrs@5.4.1'`, `FSRS_POLICY_VERSION = 'engram-fsrs-v1'` — currently read only by the dormant code below, not by `calculateFsrsReview`.
+
+### A second, unwired engine surface: `scheduleFsrsReview` / `normalizeFsrsParameters`
+
+`fsrs.engine.ts` gained ~280 lines of a second, stricter adapter alongside the original `calculateFsrsReview` (below) — **not a replacement for it; nothing calls the new functions outside their own test file.** `grep -rl 'scheduleFsrsReview\|normalizeFsrsParameters' apps/api/src` outside `fsrs.engine.ts` itself returns nothing; `study.service.ts` was not touched by the commit that added this. It exists to eventually feed the shadow `fsrs_*` tables — see [database.md](database.md#tables).
+
+- `normalizeFsrsParameters(value?: unknown): FSRSParameters` — allowlists exactly 7 keys, range-checks `request_retention`/`maximum_interval`, validates step-string format (`/^[1-9]\d*[mhd]$/`), and **migrates FSRS weight vectors between generations**: 17 weights (pre-4.5) → pads short-term + decay and re-derives 3 of the original weights via the documented FSRS-4.5→5 formula; 19 weights (5-without-short-term) → appends 2; 21 weights (current) → passed through. Clamps every weight to `CLAMP_PARAMETERS(W17_W18_Ceiling, ...)`'s per-index range from `ts-fsrs`. Throws `ValidationError` (not a plain `Error`) on any violation — unlike `calculateFsrsReview`, whose `params` argument is spread into `generatorParameters()` completely unvalidated.
+- `scheduleFsrsReview({current, rating, reviewedAt, parameters}): {before, after, log}` — takes a full `ts-fsrs` `Card` (not the app's partial `FsrsState`), validates it (`due`/`last_review` are real Dates, `last_review <= reviewedAt`, state is one of Learning/Review/Relearning, stability/difficulty/counters are in-range) via `validateAndCloneCard`, then calls `fsrs(...).next(...)` and returns cloned before/after cards plus the library's own `ReviewLog`.
+
+**If this ever gets wired up, it structurally avoids both defects below** — worth knowing before "fixing" the live path by copying from here. `scheduleFsrsReview` gates on `input.current === null` (not truthy `stability`), and a real `fsrs_card_states` row can never carry `stability = 0` (the table's own CHECK constraint forbids it), so defect 1 cannot occur through this path. It also threads the caller-supplied `Card.last_review` straight into `ts-fsrs`'s own elapsed-time computation instead of hardcoding `new Date()`, so stability would grow correctly for review-state cards — *provided* whatever eventually calls this reconstructs `last_review` from real persisted history rather than the current moment. Neither claim has been exercised end-to-end; there is no caller yet.
 
 Module defaults (`fsrs.engine.ts:50-53`): `learning_steps: ['1m','15m']`, `relearning_steps: ['10m']`. Everything else is inherited from the library: `request_retention` 0.9, `maximum_interval` 36500, `enable_fuzz` false, `enable_short_term` true. (The library's own default `learning_steps` would be `['1m','10m']`.) Per-user params are shallow-merged **over** these defaults, so a user key wins.
 
@@ -58,10 +67,10 @@ Card reconstruction (`L63-76`) restores `stability`, `difficulty`, `state` and �
 
 `intervalDays` on the FSRS path is `Math.ceil(scheduled_days)` and is **display-only**; always schedule from `nextReviewAt`.
 
-### Two confirmed engine defects
+### Two confirmed engine defects (in the live path, `calculateFsrsReview` — unchanged by the `ts-fsrs` 5.4.1 bump or the new dormant surface above; only the line numbers moved, from the ~280 lines inserted above this function)
 
-1. **State loss on zero stability.** The restore is gated on `current?.stability` being *truthy* (`fsrs.engine.ts:63`), so a persisted `stability` of `0` or `NULL` silently rebuilds a brand-new card via `createEmptyCard()`, discarding difficulty, state and learning steps.
-2. **Elapsed time is always zero.** `last_review` is hardcoded to `new Date()` (`fsrs.engine.ts:74`), so ts-fsrs computes `elapsed_days = 0` on every review and **stability never grows for review-state cards**. Measured with S=10, D=5, 30 days elapsed, Good: this code returns stability 10.0 / interval 11 d; a correctly-carried card returns stability 53.56 / interval 54 d. `last_elapsed_days` therefore always persists as 0, and the `current.lastElapsedDays` passed at `L68` is discarded by the library.
+1. **State loss on zero stability.** The restore is gated on `current?.stability` being *truthy* (`fsrs.engine.ts:366`), so a persisted `stability` of `0` or `NULL` silently rebuilds a brand-new card via `createEmptyCard()`, discarding difficulty, state and learning steps.
+2. **Elapsed time is always zero.** `last_review` is hardcoded to `new Date()` (`fsrs.engine.ts:377`), so ts-fsrs computes `elapsed_days = 0` on every review and **stability never grows for review-state cards**. Measured with S=10, D=5, 30 days elapsed, Good: this code returns stability 10.0 / interval 11 d; a correctly-carried card returns stability 53.56 / interval 54 d. `last_elapsed_days` therefore always persists as 0, and the `current.lastElapsedDays` passed at `L371` is discarded by the library.
 
 ## Tables owned
 
@@ -86,6 +95,8 @@ On an FSRS review, `box_level` and `ease_factor` are **carried over unchanged** 
 **`study_daily_logs`** — `(user_id, study_date date, cards_reviewed)` with `uq_user_study_date`. Always go through `upsertDailyLog()`; never read-then-write. It increments with the raw SQL `study_daily_logs.cards_reviewed + ${count}` on conflict, so concurrent batches cannot lose counts.
 
 **`fsrs_user_params`** — read-only in app code (see above).
+
+**Not owned by anything above**: `fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs` exist (migration `0026`) but are written and read by **nothing** in `apps/api/src` outside their own schema/test files — a dormant shadow model, not a fifth table this module manages. Full definitions in [database.md](database.md#tables).
 
 ## Review path
 
@@ -171,7 +182,9 @@ Everything a batch writes is keyed on `algorithm` at the top of `reviewCardBatch
 
 ## Tests
 
-60 tests in 4 files, all passing: `srs.engine.test.ts` (26 — pins exact integer intervals), `fsrs.engine.test.ts` (15 — **loose range assertions only, no interval is pinned**), `study.service.test.ts` (12), `forecast.service.test.ts` (7). No tests exist for `recommendations.service.ts`, `review-logs-cleanup.ts` or `study.routes.ts`.
+`__tests__/modules/study/` now has **9 files, 100 tests, all passing** — more than this doc used to describe. The 4 files this doc covers: `srs.engine.test.ts` (26 — pins exact integer intervals), `fsrs.engine.test.ts` (22, up from 15 — the added cases exercise `scheduleFsrsReview`/`normalizeFsrsParameters` above; the original `calculateFsrsReview` cases are still **loose range assertions only, no interval is pinned**), `study.service.test.ts` (15, up from 12), `forecast.service.test.ts` (7, unchanged). No tests exist for `recommendations.service.ts`, `review-logs-cleanup.ts` or `study.routes.ts`.
+
+The other 5 files — `retention-details.service.test.ts` (8), `retention-estimator.test.ts` (8), `retention-overview.service.test.ts` (6), `retention.routes.test.ts` (5), `study-cluster.test.ts` (3) — test a **retention/clustering subsystem this doc does not cover at all** (predates the changes described above; likely shipped with the memory-health-overview work). Do not assume the file list above is exhaustive for `modules/study/`; re-derive with `ls apps/api/__tests__/modules/study/`. Documenting that subsystem is its own task.
 
 Test engine changes with exact expected integers (`expect(result.intervalDays).toBe(8)`); test services with the db-mock helpers. See [testing.md](testing.md).
 

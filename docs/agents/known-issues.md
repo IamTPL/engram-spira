@@ -12,53 +12,28 @@ Each entry is tagged:
 
 ## The red baseline
 
-### `bun run typecheck` fails — 22 errors, and CI is red
+**As of 2026-07-28 this section's headline claims (22 tsc errors, CI red, 3 failing tests) are stale — re-measured below.** Section kept because 2 test failures are still genuinely pre-existing; do not misattribute them to your change. **Always re-run `bun run typecheck` and both `bun test` commands yourself** before trusting any number on this page — this baseline has already flipped once (red → green) across recent commits and nothing prevents it flipping back.
 
-`@engram/api` typechecks clean (exit 0). `@engram/web` emits **22 errors across 7 files** — 11× `TS2339`, 11× `TS7053`, all Eden Treaty path-inference failures on route segments like `.me`, `.login`, `.register`, `.logout`, `.deck`, `['by-deck']`, `['by-folder']`, `['forgot-password']`, `['reset-password']`.
+### `bun run typecheck` — now passes clean, CI is green
 
-| File | Errors |
-|---|---|
-| `src/components/layout/sidebar/sidebar-context.tsx` | 5 |
-| `src/stores/auth.store.ts` | 4 |
-| `src/pages/deck-view/deck-view-page.tsx` | 4 |
-| `src/pages/study-mode.tsx` | 3 |
-| `src/pages/folder-view.tsx` | 3 |
-| `src/pages/reset-password.tsx` | 2 |
-| `src/pages/deck-view/use-deck-data.ts` | 1 |
+Re-measured: `bun run typecheck` exits **0** for both `@engram/api` and `@engram/web`. `.github/workflows/ci.yml`'s only job is `typecheck`, so CI is currently green.
 
-**These are one root cause, not 22 bugs.** `apps/api/src/modules/experience/experience.routes.ts` types every handler context as `any` and declares no Elysia `t` schemas, which collapses the exported `App` type to an index signature and destroys inference everywhere downstream.
+This section used to document a 22-error Eden Treaty path-inference collapse, root-caused to `apps/api/src/modules/experience/experience.routes.ts` typing every handler context as `any` with no Elysia `t` schemas. That file has since been refactored to an injectable-services pattern (`ExperienceRouteServices`, a swappable services object — see [experience-bff.md](experience-bff.md) if it covers the new shape) and the collapse no longer reproduces. Whether it was that specific refactor that fixed inference, or something else in `apps/web`, was not re-diagnosed — only the end state (0 errors) was verified. If typecheck goes red again, don't assume the old root cause or the old file:line list still apply; re-diagnose from scratch.
 
-Verified experimentally: commenting out `.use(experienceRoutes)` at `apps/api/src/index.ts:202` drops the count from **22 to 2** (the remaining two being the now-missing `api.dashboard` / `api.command` paths in `dashboard.tsx` and `global-search.tsx`).
+### 2 API tests fail (was 3, but not the same 3)
 
-`.github/workflows/ci.yml`'s only job is `typecheck`, so **CI is red on master.** Note `bun run build` for `apps/web` still succeeds — Vite does not typecheck.
-
-Two cheaper partial fixes exist: 5 of the 22 errors (23%) live in `components/layout/sidebar/sidebar-context.tsx`, which is **dead code** reachable only from the dead `components/layout/sidebar.tsx`; deleting the dead layout tree removes them without touching types.
-
-→ **`own-task`.** The correct fix is `t` schemas + typed handler contexts on the experience routes. **Do not "fix" the web files by adding more `as any`** — that is how the current casts in `auth.store.ts:99` and `dashboard.tsx:172` got there.
-
-### 3 API tests fail
-
-`cd apps/api && bun test` → **271 pass / 3 fail** / 576 assertions / 274 tests / 24 files.
+`cd apps/api && bun test` → **599 pass / 2 fail** / 1931 assertions / 601 tests / 67 files.
 
 | Test | Cause | Verdict |
 |---|---|---|
-| `checkAiRateLimit > throws TooManyRequestsError after 30 requests` (`config-ai.test.ts:15`) | cross-file mock leak | not a real bug |
-| `checkAiRateLimit > allows exactly 30 requests` (`config-ai.test.ts:34`) | cross-file mock leak | not a real bug |
-| `study queue service > covers non-empty mixed queues with deterministic ordering, reason, and summary` (`experience.service.test.ts:780`) | rotten fixture | real |
+| `0026 FSRS-only expansion migration > provides a supporting index for every foreign key` (`fsrs-only.migration.test.ts`) | bug in the test's own SQL | not a real bug |
+| `study queue service > covers non-empty mixed queues with deterministic ordering, reason, and summary` (`experience.service.test.ts:780`) | rotten fixture | real, unchanged |
 
-**The mock leak.** Bun runs every discovered test file in one process and `mock.module` is registered process-globally. `__tests__/modules/knowledge-graph/kg.service.test.ts:4` stubs `checkAiRateLimit` as a no-op, and that registration survives into `config-ai.test.ts`, whose two rate-limit tests then see a function that never throws.
+**The FK-index test bug (new).** The test's introspection query joins `information_schema.table_constraints tc` to `information_schema.key_column_usage kcu` via `USING (constraint_schema, constraint_name)` — which does not disambiguate `table_name`, present on both views — then references bare `table_name` in the `SELECT`/`GROUP BY`. Postgres rejects it: `42702 column reference "table_name" is ambiguous`. The migration itself is fine — manually checking every FK in the 4 new `fsrs_*` tables against their indexes (see [database.md](database.md#tables)) shows each is covered by a leading-column index or unique constraint. → **`safe-to-fix`**: qualify as `tc.table_name` (or `kcu.table_name`) in that query.
 
-Proof of attribution — `kg.service.test.ts` is the culprit, **not** `ai.service.test.ts` (which registers a byte-similar stub):
+**The previously-documented mock leak is gone.** `__tests__/modules/knowledge-graph/kg.service.test.ts` no longer stubs `checkAiRateLimit` via `mock.module` — confirmed by grep and by re-running `bun test __tests__/modules/knowledge-graph/kg.service.test.ts __tests__/modules/ai/config-ai.test.ts` together (14 pass / 0 fail). Do not go looking for it.
 
-```
-bun test __tests__/modules/knowledge-graph/kg.service.test.ts __tests__/modules/ai/config-ai.test.ts  → 5 pass / 2 fail
-bun test __tests__/modules/ai/ai.service.test.ts            __tests__/modules/ai/config-ai.test.ts  → 6 pass / 0 fail
-bun test __tests__/modules/ai/config-ai.test.ts                                                     → 4 pass / 0 fail
-```
-
-**Do not "fix" `config/ai.ts` or `config-ai.test.ts`** — the implementation is correct. → **`do-not-fix-drive-by`** (the structural fix is to stop stubbing shared modules).
-
-**The fixture time bomb.** `__tests__/helpers/fixtures.ts:110-113` hard-codes `now = 2026-06-28`, `past = 2026-06-27`, `future = 2026-06-29`. Real time has passed 2026-06-29, so `study-queue.service.ts:159 isDue()` classifies the "future" rows as due and the queue returns `[card-due, card-learning, card-risk, card-new]` instead of `[card-due, card-new, card-learning, card-risk]`. → **`safe-to-fix`**: derive the dates from `Date.now()`.
+**The fixture time bomb (unchanged, still real).** `__tests__/helpers/fixtures.ts:110-113` hard-codes `now = 2026-06-28`, `past = 2026-06-27`, `future = 2026-06-29`. Real time has passed 2026-06-29, so `study-queue.service.ts:159 isDue()` classifies the "future" rows as due and the queue returns `[card-due, card-learning, card-risk, card-new]` instead of `[card-due, card-new, card-learning, card-risk]`. → **`safe-to-fix`**: derive the dates from `Date.now()`.
 
 ---
 
@@ -69,8 +44,8 @@ bun test __tests__/modules/ai/config-ai.test.ts                                 
 | Issue | Where | Verdict |
 |---|---|---|
 | **`POST /study/review` is SM-2-only.** Calls `calculateNextReview` directly, never reads `users.srs_algorithm` or `fsrs_user_params`, writes no FSRS columns. An FSRS user silently gets SM-2 scheduling. Masked because the web client only calls `/review-batch` | `study.service.ts:256` | `own-task` |
-| **FSRS stability never grows for review-state cards.** `last_review` is hardcoded to `new Date()`, so ts-fsrs computes `elapsed_days = 0` every time. Measured: S=10 / 30 d elapsed / Good → stays 10.0, interval 11 d; correct continuation gives 53.56 / 54 d. `last_elapsed_days` therefore always persists as 0 | `fsrs.engine.ts:74` | `own-task` |
-| **FSRS state lost on zero stability.** The restore is gated on `current?.stability` being *truthy*, so `stability = 0` or `NULL` rebuilds a brand-new card, discarding difficulty, state and learning steps | `fsrs.engine.ts:63` | `own-task` |
+| **FSRS stability never grows for review-state cards.** `last_review` is hardcoded to `new Date()`, so ts-fsrs computes `elapsed_days = 0` every time. Measured: S=10 / 30 d elapsed / Good → stays 10.0, interval 11 d; correct continuation gives 53.56 / 54 d. `last_elapsed_days` therefore always persists as 0 | `fsrs.engine.ts:377` (was `:74` before ~280 lines were inserted above it — still the live `calculateFsrsReview` path; see [srs-study.md](srs-study.md#fsrs-engine) for a dormant, unwired second engine surface, `scheduleFsrsReview`, that structurally avoids this) | `own-task` |
+| **FSRS state lost on zero stability.** The restore is gated on `current?.stability` being *truthy*, so `stability = 0` or `NULL` rebuilds a brand-new card, discarding difficulty, state and learning steps | `fsrs.engine.ts:366` (was `:63`) | `own-task` |
 | **EASY has no upper ease-factor clamp** while AGAIN/HARD clamp to 1.3. Repeated Easy grades grow `ease_factor` without bound | `srs.engine.ts:122` | `safe-to-fix` |
 | **HARD graduates a never-reviewed card** (`box_level` 0 → 1 via `Math.max(1, reps)`), contradicting the intuitive reading | `srs.engine.ts:86` | `do-not-fix-drive-by` |
 | `review_logs.state` is derived from SM-2 columns with a hardcoded 21-day cutoff **even for FSRS users**, so the FSRS-native `fsrs_state` is never logged. A future optimizer trained on this column trains on SM-2 labels | `study.service.ts:252,389` | `own-task` |
@@ -78,7 +53,7 @@ bun test __tests__/modules/ai/config-ai.test.ts                                 
 | `getInterleavedDueCards` returns `total: dueRows.length`, capped at `limit * 2` — **not the real due count** | `study.service.ts:767,807` | `safe-to-fix` |
 | The `x-timezone-offset` clamp `[-720, 840]` silently clips UTC+13/+14 users (Kiritimati, Samoa DST, Chatham) to UTC+12 | `study.routes.ts:20` | `safe-to-fix` |
 | Streak math mixes UTC and server-local (`setDate` on a shifted instant), so it is **only correct under `TZ=UTC`** — and nothing sets `TZ` | `study.service.ts:584-700` | `own-task` |
-| `fsrs_user_params.params` is passed into `generatorParameters()` **completely unvalidated**; malformed jsonb reaches ts-fsrs inside the review transaction | `srs.engine.ts:16` | `safe-to-fix` |
+| `fsrs_user_params.params` is passed into `generatorParameters()` **completely unvalidated**; malformed jsonb reaches ts-fsrs inside the review transaction | `srs.engine.ts:16` | `safe-to-fix` — a validated equivalent, `normalizeFsrsParameters()`, now exists in `fsrs.engine.ts` but nothing calls it yet |
 | `getRetentionHeatmap` returns `{cards: []}` instead of throwing for a foreign deck, unlike every other deck-scoped read | `forecast.service.ts:116-122` | `do-not-fix-drive-by` |
 
 ### Timezone divergence between `/study/streak` and the command center
@@ -155,7 +130,7 @@ bun test __tests__/modules/ai/config-ai.test.ts                                 
 |---|---|---|
 | Command actions return routes that **do not exist** (`/study?…`, `/library?…`, `/create?…`, `/insights`) and work only because `AppShell.resolveAvailableRoute()` rewrites them — **dropping the query string**, so `study.startQueue` with `mode:'at-risk'` loses the mode | `command-actions.ts:148-177` | `own-task` |
 | `#main-content` exists only inside AppShell, so the `index.html` skip link and `RouteAnnouncer`'s focus call are **no-ops** on `/reset-password`, `/verify-email`, `/login`, `/register` and the 404 route | `app-shell.tsx:399` | `safe-to-fix` |
-| `index.html`'s pre-JS loading shell hardcodes the **retired** palette and switches on `@media (prefers-color-scheme: dark)` while the app is class-based, so light-OS + dark-app users get a light flash. It also hard-depends on Google Fonts | `apps/web/index.html` | `safe-to-fix` |
+| `index.html`'s pre-JS loading shell hardcodes the **retired** palette and switches on `@media (prefers-color-scheme: dark)` while the app is class-based, so light-OS + dark-app users get a light flash | `apps/web/index.html` | `safe-to-fix` |
 | `theme.store` registers a `matchMedia` listener at module scope with **no cleanup** (leaks in tests); `focus.store` **runs side effects at import time**, mutating localStorage | `theme.store.ts:56`, `focus.store.ts:278-301` | `do-not-fix-drive-by` |
 | `TaskRail` and `MobileBottomNav` duplicate the same 6-item nav byte-for-byte — any change must be made twice or the navs diverge | `task-rail.tsx:31`, `mobile-bottom-nav.tsx:29` | `safe-to-fix` |
 | `app.css:113-114` still define `--sidebar-width` / `--sidebar-collapsed-width`, vestigial since the app-shell explorer uses its own 296 px / 240–420 bounds | `app.css` | `safe-to-fix` |
@@ -192,6 +167,7 @@ Verified as having **zero importers** or being otherwise unreachable. Deleting a
 | `review_logs.review_duration_ms` | No endpoint ever writes it |
 | `card_concepts` inserts | Nothing ever inserts — smart groups and study-queue concept modes return empty on a fresh DB |
 | `fsrs_user_params` writes | Nothing ever writes — there is no optimizer feature |
+| `fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs` (migration `0026`) | Fully defined tables + CHECK constraints, and two pure functions in `fsrs.engine.ts` (`scheduleFsrsReview`, `normalizeFsrsParameters`) meant to populate them — but zero routes/services/jobs reference any of it. A shadow FSRS-only persistence model with no wiring yet, not a smaller version of an existing feature. See [database.md](database.md#tables) |
 
 ## Features documented but not implemented
 
