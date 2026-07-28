@@ -34,6 +34,8 @@ import {
   Timer,
 } from 'lucide-solid';
 import RelatedCardsPanel from '@/components/study/related-cards-panel';
+import { memoryHealthKeys } from '@/components/deck-view/memory-health-state';
+import { toast } from '@/stores/toast.store';
 import { buildStudyDeckQuery, isStudyCluster } from './study-mode-state';
 
 const StudyModePage: Component = () => {
@@ -146,6 +148,9 @@ const StudyModePage: Component = () => {
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({
+        queryKey: memoryHealthKeys.deck(params.deckId),
+      });
     },
   }));
 
@@ -260,7 +265,12 @@ const StudyModePage: Component = () => {
 
   const handleResetProgress = async () => {
     try {
-      await (api.study.deck as any)[params.deckId]['reset-progress'].post();
+      const { error } = await (api.study.deck as any)[params.deckId][
+        'reset-progress'
+      ].post();
+      if (error) {
+        throw new Error(getApiError(error));
+      }
       batch(() => {
         setCurrentIndex(0);
         setStats({ again: 0, hard: 0, good: 0, easy: 0 });
@@ -271,8 +281,15 @@ const StudyModePage: Component = () => {
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-    } catch {
-      // ignore
+      queryClient.invalidateQueries({
+        queryKey: memoryHealthKeys.deck(params.deckId),
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to reset progress. Please try again.',
+      );
     }
   };
 

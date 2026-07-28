@@ -3,6 +3,7 @@ import { useParams } from '@solidjs/router';
 import { createQuery, createInfiniteQuery } from '@tanstack/solid-query';
 import { api } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
+import { memoryHealthKeys } from '@/components/deck-view/memory-health-state';
 import type { TemplateField, CardItem } from './types';
 import { replaceCardsAcrossPages } from './deck-reorder';
 
@@ -147,6 +148,9 @@ export function useDeckData() {
       queryClient.invalidateQueries({
         queryKey: cardsQueryKey(),
         exact: true,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: memoryHealthKeys.deck(params.deckId),
       }),
     ];
 

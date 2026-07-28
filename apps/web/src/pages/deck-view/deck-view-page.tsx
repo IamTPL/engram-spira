@@ -61,8 +61,8 @@ const AiGenerateModal = lazy(() => import('./ai-generate-modal'));
 const DRAG_CARD_MIME = 'application/x-engram-card-id';
 
 // Lazy-load deck analytics components (only rendered when toggled)
-const RetentionHeatmap = lazy(
-  () => import('@/components/deck-view/retention-heatmap'),
+const MemoryHealth = lazy(
+  () => import('@/components/deck-view/memory-health'),
 );
 const GraphView = lazy(() => import('@/components/deck-view/graph-view'));
 const FocusedKnowledgeGraph = lazy(
@@ -848,7 +848,7 @@ const DeckViewPage: Component = () => {
                   <div class="h-32 rounded-lg border bg-card motion-safe:animate-pulse" />
                 }
               >
-                <RetentionHeatmap deckId={params.deckId} />
+                <MemoryHealth deckId={params.deckId} />
               </Suspense>
               <Suspense
                 fallback={
