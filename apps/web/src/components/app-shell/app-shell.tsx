@@ -207,7 +207,7 @@ export const AppShell: Component<AppShellProps> = (props) => {
           <main
             id="main-content"
             tabindex="-1"
-            class="min-h-0 flex-1 overflow-hidden bg-muted/20 focus:outline-none"
+            class="min-h-0 flex-1 overflow-hidden focus:outline-none"
           >
             {props.children}
           </main>

@@ -1,6 +1,10 @@
 /* @refresh reload */
 import 'solid-devtools';
 import { render } from 'solid-js/web';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
 import './app.css';
 // Initialize theme (applies dark/light class to <html> on load)
 import './stores/theme.store';

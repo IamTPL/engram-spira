@@ -56,3 +56,19 @@ export {
   cardEmbeddingMetadata,
   cardEmbeddingMetadataRelations,
 } from './card-embedding-metadata';
+export {
+  fsrsParameterRevisions,
+  fsrsParameterRevisionsRelations,
+} from './fsrs-parameter-revisions';
+export {
+  fsrsCardStates,
+  fsrsCardStatesRelations,
+} from './fsrs-card-states';
+export {
+  fsrsReviewEvents,
+  fsrsReviewEventsRelations,
+} from './fsrs-review-events';
+export {
+  fsrsMigrationRuns,
+  fsrsMigrationRunsRelations,
+} from './fsrs-migration-runs';

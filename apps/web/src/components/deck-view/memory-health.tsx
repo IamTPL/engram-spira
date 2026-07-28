@@ -56,9 +56,9 @@ const STATUS_TONE_CLASSES = {
 } as const;
 
 const STATUS_SEGMENT_CLASSES = {
-  due: 'bg-due',
-  risk: 'bg-risk',
-  success: 'bg-success',
+  due: 'bg-due-fill',
+  risk: 'bg-risk-fill',
+  success: 'bg-success-fill',
   muted: 'bg-muted-foreground/35',
 } as const;
 

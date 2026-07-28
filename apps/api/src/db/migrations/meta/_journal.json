@@ -183,6 +183,13 @@
       "when": 1785125637082,
       "tag": "0025_language_knowledge_graph",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785125637083,
+      "tag": "0026_fsrs_only_expand",
+      "breakpoints": true
     }
   ]
 }

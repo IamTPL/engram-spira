@@ -476,7 +476,7 @@ const StudyModePage: Component = () => {
                   aria-label="Study session summary"
                 >
                   <div class="text-center">
-                    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-new/25 bg-new-surface text-new">
+                    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-new-fill text-new-fill-foreground">
                       <CheckCircle class="h-5 w-5" />
                     </div>
 
@@ -542,7 +542,7 @@ const StudyModePage: Component = () => {
                   <Show when={scheduleQuery.data}>
                     <div class="flex items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-xs">
                       <div class="flex min-w-0 items-center gap-3">
-                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-due-surface text-due">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-due-fill text-due-fill-foreground">
                           <BookOpen class="h-4 w-4" />
                         </span>
                         <div class="min-w-0">

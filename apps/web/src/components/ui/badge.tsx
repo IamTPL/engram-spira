@@ -16,19 +16,19 @@ const badgeVariants = cva(
         outline: 'border-input bg-card text-foreground',
         muted: 'border-transparent bg-muted text-muted-foreground',
         success:
-          'rounded-full border-transparent bg-success text-success-foreground',
+          'rounded-full border-transparent bg-success-fill text-success-fill-foreground',
         warning:
-          'rounded-full border-transparent bg-warning text-warning-foreground',
+          'rounded-full border-transparent bg-warning-fill text-warning-fill-foreground',
         info:
-          'rounded-full border-transparent bg-info text-info-foreground',
+          'rounded-full border-transparent bg-info-fill text-info-fill-foreground',
         due:
-          'rounded-full border-transparent bg-due text-due-foreground',
+          'rounded-full border-transparent bg-due-fill text-due-fill-foreground',
         new:
-          'rounded-full border-transparent bg-new text-new-foreground',
+          'rounded-full border-transparent bg-new-fill text-new-fill-foreground',
         learning:
-          'rounded-full border-transparent bg-learning text-learning-foreground',
+          'rounded-full border-transparent bg-learning-fill text-learning-fill-foreground',
         risk:
-          'rounded-full border-transparent bg-risk text-risk-foreground',
+          'rounded-full border-transparent bg-risk-fill text-risk-fill-foreground',
       },
     },
     defaultVariants: {

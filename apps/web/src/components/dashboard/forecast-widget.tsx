@@ -51,9 +51,9 @@ const ForecastWidget: Component = () => {
 
   const barColor = (count: number): string => {
     const ratio = count / maxAtRisk();
-    if (ratio >= 0.7) return 'bg-destructive/80';
-    if (ratio >= 0.4) return 'bg-amber-500/80';
-    return 'bg-palette-5/60';
+    if (ratio >= 0.7) return 'bg-destructive-fill/80';
+    if (ratio >= 0.4) return 'bg-risk-fill/80';
+    return 'bg-learning-fill/60';
   };
 
   const formatDate = (dateStr: string): string => {
@@ -130,11 +130,11 @@ const ForecastWidget: Component = () => {
           {/* Legend */}
           <div class="flex items-center gap-3 mt-3 justify-end">
             <div class="flex items-center gap-1">
-              <div class="h-2 w-2 rounded-sm bg-palette-5/60" />
+              <div class="h-2 w-2 rounded-sm bg-learning-fill/60" />
               <span class="text-[10px] text-muted-foreground">Low</span>
             </div>
             <div class="flex items-center gap-1">
-              <div class="h-2 w-2 rounded-sm bg-amber-500/80" />
+              <div class="h-2 w-2 rounded-sm bg-risk-fill/80" />
               <span class="text-[10px] text-muted-foreground">Medium</span>
             </div>
             <div class="flex items-center gap-1">

@@ -12,7 +12,7 @@ const AppErrorBoundary: Component<AppErrorBoundaryProps> = (props) => {
       fallback={(err, reset) => (
         <div class="flex min-h-[100dvh] items-center justify-center bg-background p-5">
           <div class="w-full max-w-md rounded-xl border bg-card p-6 text-center shadow-md sm:p-8">
-            <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-destructive/20 bg-destructive-surface text-destructive">
+            <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive-fill text-destructive-fill-foreground">
               <AlertTriangle class="h-5 w-5" />
             </div>
             <h1 class="text-xl font-semibold tracking-tight text-foreground">

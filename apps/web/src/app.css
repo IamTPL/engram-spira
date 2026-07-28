@@ -4,97 +4,108 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ENGRAM SPIRA DESIGN SYSTEM
-   Premium graphite foundation with legacy compatibility tokens. */
+   Blue-grey foundation (hue 210deg) with legacy compatibility tokens.
+   Dark mode is sampled pixel-for-pixel from a reference dashboard; light mode
+   is derived from the same hue family. See the .dark block for provenance. */
 
 @theme {
-  /* Typography */
+  /* Typography — Inter is self-hosted via @fontsource/inter (weights
+     400/500/600/700 imported in src/index.tsx); the rest is fallback only. */
   --font-sans:
-    ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable',
-    'Segoe UI', sans-serif;
+    'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    'Segoe UI Variable', 'Segoe UI', sans-serif;
 
-  /* Accent hierarchy: blue first, yellow second, supporting hues after */
-  --color-blue-50: #eaf1ff;
-  --color-blue-100: #d6e4ff;
-  --color-blue-200: #abc5ff;
-  --color-blue-300: #7da4ff;
-  --color-blue-400: #4e82fa;
-  --color-blue-500: #2864e8;
-  --color-blue-600: #155eef;
-  --color-blue-700: #164bc1;
-  --color-blue-800: #183777;
-  --color-blue-900: #192f5f;
+  /* Accent hierarchy: blue first, yellow second, supporting hues after.
+     Step 400 is the exact blue sampled from the reference dashboard. */
+  --color-blue-50: #eef4ff;
+  --color-blue-100: #d7e5ff;
+  --color-blue-200: #c8ccff;
+  --color-blue-300: #a7c5fe;
+  --color-blue-400: #89b5ff;
+  --color-blue-500: #5b93f7;
+  --color-blue-600: #2e67cc;
+  --color-blue-700: #2a54a3;
+  --color-blue-800: #24407a;
+  --color-blue-900: #1b2f57;
 
-  /* Graphite neutrals */
-  --color-slate-50: #f7f7f8;
-  --color-slate-100: #f0f1f3;
-  --color-slate-200: #dfe1e6;
-  --color-slate-300: #c4c7ce;
-  --color-slate-400: #999da7;
-  --color-slate-500: #70747e;
-  --color-slate-600: #565a63;
-  --color-slate-700: #41444b;
-  --color-slate-800: #2b2d33;
-  --color-slate-900: #1a1b1f;
-  --color-slate-950: #111215;
+  /* Blue-grey neutrals, hue 210deg — steps 800/900/950 are sampled verbatim
+     from the reference (tab-active / card / page background). */
+  --color-slate-50: #f3f5f9;
+  --color-slate-100: #eef1f6;
+  --color-slate-200: #dfe4ec;
+  --color-slate-300: #cfd6e1;
+  --color-slate-400: #9aa3b6;
+  --color-slate-500: #6f7889;
+  --color-slate-600: #5b6472;
+  --color-slate-700: #414a58;
+  --color-slate-800: #242c3a;
+  --color-slate-900: #1d2430;
+  --color-slate-950: #171b23;
 
-  --color-green-50: #e4f8ef;
-  --color-green-500: #0da678;
-  --color-green-600: #047857;
-  --color-amber-50: #fff7d6;
-  --color-amber-500: #f2b705;
-  --color-amber-600: #a45f00;
-  --color-red-50: #ffebee;
-  --color-red-500: #e04454;
-  --color-red-600: #c52233;
-  --color-violet-50: #f1eaff;
-  --color-violet-500: #8b5cf6;
-  --color-violet-600: #7240d5;
+  --color-green-50: #e0f6ec;
+  --color-green-400: #1f9968;
+  --color-green-500: #147a54;
+  --color-green-600: #0f6644;
+  --color-amber-50: #fdf6df;
+  --color-amber-400: #b87d18;
+  --color-amber-500: #96620f;
+  --color-amber-600: #7d5209;
+  --color-red-50: #fdeae8;
+  --color-red-500: #bc413c;
+  --color-red-600: #a13531;
+  --color-violet-50: #f0e8fd;
+  --color-violet-500: #7b4fd0;
+  --color-violet-600: #6740b0;
 
-  /* Semantic surfaces */
-  --color-background: #f7f7f8;
-  --color-surface: #fbfbfc;
-  --color-card: #fdfdfe;
-  --color-card-foreground: #1a1b1f;
-  --color-popover: #fdfdfe;
-  --color-popover-foreground: #1a1b1f;
-  --color-foreground: #1a1b1f;
-  --color-primary: #202126;
-  --color-primary-foreground: #f8f9fb;
-  --color-secondary: #eceef1;
-  --color-secondary-foreground: #26282e;
-  --color-muted: #f0f1f3;
-  --color-muted-foreground: #5f636c;
-  --color-accent: #e8ebef;
-  --color-accent-foreground: #202126;
-  --color-overlay: rgb(13 14 17 / 0.62);
-  --color-border: #dfe1e6;
-  --color-input: #cfd3da;
-  --color-ring: #2455c3;
-  --color-hero: #111215;
-  --color-hero-foreground: #f8f9fb;
-  --color-hero-muted: #aeb2bb;
-  --color-hero-border: #303239;
-  --color-hero-subtle: #1b1c20;
+  /* Semantic surfaces — light mode comes from the same reference template's
+     :root (light) block, so both themes are the template's own pair.
+     Exception: --color-muted-foreground keeps a darker value than the
+     template's #8b8f9a, which is only 2.9:1 on white and fails AA. */
+  --color-background: #f8f8fa; /* source: --app */
+  --color-surface: #fbfbfd;
+  --color-card: #ffffff; /* source: --panel */
+  --color-card-foreground: #1f2128;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1f2128;
+  --color-foreground: #1f2128; /* source: --text */
+  --color-primary: #1f2937; /* source: --accent */
+  --color-primary-foreground: #f8f8fa;
+  --color-secondary: #f3f4f7; /* source: --hover */
+  --color-secondary-foreground: #1f2128;
+  --color-muted: #f3f4f7; /* source: --hover */
+  --color-muted-foreground: #5b6472;
+  --color-accent: #f3f4f7; /* source: --hover */
+  --color-accent-foreground: #1f2128;
+  --color-overlay: rgb(10 12 18 / 0.55); /* source: .backdrop */
+  --color-border: #e9e9ed; /* source: --line */
+  --color-input: #d9d9de; /* source: --bg */
+  --color-ring: #2e67cc;
+  --color-hero: #171b23; /* the dark theme's --app, used as-is for dark strips */
+  --color-hero-foreground: #ecf0f7;
+  --color-hero-muted: #9aa3b6;
+  --color-hero-border: #2c3442;
+  --color-hero-subtle: #1d2430;
 
-  /* Semantic roles follow the accent hierarchy */
-  --color-due: #155eef;
-  --color-due-foreground: #f8f9fb;
-  --color-due-surface: #eaf1ff;
-  --color-new: #047857;
-  --color-new-foreground: #f8f9fb;
-  --color-new-surface: #e4f8ef;
-  --color-learning: #7240d5;
-  --color-learning-foreground: #f8f9fb;
-  --color-learning-surface: #f1eaff;
-  --color-risk: #a45f00;
-  --color-risk-foreground: #f8f9fb;
-  --color-risk-surface: #fff7d6;
-  --color-forecast: #f2b705;
-  --color-forecast-foreground: #3a2700;
-  --color-forecast-surface: #fff4b8;
-  --color-destructive: #c52233;
-  --color-destructive-foreground: #f8f9fb;
-  --color-destructive-surface: #ffebee;
+  /* Semantic roles follow the accent hierarchy. Values are darkened until the
+     accent clears 4.5:1 against BOTH white and its own tinted surface. */
+  --color-due: #2e67cc;
+  --color-due-foreground: #ffffff;
+  --color-due-surface: #e7f0fd;
+  --color-new: #147a54;
+  --color-new-foreground: #ffffff;
+  --color-new-surface: #e0f6ec;
+  --color-learning: #7b4fd0;
+  --color-learning-foreground: #ffffff;
+  --color-learning-surface: #f0e8fd;
+  --color-risk: #96620f;
+  --color-risk-foreground: #ffffff;
+  --color-risk-surface: #fdf0dc;
+  --color-forecast: #8a6d09;
+  --color-forecast-foreground: #ffffff;
+  --color-forecast-surface: #fdf6df;
+  --color-destructive: #bc413c;
+  --color-destructive-foreground: #ffffff;
+  --color-destructive-surface: #fdeae8;
   --color-success: var(--color-new);
   --color-success-foreground: var(--color-new-foreground);
   --color-success-surface: var(--color-new-surface);
@@ -104,6 +115,29 @@
   --color-info: var(--color-due);
   --color-info-foreground: var(--color-due-foreground);
   --color-info-surface: var(--color-due-surface);
+
+  /* Decorative fills — the reference dashboard's chart pastels, identical in
+     BOTH themes (hence no .dark override). For icon chips, chart bars, meter
+     segments and badge fills; never for text on page surfaces — max ~1.6:1
+     against white. Text keeps the per-theme --color-<name> accents above. */
+  --color-due-fill: #89b5ff;
+  --color-due-fill-foreground: #0f1218;
+  --color-new-fill: #a1e3b5;
+  --color-new-fill-foreground: #10241a;
+  --color-learning-fill: #f0dbff;
+  --color-learning-fill-foreground: #211733;
+  --color-risk-fill: #ffd9a8;
+  --color-risk-fill-foreground: #2a1c08;
+  --color-forecast-fill: #ffeab7;
+  --color-forecast-fill-foreground: #2a2409;
+  --color-destructive-fill: #fac6cd;
+  --color-destructive-fill-foreground: #2e1216;
+  --color-info-fill: var(--color-due-fill);
+  --color-info-fill-foreground: var(--color-due-fill-foreground);
+  --color-success-fill: var(--color-new-fill);
+  --color-success-fill-foreground: var(--color-new-fill-foreground);
+  --color-warning-fill: var(--color-risk-fill);
+  --color-warning-fill-foreground: var(--color-risk-fill-foreground);
 
   /* Border Radius */
   --radius-xs: 0.25rem;
@@ -115,18 +149,20 @@
   --radius-full: 9999px;
 
   /* Graphite-tinted shadows */
-  --shadow-xs: 0 1px 2px rgb(31 38 52 / 0.06);
+  --shadow-xs: 0 1px 2px rgb(29 37 48 / 0.06);
   --shadow-sm:
-    0 1px 3px rgb(31 38 52 / 0.08), 0 1px 2px -1px rgb(31 38 52 / 0.05);
+    0 1px 3px rgb(29 37 48 / 0.08), 0 1px 2px -1px rgb(29 37 48 / 0.05);
   --shadow-md:
-    0 8px 18px -8px rgb(31 38 52 / 0.18), 0 2px 5px -2px rgb(31 38 52 / 0.08);
+    0 8px 18px -8px rgb(29 37 48 / 0.18), 0 2px 5px -2px rgb(29 37 48 / 0.08);
   --shadow-lg:
-    0 18px 38px -18px rgb(31 38 52 / 0.28), 0 6px 12px -8px rgb(31 38 52 / 0.14);
+    0 18px 38px -18px rgb(29 37 48 / 0.28), 0 6px 12px -8px rgb(29 37 48 / 0.14);
   --shadow-xl:
-    0 28px 60px -26px rgb(31 38 52 / 0.32), 0 10px 24px -16px rgb(31 38 52 / 0.18);
+    0 28px 60px -26px rgb(29 37 48 / 0.32),
+    0 10px 24px -16px rgb(29 37 48 / 0.18);
   /* Flashcard study prominent floating effect */
   --shadow-card-study:
-    0 28px 56px -20px rgb(36 85 195 / 0.18), 0 10px 22px -14px rgb(31 38 52 / 0.16);
+    0 28px 56px -20px rgb(46 103 204 / 0.18),
+    0 10px 22px -14px rgb(29 37 48 / 0.16);
 
   /* Transition Timing */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -163,51 +199,71 @@
   --color-bg-card-lavender: var(--color-learning-surface);
 }
 
-/* Dark Mode */
+/* Dark Mode
+   Values marked "source" are copied verbatim from the reference dashboard's
+   own stylesheet (open-design flowai-live-dashboard-template, body.dark
+   block + role-chart palette) — the code the screenshot was rendered from.
+   This supersedes the earlier JPEG pixel sampling, which was off by 1-3
+   units per channel from compression. Chrome is near-monochrome; colour
+   appears only on data, exactly as the reference uses it. */
 .dark {
-  --color-background: #111215;
-  --color-surface: #15161a;
-  --color-foreground: #f3f4f6;
-  --color-card: #191a1f;
-  --color-card-foreground: #f3f4f6;
-  --color-popover: #1b1c20;
-  --color-popover-foreground: #f3f4f6;
-  --color-primary: #eef0f3;
-  --color-primary-foreground: #18191d;
-  --color-secondary: #24262b;
-  --color-secondary-foreground: #ebedf0;
-  --color-muted: #22242a;
-  --color-muted-foreground: #aeb2bb;
-  --color-accent: #2b2e35;
-  --color-accent-foreground: #f3f4f6;
-  --color-overlay: rgb(3 4 7 / 0.74);
-  --color-border: #303239;
-  --color-input: #3a3d45;
-  --color-ring: #74a4ff;
-  --color-hero: #191a1f;
-  --color-hero-foreground: #f8f9fb;
-  --color-hero-muted: #aeb2bb;
-  --color-hero-border: #3a3d45;
-  --color-hero-subtle: #24262b;
+  --color-background: #171b23; /* source: --app (topbar, sidebar, page) */
+  --color-surface: #1a1f29; /* derived: midpoint of --app and --panel */
+  --color-foreground: #ecf0f7; /* source: --text */
+  --color-card: #1d2430; /* source: --panel */
+  --color-card-foreground: #ecf0f7;
+  --color-popover: #1d2430; /* source: tooltips use --panel + --line border */
+  --color-popover-foreground: #ecf0f7;
+  --color-primary: #ecf0f7; /* source: --accent — the primary button is white */
+  --color-primary-foreground: #171b23;
+  --color-secondary: #242c3a; /* source: --hover */
+  --color-secondary-foreground: #ecf0f7;
+  --color-muted: #242c3a; /* source: --hover — the template's single raised tone */
+  --color-muted-foreground: #9aa3b6; /* source: --muted */
+  --color-accent: #242c3a; /* source: --hover (tab.active background) */
+  --color-accent-foreground: #ecf0f7;
+  --color-overlay: rgb(10 12 18 / 0.55); /* source: .backdrop */
+  --color-border: #2c3442; /* source: --line */
+  --color-input: #2c3442; /* source: --line borders every control */
+  --color-ring: #89b5ff;
+  --color-hero: #1d2430;
+  --color-hero-foreground: #ecf0f7;
+  --color-hero-muted: #9aa3b6;
+  --color-hero-border: #2c3442;
+  --color-hero-subtle: #212936;
 
-  --color-due: #74a4ff;
-  --color-due-foreground: #15171c;
-  --color-due-surface: #142b55;
-  --color-new: #43dea7;
-  --color-new-foreground: #10221d;
-  --color-new-surface: #0d3528;
-  --color-learning: #c09cff;
-  --color-learning-foreground: #1d1828;
-  --color-learning-surface: #30214f;
-  --color-risk: #ffd34e;
-  --color-risk-foreground: #241b0c;
-  --color-risk-surface: #3a2b06;
-  --color-forecast: #ffd34e;
-  --color-forecast-foreground: #241b0c;
-  --color-forecast-surface: #3a2b06;
-  --color-destructive: #ff7782;
-  --color-destructive-foreground: #2b1115;
-  --color-destructive-surface: #411820;
+  /* Categorical pastels. Blue/lilac/pink are the reference's own chart
+     palette (#fac6cd #d7e5ff #89b5ff #c8ccff #f0dbff); green and amber do
+     not exist in the template source, so they stay as glyph-core samples
+     from the screenshot build. Surfaces are dark tints of the same hue. */
+  --color-due: #89b5ff; /* source: role-chart "Editor" bar */
+  --color-due-foreground: #0f1218;
+  --color-due-surface: #1b2a44;
+  --color-new: #a1e3b5; /* sampled: active nav label */
+  --color-new-foreground: #10241a;
+  --color-new-surface: #203429; /* sampled: active nav pill */
+  --color-learning: #f0dbff; /* source: role-chart "Devops" bar */
+  --color-learning-foreground: #211733;
+  --color-learning-surface: #2c2440;
+  --color-risk: #ffd9a8; /* derived: no orange exists in the reference */
+  --color-risk-foreground: #2a1c08;
+  --color-risk-surface: #33291b;
+  --color-forecast: #ffeab7; /* sampled: 2nd avatar */
+  --color-forecast-foreground: #2a2409;
+  --color-forecast-surface: #332e1b;
+  --color-destructive: #fac6cd; /* source: role-chart "Owner" bar — the
+                                   reference's only red-family colour */
+  --color-destructive-foreground: #2e1216;
+  --color-destructive-surface: #3a2127;
+
+  /* A single scale step cannot clear 4.5:1 against both #ffffff and #1d2430 —
+     the maximum simultaneous contrast is 3.91:1. These steps are used without
+     a dark: variant in the dashboard widgets, so remap them per-mode instead. */
+  --color-green-400: #a1e3b5;
+  --color-green-500: #7fd9a6;
+  --color-amber-400: #ffeab7;
+  --color-amber-500: #ffd9a8;
+  --color-red-500: #fac6cd;
   --color-success: var(--color-new);
   --color-success-foreground: var(--color-new-foreground);
   --color-success-surface: var(--color-new-surface);
@@ -218,17 +274,17 @@
   --color-info-foreground: var(--color-due-foreground);
   --color-info-surface: var(--color-due-surface);
 
-  --shadow-xs: 0 1px 2px rgb(1 3 8 / 0.4);
-  --shadow-sm:
-    0 1px 3px rgb(1 3 8 / 0.48), 0 1px 2px -1px rgb(1 3 8 / 0.36);
+  --shadow-xs: 0 1px 2px rgb(4 7 11 / 0.4);
+  --shadow-sm: 0 1px 3px rgb(4 7 11 / 0.48), 0 1px 2px -1px rgb(4 7 11 / 0.36);
   --shadow-md:
-    0 8px 20px -8px rgb(1 3 8 / 0.62), 0 2px 6px -3px rgb(1 3 8 / 0.42);
+    0 8px 20px -8px rgb(4 7 11 / 0.62), 0 2px 6px -3px rgb(4 7 11 / 0.42);
   --shadow-lg:
-    0 18px 42px -18px rgb(1 3 8 / 0.78), 0 7px 16px -10px rgb(1 3 8 / 0.54);
+    0 18px 42px -18px rgb(4 7 11 / 0.78), 0 7px 16px -10px rgb(4 7 11 / 0.54);
   --shadow-xl:
-    0 28px 64px -24px rgb(1 3 8 / 0.86), 0 12px 26px -18px rgb(1 3 8 / 0.62);
+    0 28px 64px -24px rgb(4 7 11 / 0.86), 0 12px 26px -18px rgb(4 7 11 / 0.62);
   --shadow-card-study:
-    0 28px 58px -22px rgb(136 170 255 / 0.2), 0 12px 26px -18px rgb(1 3 8 / 0.7);
+    0 28px 58px -22px rgb(137 181 254 / 0.2),
+    0 12px 26px -18px rgb(4 7 11 / 0.7);
 
   color-scheme: dark;
 }
@@ -271,8 +327,7 @@
     font-family: var(--font-sans);
     font-size: 0.9375rem;
     line-height: 1.55;
-    font-feature-settings:
-      'cv02', 'cv03', 'cv04', 'cv11';
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     margin: 0;
     min-height: 100dvh;
   }

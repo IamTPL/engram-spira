@@ -287,7 +287,7 @@ const AiGenerateModal: Component<AiGenerateModalProps> = (props) => {
               aria-hidden={aiConfirmDiscard() || undefined}
             >
               <div class="flex min-w-0 items-start gap-3">
-                <div class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-info-surface text-info">
+                <div class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-info-fill text-info-fill-foreground">
                   <Sparkles class="h-4 w-4" />
                 </div>
                 <div class="min-w-0">

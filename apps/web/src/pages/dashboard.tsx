@@ -478,7 +478,7 @@ const DashboardPage: Component = () => {
               description={metricCopy.due.description}
               value={queue().dueCount}
               icon={Clock3}
-              tone="bg-due-surface text-due"
+              tone="bg-due-fill text-due-fill-foreground"
               divider="border-b md:border-b-0"
             />
             <MetricSegment
@@ -486,7 +486,7 @@ const DashboardPage: Component = () => {
               description={metricCopy.new.description}
               value={queue().newCount}
               icon={BookOpen}
-              tone="bg-new-surface text-new"
+              tone="bg-new-fill text-new-fill-foreground"
               divider="border-b border-l md:border-b-0"
             />
             <MetricSegment
@@ -494,7 +494,7 @@ const DashboardPage: Component = () => {
               description={metricCopy.learning.description}
               value={queue().learningCount}
               icon={Brain}
-              tone="bg-learning-surface text-learning"
+              tone="bg-learning-fill text-learning-fill-foreground"
               divider="md:border-l"
             />
             <MetricSegment
@@ -502,7 +502,7 @@ const DashboardPage: Component = () => {
               description={metricCopy.atRisk.description}
               value={queue().atRiskCount}
               icon={TrendingDown}
-              tone="bg-risk-surface text-risk"
+              tone="bg-risk-fill text-risk-fill-foreground"
               divider="border-l"
             />
           </div>
@@ -532,7 +532,7 @@ const DashboardPage: Component = () => {
                         class="group flex min-h-14 w-full items-center gap-3 py-3 text-left first:pt-0 last:pb-0"
                         onClick={() => navigate(`/study/${deck.id}`)}
                       >
-                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-due-surface text-due">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-due-fill text-due-fill-foreground">
                           <BookOpen class="h-4 w-4" />
                         </div>
                         <div class="min-w-0 flex-1">
@@ -573,7 +573,7 @@ const DashboardPage: Component = () => {
                         <div class="flex flex-1 flex-col items-center gap-2">
                           <div class="flex h-20 w-full items-end justify-center rounded-md bg-muted/80 px-1 ring-1 ring-inset ring-border/50">
                             <div
-                              class="w-full max-w-6 rounded-t-sm bg-muted-foreground/70 ring-1 ring-inset ring-foreground/10"
+                              class="w-full max-w-6 rounded-t-sm bg-due-fill ring-1 ring-inset ring-foreground/10"
                               style={{
                                 height: `${forecastHeight(day.atRiskCount, maxForecastRisk())}%`,
                               }}
@@ -596,7 +596,7 @@ const DashboardPage: Component = () => {
                         <div class="flex flex-col gap-1 rounded-lg bg-muted/40 px-3 py-2 text-xs md:flex-row md:items-center md:justify-between">
                           <span>{formatShortDate(day.date)}</span>
                           <span class="font-medium">
-                            <span class="text-risk">{day.atRiskCount} at risk</span>
+                            <span class="rounded-md bg-risk-surface px-1.5 py-0.5 font-medium text-risk">{day.atRiskCount} at risk</span>
                             {', '}
                             {retentionLabel(day.avgRetention)}
                           </span>
