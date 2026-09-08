@@ -45,12 +45,46 @@ export const fsrsMigrationRuns = pgTable(
     check(
       'chk_fsrs_migration_runs_source_checksum',
       sql`${table.sourceChecksum} IS NULL
-        OR length(${table.sourceChecksum}) = 64`,
+        OR ${table.sourceChecksum} ~ '^[0-9a-f]{64}$'`,
     ),
     check(
       'chk_fsrs_migration_runs_result_checksum',
       sql`${table.resultChecksum} IS NULL
-        OR length(${table.resultChecksum}) = 64`,
+        OR ${table.resultChecksum} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'chk_fsrs_migration_runs_json_shapes',
+      sql`jsonb_typeof(${table.sourceCounts}) = 'object'
+        AND jsonb_typeof(${table.resultCounts}) = 'object'
+        AND jsonb_typeof(${table.anomalies}) = 'array'`,
+    ),
+    check(
+      'chk_fsrs_migration_runs_timestamps',
+      sql`${table.finishedAt} IS NULL
+        OR ${table.startedAt} <= ${table.finishedAt}`,
+    ),
+    check(
+      'chk_fsrs_migration_runs_lifecycle',
+      sql`${table.status} NOT IN ('running', 'completed', 'failed')
+      OR (
+        ${table.status} = 'running'
+        AND ${table.finishedAt} IS NULL
+        AND ${table.sourceChecksum} IS NOT NULL
+        AND ${table.resultChecksum} IS NULL
+        AND ${table.errorMessage} IS NULL
+      ) OR (
+        ${table.status} = 'completed'
+        AND ${table.finishedAt} IS NOT NULL
+        AND ${table.sourceChecksum} IS NOT NULL
+        AND ${table.resultChecksum} IS NOT NULL
+        AND ${table.errorMessage} IS NULL
+      ) OR (
+        ${table.status} = 'failed'
+        AND ${table.finishedAt} IS NOT NULL
+        AND ${table.resultChecksum} IS NULL
+        AND ${table.errorMessage} IS NOT NULL
+        AND btrim(${table.errorMessage}) <> ''
+      )`,
     ),
   ],
 );

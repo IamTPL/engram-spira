@@ -3,6 +3,7 @@ import {
   bigint,
   check,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -15,6 +16,9 @@ import { cards } from './cards';
 import { fsrsParameterRevisions } from './fsrs-parameter-revisions';
 import { users } from './users';
 
+// Immutable audit log: migration 0027 installs database triggers that reject
+// every UPDATE and direct DELETE while the parent user/card still exists.
+// Parent user/card/deck deletion remains possible through FK cascades.
 export const fsrsReviewEvents = pgTable(
   'fsrs_review_events',
   {
@@ -26,6 +30,7 @@ export const fsrsReviewEvents = pgTable(
     cardId: uuid('card_id')
       .notNull()
       .references(() => cards.id, { onDelete: 'cascade' }),
+    learningCycle: integer('learning_cycle').notNull().default(1),
     sequence: integer('sequence').notNull(),
     rating: varchar('rating', { length: 10 }).notNull(),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }).notNull(),
@@ -33,9 +38,7 @@ export const fsrsReviewEvents = pgTable(
       .notNull()
       .defaultNow(),
     durationMs: integer('duration_ms'),
-    parameterRevisionId: uuid('parameter_revision_id')
-      .notNull()
-      .references(() => fsrsParameterRevisions.id),
+    parameterRevisionId: uuid('parameter_revision_id').notNull(),
     origin: varchar('origin', { length: 10 }).notNull(),
     beforeState: varchar('before_state', { length: 20 }),
     beforeDueAt: timestamp('before_due_at', { withTimezone: true }),
@@ -61,11 +64,20 @@ export const fsrsReviewEvents = pgTable(
       table.userId,
       table.requestId,
     ),
-    unique('uq_fsrs_review_events_user_card_sequence').on(
+    unique('uq_fsrs_review_events_user_card_cycle_sequence').on(
       table.userId,
       table.cardId,
+      table.learningCycle,
       table.sequence,
     ),
+    foreignKey({
+      name: 'fk_fsrs_review_events_parameter_revision_user',
+      columns: [table.parameterRevisionId, table.userId],
+      foreignColumns: [
+        fsrsParameterRevisions.id,
+        fsrsParameterRevisions.userId,
+      ],
+    }),
     index('idx_fsrs_review_events_user_reviewed').on(
       table.userId,
       table.reviewedAt.desc(),
@@ -73,8 +85,13 @@ export const fsrsReviewEvents = pgTable(
     index('idx_fsrs_review_events_card').on(table.cardId),
     index('idx_fsrs_review_events_parameter_revision').on(
       table.parameterRevisionId,
+      table.userId,
     ),
     check('chk_fsrs_review_events_sequence', sql`${table.sequence} > 0`),
+    check(
+      'chk_fsrs_review_events_learning_cycle',
+      sql`${table.learningCycle} > 0`,
+    ),
     check(
       'chk_fsrs_review_events_rating',
       sql`${table.rating} IN ('again', 'hard', 'good', 'easy')`,
@@ -154,6 +171,21 @@ export const fsrsReviewEvents = pgTable(
         AND ${table.afterLapses} <= ${table.afterReps}
         AND ${table.afterStateVersion} >= 1`,
     ),
+    check(
+      'chk_fsrs_review_events_sequence_projection',
+      sql`${table.afterStateVersion} = ${table.sequence}
+        AND ${table.afterReps} = ${table.sequence}`,
+    ),
+    check(
+      'chk_fsrs_review_events_sequence_snapshot',
+      sql`(
+        ${table.sequence} = 1
+        AND ${table.beforeState} IS NULL
+      ) OR (
+        ${table.sequence} > 1
+        AND ${table.beforeState} IS NOT NULL
+      )`,
+    ),
   ],
 );
 
@@ -169,8 +201,11 @@ export const fsrsReviewEventsRelations = relations(
       references: [cards.id],
     }),
     parameterRevision: one(fsrsParameterRevisions, {
-      fields: [fsrsReviewEvents.parameterRevisionId],
-      references: [fsrsParameterRevisions.id],
+      fields: [fsrsReviewEvents.parameterRevisionId, fsrsReviewEvents.userId],
+      references: [
+        fsrsParameterRevisions.id,
+        fsrsParameterRevisions.userId,
+      ],
     }),
   }),
 );

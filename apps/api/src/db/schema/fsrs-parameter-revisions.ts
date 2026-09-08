@@ -41,9 +41,14 @@ export const fsrsParameterRevisions = pgTable(
       table.userId,
       table.revision,
     ),
+    unique('uq_fsrs_parameter_revisions_id_user').on(
+      table.id,
+      table.userId,
+    ),
     unique('uq_fsrs_parameter_revisions_resolved_params').on(
       table.userId,
       table.engineVersion,
+      table.algorithmVersion,
       table.policyVersion,
       table.paramsHash,
     ),
@@ -56,11 +61,23 @@ export const fsrsParameterRevisions = pgTable(
     ),
     check(
       'chk_fsrs_parameter_revisions_params_hash',
-      sql`length(${table.paramsHash}) = 64`,
+      sql`${table.paramsHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'chk_fsrs_parameter_revisions_parameters',
+      sql`jsonb_typeof(${table.parameters}) = 'object'`,
     ),
     check(
       'chk_fsrs_parameter_revisions_source',
       sql`${table.source} IN ('default', 'manual', 'optimized', 'migration')`,
+    ),
+    check(
+      'chk_fsrs_parameter_revisions_timestamps',
+      sql`${table.createdAt} <= ${table.activatedAt}
+        AND (
+          ${table.retiredAt} IS NULL
+          OR ${table.activatedAt} <= ${table.retiredAt}
+        )`,
     ),
   ],
 );

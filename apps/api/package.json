@@ -15,7 +15,8 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "test:watch": "bun test --watch",
-    "kg:evaluate": "bun run src/scripts/kg-evaluate.ts"
+    "kg:evaluate": "bun run src/scripts/kg-evaluate.ts",
+    "fsrs:replay": "bun run src/scripts/fsrs-replay.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",

@@ -1,11 +1,9 @@
 import { eq, and, lte, inArray, isNull, or, sql, gte, desc } from 'drizzle-orm';
-import { db } from '../../db';
+import { db, pgClient } from '../../db';
 import {
   studyProgress,
   studyDailyLogs,
   cards,
-  cardFieldValues,
-  templateFields,
   decks,
   reviewLogs,
   users,
@@ -20,6 +18,10 @@ import {
 import { STREAK, type ReviewAction } from '../../shared/constants';
 import * as notificationsService from '../notifications/notifications.service';
 import { MAX_STUDY_CLUSTER_CARDS } from './study-cluster';
+import {
+  createPostgresFsrsDeckReadRepository,
+  type FsrsDeckReadRepository,
+} from './fsrs-deck-reads.postgres';
 
 // --------------- Helpers ---------------
 
@@ -88,73 +90,61 @@ async function verifyDeckOwnership(deckId: string, userId: string) {
   return result;
 }
 
-/** Helper to fetch and enrich a set of card IDs with their field values + progress */
+const defaultFsrsDeckReadRepository =
+  createPostgresFsrsDeckReadRepository(pgClient);
+
+export function createStudyDeckReadService(
+  repository: FsrsDeckReadRepository = defaultFsrsDeckReadRepository,
+) {
+  return {
+    async getDueCards(
+      deckId: string,
+      userId: string,
+      reviewAll = false,
+      selectedCardIds?: string[],
+    ) {
+      const requestedCardIds = selectedCardIds
+        ? Array.from(new Set(selectedCardIds))
+        : undefined;
+      if (
+        requestedCardIds !== undefined &&
+        requestedCardIds.length > MAX_STUDY_CLUSTER_CARDS
+      ) {
+        throw new ValidationError(
+          `Study cluster cannot contain more than ${MAX_STUDY_CLUSTER_CARDS} cards`,
+        );
+      }
+      const asOf = new Date();
+      return repository.getDueCards({
+        deckId,
+        userId,
+        reviewAll,
+        selectedCardIds: requestedCardIds,
+        asOf,
+      });
+    },
+
+    getDeckSchedule(deckId: string, userId: string) {
+      const asOf = new Date();
+      return repository.getDeckSchedule({ deckId, userId, asOf });
+    },
+  };
+}
+
+const defaultStudyDeckReadService = createStudyDeckReadService();
+
+/** Canonical card enrichment for all existing callers, including interleaved mode. */
 async function enrichCards(
   targetIds: string[],
   userId: string,
   sortByCardOrder = true,
 ) {
-  if (targetIds.length === 0) return [];
-  const cardIds =
-    targetIds.length > 1 ? Array.from(new Set(targetIds)) : targetIds;
-
-  const cardsQuery = db.select().from(cards).where(inArray(cards.id, cardIds));
-  const cardsPromise = sortByCardOrder
-    ? cardsQuery.orderBy(cards.sortOrder)
-    : cardsQuery;
-
-  const [targetCardsData, allFieldValues, progressRows] = await Promise.all([
-    cardsPromise,
-    db
-      .select({
-        cardId: cardFieldValues.cardId,
-        templateFieldId: cardFieldValues.templateFieldId,
-        fieldName: templateFields.name,
-        fieldType: templateFields.fieldType,
-        side: templateFields.side,
-        sortOrder: templateFields.sortOrder,
-        value: cardFieldValues.value,
-      })
-      .from(cardFieldValues)
-      .innerJoin(
-        templateFields,
-        eq(cardFieldValues.templateFieldId, templateFields.id),
-      )
-      .where(inArray(cardFieldValues.cardId, cardIds)),
-    db
-      .select()
-      .from(studyProgress)
-      .where(
-        and(
-          eq(studyProgress.userId, userId),
-          inArray(studyProgress.cardId, cardIds),
-        ),
-      ),
-  ]);
-
-  const fieldsByCard = new Map<string, typeof allFieldValues>();
-  for (const fv of allFieldValues) {
-    const existing = fieldsByCard.get(fv.cardId) ?? [];
-    existing.push(fv);
-    fieldsByCard.set(fv.cardId, existing);
-  }
-  const progressByCard = new Map(progressRows.map((p) => [p.cardId, p]));
-
-  const enrichedCards = targetCardsData.map((card) => ({
-    ...card,
-    fields: (fieldsByCard.get(card.id) ?? []).sort(
-      (a, b) => a.sortOrder - b.sortOrder,
-    ),
-    progress: progressByCard.get(card.id) ?? null,
-  }));
-
-  if (sortByCardOrder) return enrichedCards;
-
-  const cardsById = new Map(enrichedCards.map((card) => [card.id, card]));
-  return cardIds.flatMap((cardId) => {
-    const card = cardsById.get(cardId);
-    return card ? [card] : [];
-  });
+  return defaultFsrsDeckReadRepository.enrichCards(
+    targetIds,
+    userId,
+    new Date(),
+    sortByCardOrder,
+  );
 }
 
 export async function getDueCards(
@@ -163,86 +153,12 @@ export async function getDueCards(
   reviewAll = false,
   selectedCardIds?: string[],
 ) {
-  await verifyDeckOwnership(deckId, userId);
-
-  if (selectedCardIds) {
-    const requestedCardIds = Array.from(new Set(selectedCardIds));
-    if (requestedCardIds.length > MAX_STUDY_CLUSTER_CARDS) {
-      throw new ValidationError(
-        `Study cluster cannot contain more than ${MAX_STUDY_CLUSTER_CARDS} cards`,
-      );
-    }
-    if (requestedCardIds.length === 0) {
-      return { cards: [], total: 0, due: 0 };
-    }
-
-    const selectedRows = await db
-      .select({ id: cards.id })
-      .from(cards)
-      .where(
-        and(
-          eq(cards.deckId, deckId),
-          inArray(cards.id, requestedCardIds),
-        ),
-      );
-    if (selectedRows.length !== requestedCardIds.length) {
-      throw new NotFoundError('Card');
-    }
-
-    const enrichedCards = await enrichCards(requestedCardIds, userId, false);
-    return {
-      cards: enrichedCards,
-      total: requestedCardIds.length,
-      due: requestedCardIds.length,
-    };
-  }
-
-  const now = new Date();
-
-  // Run total count + due-card query in parallel (SQL-level filter instead of JS filter)
-  const [[countRow], dueRows] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(cards)
-      .where(eq(cards.deckId, deckId)),
-    reviewAll
-      ? // reviewAll: fetch all card IDs
-        db
-          .select({ id: cards.id })
-          .from(cards)
-          .where(eq(cards.deckId, deckId))
-          .orderBy(cards.sortOrder)
-      : // Normal mode: LEFT JOIN study_progress, filter due/new cards entirely in SQL
-        db
-          .select({ id: cards.id })
-          .from(cards)
-          .leftJoin(
-            studyProgress,
-            and(
-              eq(studyProgress.cardId, cards.id),
-              eq(studyProgress.userId, userId),
-            ),
-          )
-          .where(
-            and(
-              eq(cards.deckId, deckId),
-              or(
-                isNull(studyProgress.id),
-                lte(studyProgress.nextReviewAt, now),
-              ),
-            ),
-          )
-          .orderBy(cards.sortOrder),
-  ]);
-
-  const total = countRow?.count ?? 0;
-  if (total === 0) return { cards: [], total: 0, due: 0 };
-
-  const targetIds = dueRows.map((r) => r.id);
-  if (targetIds.length === 0) return { cards: [], total, due: 0 };
-
-  const enrichedCards = await enrichCards(targetIds, userId);
-  return { cards: enrichedCards, total, due: targetIds.length };
+  return defaultStudyDeckReadService.getDueCards(
+    deckId,
+    userId,
+    reviewAll,
+    selectedCardIds,
+  );
 }
 
 export async function reviewCard(
@@ -530,92 +446,7 @@ export async function reviewCardBatch(
 }
 
 export async function getDeckSchedule(deckId: string, userId: string) {
-  await verifyDeckOwnership(deckId, userId);
-  const now = new Date();
-  const nowMs = now.getTime();
-
-  // Parallel fetch: total card count + minimal progress projection
-  const [[totalRow], progress] = await Promise.all([
-    db
-      .select({ totalCards: sql<number>`count(*)::int` })
-      .from(cards)
-      .where(eq(cards.deckId, deckId)),
-    db
-      .select({
-        boxLevel: studyProgress.boxLevel,
-        fsrsState: studyProgress.fsrsState,
-        nextReviewAt: studyProgress.nextReviewAt,
-      })
-      .from(studyProgress)
-      .innerJoin(cards, eq(studyProgress.cardId, cards.id))
-      .where(and(eq(studyProgress.userId, userId), eq(cards.deckId, deckId))),
-  ]);
-  const totalCards = totalRow?.totalCards ?? 0;
-
-  if (totalCards === 0) {
-    return {
-      totalCards: 0,
-      learnedCards: 0,
-      upcoming: [],
-      nextReviewDate: null,
-    };
-  }
-
-  // "Learned" = graduated past learning phase
-  // SM-2: boxLevel > 0 means card has been successfully reviewed at least once
-  // FSRS: fsrsState === 'review' means card graduated from learning to long-term review
-  const learnedCards = progress.filter(
-    (p) => p.boxLevel > 0 || p.fsrsState === 'review',
-  ).length;
-
-  // Group future reviews by day offset
-  const buckets = new Map<number, number>();
-  let nextReviewDate: string | null = null;
-  let nearestMs = Infinity;
-  let dueSoon = 0; // cards due within 1 hour (learning/relearning cards)
-
-  const ONE_HOUR_MS = 60 * 60 * 1000;
-  const ONE_DAY_MS = 24 * ONE_HOUR_MS;
-
-  for (const p of progress) {
-    const reviewTime = p.nextReviewAt.getTime();
-    if (reviewTime <= nowMs) continue; // already due/overdue
-
-    if (reviewTime < nearestMs) {
-      nearestMs = reviewTime;
-      nextReviewDate = p.nextReviewAt.toISOString();
-    }
-
-    const diffMs = reviewTime - nowMs;
-
-    // Cards due within 1 hour → "due soon" (Again/Hard learning cards)
-    if (diffMs < ONE_HOUR_MS) {
-      dueSoon++;
-      continue;
-    }
-
-    // Round to nearest day so 23h59m → 1 (Tomorrow), not 0
-    const diffDays = Math.max(1, Math.round(diffMs / ONE_DAY_MS));
-    buckets.set(diffDays, (buckets.get(diffDays) ?? 0) + 1);
-  }
-
-  const upcoming = Array.from(buckets.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([daysFromNow, count]) => ({
-      daysFromNow,
-      count,
-      date: new Date(
-        now.getTime() + daysFromNow * 24 * 60 * 60 * 1000,
-      ).toISOString(),
-    }));
-
-  return {
-    totalCards,
-    learnedCards,
-    upcoming,
-    dueSoon,
-    nextReviewDate,
-  };
+  return defaultStudyDeckReadService.getDeckSchedule(deckId, userId);
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   bigint,
   check,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -26,7 +27,9 @@ export const fsrsCardStates = pgTable(
       .notNull()
       .references(() => cards.id, { onDelete: 'cascade' }),
     nextReviewAt: timestamp('next_review_at', { withTimezone: true }).notNull(),
-    lastReviewedAt: timestamp('last_reviewed_at', { withTimezone: true }),
+    lastReviewedAt: timestamp('last_reviewed_at', {
+      withTimezone: true,
+    }).notNull(),
     stability: doublePrecision('stability').notNull(),
     difficulty: doublePrecision('difficulty').notNull(),
     state: varchar('state', { length: 20 }).notNull(),
@@ -35,20 +38,31 @@ export const fsrsCardStates = pgTable(
     learningSteps: integer('learning_steps').notNull(),
     reps: integer('reps').notNull(),
     lapses: integer('lapses').notNull(),
-    parameterRevisionId: uuid('parameter_revision_id')
-      .notNull()
-      .references(() => fsrsParameterRevisions.id),
+    parameterRevisionId: uuid('parameter_revision_id').notNull(),
     stateVersion: bigint('state_version', { mode: 'number' }).notNull(),
+    learningCycle: integer('learning_cycle').notNull().default(1),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     unique('uq_fsrs_card_states_user_card').on(table.userId, table.cardId),
+    foreignKey({
+      name: 'fk_fsrs_card_states_parameter_revision_user',
+      columns: [table.parameterRevisionId, table.userId],
+      foreignColumns: [
+        fsrsParameterRevisions.id,
+        fsrsParameterRevisions.userId,
+      ],
+    }),
+    // Current Drizzle versions cannot model PostgreSQL INCLUDE columns without
+    // changing index key semantics. Migration 0026 is authoritative for
+    // INCLUDE ("card_id", "state"); integration tests verify the physical DDL.
     index('idx_fsrs_card_states_due').on(table.userId, table.nextReviewAt),
     index('idx_fsrs_card_states_card').on(table.cardId),
     index('idx_fsrs_card_states_parameter_revision').on(
       table.parameterRevisionId,
+      table.userId,
     ),
     check(
       'chk_fsrs_card_states_state',
@@ -69,6 +83,14 @@ export const fsrsCardStates = pgTable(
     check(
       'chk_fsrs_card_states_state_version',
       sql`${table.stateVersion} >= 1`,
+    ),
+    check(
+      'chk_fsrs_card_states_state_projection',
+      sql`${table.reps} = ${table.stateVersion}`,
+    ),
+    check(
+      'chk_fsrs_card_states_learning_cycle',
+      sql`${table.learningCycle} > 0`,
     ),
     check(
       'chk_fsrs_card_states_stability',
@@ -95,8 +117,11 @@ export const fsrsCardStatesRelations = relations(
       references: [cards.id],
     }),
     parameterRevision: one(fsrsParameterRevisions, {
-      fields: [fsrsCardStates.parameterRevisionId],
-      references: [fsrsParameterRevisions.id],
+      fields: [fsrsCardStates.parameterRevisionId, fsrsCardStates.userId],
+      references: [
+        fsrsParameterRevisions.id,
+        fsrsParameterRevisions.userId,
+      ],
     }),
   }),
 );

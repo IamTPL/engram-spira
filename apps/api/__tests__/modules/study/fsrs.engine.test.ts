@@ -106,6 +106,20 @@ describe('scheduleFsrsReview', () => {
     expect(result.after.scheduled_days).toBe(23);
   });
 
+  test('round-trips mature Card stability above the maximum interval domain', () => {
+    const current = reviewCard({ stability: 50_000 });
+    const adapter = scheduleFsrsReview({
+      current,
+      rating: 'good',
+      reviewedAt: REVIEWED_AT,
+    });
+    const direct = directNext(current, Rating.Good, REVIEWED_AT);
+
+    expect(adapter.before.stability).toBe(50_000);
+    expect(adapter.after).toEqual(direct.card);
+    expect(adapter.log).toEqual(direct.log);
+  });
+
   test('round-trips every Card field for Learning, Relearning, and Review', () => {
     const cases: Card[] = [
       reviewCard({

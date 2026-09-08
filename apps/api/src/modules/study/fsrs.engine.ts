@@ -266,7 +266,7 @@ function validateAndCloneCard(card: Card, reviewedAt: Date): Card {
   ) {
     throw new Error('New cards must not have persisted Card state');
   }
-  validateFiniteRange(card.stability, 'stability', 0.001, 36_500);
+  validateFiniteRange(card.stability, 'stability', 0.001);
   validateFiniteRange(card.difficulty, 'difficulty', 1, 10);
   validateNonNegativeInteger(card.elapsed_days, 'elapsed_days');
   validateNonNegativeInteger(card.scheduled_days, 'scheduled_days');
@@ -280,9 +280,13 @@ function validateFiniteRange(
   value: number,
   name: string,
   minimum: number,
-  maximum: number,
+  maximum?: number,
 ) {
-  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+  if (
+    !Number.isFinite(value) ||
+    value < minimum ||
+    (maximum !== undefined && value > maximum)
+  ) {
     throw new Error(`Card ${name} is outside its valid range`);
   }
 }

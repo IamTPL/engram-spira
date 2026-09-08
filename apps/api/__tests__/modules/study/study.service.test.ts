@@ -1,6 +1,5 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { resetMocks, setMockReturn, setMockReturnSequence } from '../../helpers/db-mock';
-import { createCard, createDeck, createStudyProgress } from '../../helpers/fixtures';
+import { resetMocks, setMockReturn } from '../../helpers/db-mock';
 
 // Mock all schema tables
 mock.module('../../../src/db/schema', () => ({
@@ -21,6 +20,22 @@ mock.module('../../../src/modules/notifications/notifications.service', () => ({
 }));
 
 import * as studyService from '../../../src/modules/study/study.service';
+import { createStudyDeckReadService } from '../../../src/modules/study/study.service';
+
+function deckReadService(overrides: Record<string, unknown> = {}) {
+  return createStudyDeckReadService({
+    enrichCards: async () => [],
+    getDueCards: async () => ({ cards: [], total: 0, due: 0 }),
+    getDeckSchedule: async () => ({
+      totalCards: 0,
+      learnedCards: 0,
+      upcoming: [],
+      dueSoon: 0,
+      nextReviewDate: null,
+    }),
+    ...overrides,
+  } as never);
+}
 
 describe('study.service', () => {
   beforeEach(() => resetMocks());
@@ -118,38 +133,39 @@ describe('study.service', () => {
     const secondCardId = '22222222-2222-4222-8222-222222222222';
 
     test('returns empty when deck has no cards', async () => {
-      const deck = createDeck();
-      setMockReturnSequence([
-        [deck], // verifyDeckOwnership
-        [{ count: 0 }], // count
-        [], // due cards
-      ]);
-      const result = await studyService.getDueCards('deck-1', 'user-1');
+      const service = deckReadService();
+      const result = await service.getDueCards('deck-1', 'user-1');
       expect(result.cards).toHaveLength(0);
       expect(result.total).toBe(0);
     });
 
     test('throws NotFoundError for non-owned deck', async () => {
-      setMockReturn([]);
+      const service = deckReadService({
+        getDueCards: async () => {
+          throw new Error('Deck not found');
+        },
+      });
       await expect(
-        studyService.getDueCards('deck-1', 'wrong-user'),
+        service.getDueCards('deck-1', 'wrong-user'),
       ).rejects.toThrow('Deck not found');
     });
 
     test('returns only the selected same-deck cards in requested order', async () => {
-      const deck = createDeck();
-      setMockReturnSequence([
-        [deck],
-        [{ id: secondCardId }, { id: firstCardId }],
-        [
-          createCard({ id: secondCardId, sortOrder: 1 }),
-          createCard({ id: firstCardId, sortOrder: 0 }),
-        ],
-        [],
-        [],
-      ]);
-
-      const result = await studyService.getDueCards(
+      let requestedCardIds: readonly string[] | undefined;
+      const service = deckReadService({
+        getDueCards: async (input: { selectedCardIds?: readonly string[] }) => {
+          requestedCardIds = input.selectedCardIds;
+          return {
+            cards: [
+              { id: secondCardId },
+              { id: firstCardId },
+            ],
+            total: 2,
+            due: 2,
+          };
+        },
+      });
+      const result = await service.getDueCards(
         'deck-1',
         'user-1',
         false,
@@ -162,17 +178,18 @@ describe('study.service', () => {
       ]);
       expect(result.total).toBe(2);
       expect(result.due).toBe(2);
+      expect(requestedCardIds).toEqual([secondCardId, firstCardId]);
     });
 
     test('does not expose a selected card outside the owned deck', async () => {
-      const deck = createDeck();
-      setMockReturnSequence([
-        [deck],
-        [{ id: firstCardId }],
-      ]);
+      const service = deckReadService({
+        getDueCards: async () => {
+          throw new Error('Card not found');
+        },
+      });
 
       await expect(
-        studyService.getDueCards('deck-1', 'user-1', false, [
+        service.getDueCards('deck-1', 'user-1', false, [
           firstCardId,
           secondCardId,
         ]),
@@ -180,8 +197,7 @@ describe('study.service', () => {
     });
 
     test('rejects a study cluster larger than 12 cards', async () => {
-      const deck = createDeck();
-      setMockReturnSequence([[deck]]);
+      const service = deckReadService();
       const cardIds = Array.from(
         { length: 13 },
         (_, index) =>
@@ -189,8 +205,23 @@ describe('study.service', () => {
       );
 
       await expect(
-        studyService.getDueCards('deck-1', 'user-1', false, cardIds),
+        service.getDueCards('deck-1', 'user-1', false, cardIds),
       ).rejects.toThrow('Study cluster cannot contain more than 12 cards');
+    });
+
+    test('captures one explicit asOf before delegating a due-card read', async () => {
+      let observedAsOf: Date | undefined;
+      const service = deckReadService({
+        getDueCards: async (input: { asOf: Date }) => {
+          observedAsOf = input.asOf;
+          return { cards: [], total: 0, due: 0 };
+        },
+      });
+
+      await service.getDueCards('deck-1', 'user-1');
+
+      expect(observedAsOf).toBeInstanceOf(Date);
+      expect(observedAsOf?.getTime()).toBeGreaterThan(0);
     });
   });
 
