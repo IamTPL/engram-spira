@@ -582,8 +582,36 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
       first.cardIds[1],
     ]);
 
+    // Reversing the requested deckIds must reverse which deck goes first in
+    // each round, proving the interleave ranks decks by the caller's input
+    // order rather than by deck_id text (which would not react to this).
+    const reversed = await repository.getInterleavedDueCards({
+      userId: first.userId,
+      deckIds: [secondDeckId, first.deckId],
+      limit: 3,
+      asOf: AS_OF,
+    });
+    expect(reversed.cards.map((card) => card.deckId)).toEqual([
+      secondDeckId,
+      first.deckId,
+      secondDeckId,
+    ]);
+    expect(reversed.cards.map((card) => card.id)).toEqual([
+      secondCards[0]!.id,
+      first.cardIds[0],
+      secondCards[1]!.id,
+    ]);
+
+    // Give the second deck a strictly higher due count than the first (3 vs
+    // 2) so getTopDueDeckIds's ordering is pinned by COUNT(*) DESC itself,
+    // not by the d.created_at tie-break.
+    await sql`
+      INSERT INTO cards (deck_id, sort_order)
+      VALUES (${secondDeckId}, 2)
+    `;
+
     await expect(
-      repository.getTopDueDeckIds({ userId: first.userId, topN: 1, asOf: AS_OF }),
-    ).resolves.toEqual([first.deckId]);
+      repository.getTopDueDeckIds({ userId: first.userId, topN: 2, asOf: AS_OF }),
+    ).resolves.toEqual([secondDeckId, first.deckId]);
   });
 });
