@@ -3,15 +3,30 @@ import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import postgres, { type Sql } from 'postgres';
+import { forgetting_curve } from 'ts-fsrs';
 
-import { fsrsForgettingCurveConstants } from '../../src/modules/study/fsrs-revision';
+import {
+  canonicalDefaultFsrsParameters,
+  fsrsForgettingCurveConstants,
+} from '../../src/modules/study/fsrs-revision';
+import { normalizeFsrsParameters } from '../../src/modules/study/fsrs.engine';
 
 const ADMIN_URL =
   process.env.TEST_POSTGRES_ADMIN_URL ??
   'postgresql://postgres:postgrespassword@localhost:5435/postgres';
 const MIGRATIONS_DIR = resolve(import.meta.dir, '../../src/db/migrations');
 const createdDatabases = new Set<string>();
-const CURVE = fsrsForgettingCurveConstants(undefined);
+const PARAMETERS = normalizeFsrsParameters();
+const CANONICAL_PARAMETERS = canonicalDefaultFsrsParameters();
+const CURVE = fsrsForgettingCurveConstants(PARAMETERS);
+// (elapsed days, stability) pairs the SQL curve must reproduce exactly.
+const CURVE_SAMPLES = [
+  [1, 5],
+  [3.5, 12.25],
+  [365, 130.5],
+  [0.5, 0.4],
+  [0, 5],
+] as const;
 
 async function canUseDisposablePostgres() {
   const admin = postgres(ADMIN_URL, {
@@ -196,7 +211,7 @@ async function insertRevision(sql: Sql, userId: string, revision = 1) {
       'ts-fsrs-5',
       'fsrs-6',
       'policy-1',
-      '{"desiredRetention":0.9}'::jsonb,
+      ${sql.json(CANONICAL_PARAMETERS as never)},
       ${revision.toString().padStart(64, 'a')},
       'default'${curveValues}
     )
@@ -2129,15 +2144,36 @@ describe('0028 FSRS curve expansion migration', () => {
         expect(names).not.toContain('idx_fsrs_card_states_card');
 
         // R(t = S) is exactly the 0.9 retention the curve is anchored on.
-        const [retrievability] = await sql<{ r: number }[]>`
+        const [anchor] = await sql<{ r: number }[]>`
           SELECT fsrs_retrievability(
-            10,
-            10 * 86400,
-            -0.1542,
-            round((exp(ln(0.9) / -0.1542) - 1)::numeric, 8)
+            10, 10 * 86400, ${CURVE.decay}, ${CURVE.factor}
           ) AS r
         `;
-        expect(retrievability.r).toBe(0.9);
+        expect(anchor.r).toBe(0.9);
+
+        // The SQL curve must track ts-fsrs away from the anchor too.
+        for (const [elapsedDays, stability] of CURVE_SAMPLES) {
+          const [sample] = await sql<{ r: number }[]>`
+            SELECT fsrs_retrievability(
+              ${stability},
+              ${elapsedDays * 86400},
+              ${CURVE.decay},
+              ${CURVE.factor}
+            ) AS r
+          `;
+          expect(sample.r).toBeCloseTo(
+            forgetting_curve(PARAMETERS.w, elapsedDays, stability),
+            8,
+          );
+        }
+
+        // Reviews recorded ahead of "now" clamp to a full retrievability.
+        const [clamped] = await sql<{ r: number }[]>`
+          SELECT fsrs_retrievability(
+            5, -86400, ${CURVE.decay}, ${CURVE.factor}
+          ) AS r
+        `;
+        expect(clamped.r).toBe(1);
 
         const { userId } = await seedUserAndCard(sql);
         const revisionId = await insertRevision(sql, userId);
@@ -2159,6 +2195,44 @@ describe('0028 FSRS curve expansion migration', () => {
             WHERE id = ${revisionId}
           `,
         );
+      } finally {
+        await sql.end();
+        await dropDisposableDatabase(databaseName);
+      }
+    },
+    30_000,
+  );
+
+  integrationTest(
+    'backfills curve constants for revisions written before the migration',
+    async () => {
+      const { databaseName, sql } = await createDisposableDatabase();
+      try {
+        await applyMigrationsThrough(sql, 27);
+        const { userId } = await seedUserAndCard(sql);
+        const revisionId = await insertRevision(sql, userId);
+        const [beforeMigration] = await sql<
+          { parameters: Record<string, unknown> }[]
+        >`
+          SELECT parameters
+          FROM fsrs_parameter_revisions
+          WHERE id = ${revisionId}
+        `;
+        expect(beforeMigration.parameters).toEqual(CANONICAL_PARAMETERS);
+
+        await applyMigrationFile(sql, '0028_fsrs_curve_expand.sql');
+
+        const [backfilled] = await sql<
+          { decay: number; factor: number }[]
+        >`
+          SELECT decay, factor
+          FROM fsrs_parameter_revisions
+          WHERE id = ${revisionId}
+        `;
+        expect(backfilled).toEqual({
+          decay: CURVE.decay,
+          factor: CURVE.factor,
+        });
       } finally {
         await sql.end();
         await dropDisposableDatabase(databaseName);

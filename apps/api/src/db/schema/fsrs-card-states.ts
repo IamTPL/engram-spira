@@ -56,10 +56,11 @@ export const fsrsCardStates = pgTable(
       ],
     }),
     // Current Drizzle versions cannot model PostgreSQL INCLUDE columns without
-    // changing index key semantics. Migration 0026 is authoritative for
-    // INCLUDE ("card_id", "state"); integration tests verify the physical DDL.
-    index('idx_fsrs_card_states_due').on(table.userId, table.nextReviewAt),
-    index('idx_fsrs_card_states_card').on(table.cardId),
+    // changing index key semantics. Migration 0028 is authoritative for
+    // INCLUDE ("card_id", "state", "stability", "last_reviewed_at",
+    // "parameter_revision_id"); integration tests verify the physical DDL.
+    index('idx_fsrs_card_states_user_due').on(table.userId, table.nextReviewAt),
+    index('idx_fsrs_card_states_card_user').on(table.cardId, table.userId),
     index('idx_fsrs_card_states_parameter_revision').on(
       table.parameterRevisionId,
       table.userId,

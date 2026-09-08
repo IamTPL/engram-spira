@@ -77,8 +77,8 @@ describe('FSRS-only Drizzle schema', () => {
     ).toContain('uq_fsrs_card_states_user_card');
     expect(stateConfig.indexes.map((index) => index.config.name)).toEqual(
       expect.arrayContaining([
-        'idx_fsrs_card_states_due',
-        'idx_fsrs_card_states_card',
+        'idx_fsrs_card_states_user_due',
+        'idx_fsrs_card_states_card_user',
         'idx_fsrs_card_states_parameter_revision',
       ]),
     );
