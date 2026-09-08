@@ -23,6 +23,7 @@ import {
   normalizeFsrsParameters,
   scheduleFsrsReview,
 } from '../../../src/modules/study/fsrs.engine';
+import { fsrsForgettingCurveConstants } from '../../../src/modules/study/fsrs-revision';
 import {
   canonicalJson,
   FSRS_REPLAY_UUID_NAMESPACE,
@@ -215,14 +216,17 @@ async function insertRevision(
     canonicalJson(normalizeFsrsParameters(parameters)),
   ) as Record<string, unknown>;
   const paramsHash = sha256Canonical(normalized);
+  const curve = fsrsForgettingCurveConstants(normalized);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO fsrs_parameter_revisions (
       user_id, revision, engine_version, algorithm_version, policy_version,
-      parameters, params_hash, source, created_at, activated_at
+      parameters, params_hash, source, decay, factor,
+      created_at, activated_at
     ) VALUES (
       ${userId}, ${revision}, ${FSRS_LIBRARY_VERSION},
       ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
       ${sql.json(normalized as any)}, ${paramsHash}, 'manual',
+      ${curve.decay}, ${curve.factor},
       ${SEEDED_REVISION_AT}, ${SEEDED_REVISION_AT}
     )
     RETURNING id
@@ -399,15 +403,17 @@ describe('PostgreSQL canonical FSRS live writer', () => {
     ) as Record<string, unknown>;
     const manualHash = sha256Canonical(manualParameters);
     const manualId = crypto.randomUUID();
+    const manualCurve = fsrsForgettingCurveConstants(manualParameters);
     await sql`
       INSERT INTO fsrs_parameter_revisions (
         id, user_id, revision, engine_version, algorithm_version,
-        policy_version, parameters, params_hash, source,
+        policy_version, parameters, params_hash, source, decay, factor,
         created_at, activated_at, retired_at
       ) VALUES (
         ${manualId}, ${seeded.userId}, 2, ${FSRS_LIBRARY_VERSION},
         ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
         ${sql.json(manualParameters as any)}, ${manualHash}, 'manual',
+        ${manualCurve.decay}, ${manualCurve.factor},
         ${SEEDED_REVISION_AT}, ${SEEDED_REVISION_AT}, ${RECEIVED_AT}
       )
     `;
@@ -827,14 +833,16 @@ describe('PostgreSQL canonical FSRS live writer', () => {
 
     const invalid = await seedUser();
     const badParameters = { request_retention: 0 };
+    const defaultCurve = fsrsForgettingCurveConstants(undefined);
     await sql`
       INSERT INTO fsrs_parameter_revisions (
         user_id, revision, engine_version, algorithm_version, policy_version,
-        parameters, params_hash, source
+        parameters, params_hash, source, decay, factor
       ) VALUES (
         ${invalid.userId}, 1, ${FSRS_LIBRARY_VERSION},
         ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
-        ${sql.json(badParameters)}, ${sha256Canonical(badParameters)}, 'manual'
+        ${sql.json(badParameters)}, ${sha256Canonical(badParameters)}, 'manual',
+        ${defaultCurve.decay}, ${defaultCurve.factor}
       )
     `;
     await expect(
@@ -1209,6 +1217,7 @@ describe('PostgreSQL canonical FSRS live writer', () => {
     const input = review(seeded.cardIds[0]!);
     const rawWriter = contender('fsrs_raw_default_exact');
     const expected = deterministicDefaultRevision(seeded.userId);
+    const expectedCurve = fsrsForgettingCurveConstants(expected.parameters);
     await sql.unsafe(`
       CREATE FUNCTION inject_default_revision_unique_for_classifier()
       RETURNS trigger
@@ -1241,9 +1250,11 @@ describe('PostgreSQL canonical FSRS live writer', () => {
             await rawWriter.unsafe(
               `INSERT INTO fsrs_parameter_revisions (
                  id, user_id, revision, engine_version, algorithm_version,
-                 policy_version, parameters, params_hash, source
+                 policy_version, parameters, params_hash, source,
+                 decay, factor
                ) VALUES (
-                 $1::uuid, $2::uuid, 1, $3, $4, $5, $6::jsonb, $7, 'default'
+                 $1::uuid, $2::uuid, 1, $3, $4, $5, $6::jsonb, $7, 'default',
+                 $8::double precision, $9::double precision
                )`,
               [
                 expected.id,
@@ -1253,6 +1264,8 @@ describe('PostgreSQL canonical FSRS live writer', () => {
                 FSRS_POLICY_VERSION,
                 expected.parameters as any,
                 expected.paramsHash,
+                expectedCurve.decay,
+                expectedCurve.factor,
               ],
             );
           },

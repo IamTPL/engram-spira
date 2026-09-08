@@ -1,6 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   check,
+  doublePrecision,
   integer,
   jsonb,
   pgTable,
@@ -28,6 +29,8 @@ export const fsrsParameterRevisions = pgTable(
       .notNull(),
     paramsHash: varchar('params_hash', { length: 64 }).notNull(),
     source: varchar('source', { length: 20 }).notNull(),
+    decay: doublePrecision('decay').notNull(),
+    factor: doublePrecision('factor').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -70,6 +73,10 @@ export const fsrsParameterRevisions = pgTable(
     check(
       'chk_fsrs_parameter_revisions_source',
       sql`${table.source} IN ('default', 'manual', 'optimized', 'migration')`,
+    ),
+    check(
+      'chk_fsrs_parameter_revisions_curve',
+      sql`${table.decay} < 0 AND ${table.factor} > 0`,
     ),
     check(
       'chk_fsrs_parameter_revisions_timestamps',

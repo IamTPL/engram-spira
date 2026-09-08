@@ -119,3 +119,27 @@ export function validateFsrsParameterRevisionIdentity(
   }
   return parameters;
 }
+
+export interface FsrsForgettingCurveConstants {
+  decay: number;
+  factor: number;
+}
+
+/**
+ * Same arithmetic as ts-fsrs 5.4.1 `computeDecayFactor`, so
+ * `fsrs_retrievability()` in Postgres reproduces `forgetting_curve()` exactly.
+ */
+export function fsrsForgettingCurveConstants(
+  parameters: unknown,
+): FsrsForgettingCurveConstants {
+  const normalized = normalizeFsrsParameters(parameters);
+  const decay = -normalized.w[20]!;
+  if (!Number.isFinite(decay) || decay >= 0) {
+    throw new ValidationError('FSRS decay (w[20]) must be positive');
+  }
+  const factor = Number((Math.exp(Math.log(0.9) / decay) - 1).toFixed(8));
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw new ValidationError('FSRS forgetting-curve factor must be positive');
+  }
+  return { decay, factor };
+}

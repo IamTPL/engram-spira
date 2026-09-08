@@ -25,6 +25,7 @@ import {
   FSRS_POLICY_VERSION,
   normalizeFsrsParameters,
 } from '../../../src/modules/study/fsrs.engine';
+import { fsrsForgettingCurveConstants } from '../../../src/modules/study/fsrs-revision';
 
 const ADMIN_URL =
   process.env.TEST_POSTGRES_ADMIN_URL ??
@@ -135,14 +136,17 @@ async function insertRevision(
   const parameters = JSON.parse(
     canonicalJson(normalizeFsrsParameters(parametersInput)),
   ) as Record<string, unknown>;
+  const curve = fsrsForgettingCurveConstants(parameters);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO fsrs_parameter_revisions (
       user_id, revision, engine_version, algorithm_version, policy_version,
-      parameters, params_hash, source, created_at, activated_at, retired_at
+      parameters, params_hash, source, decay, factor,
+      created_at, activated_at, retired_at
     ) VALUES (
       ${userId}, ${revision}, ${FSRS_LIBRARY_VERSION},
       ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
       ${sql.json(parameters as never)}, ${sha256Canonical(parameters)}, 'manual',
+      ${curve.decay}, ${curve.factor},
       ${new Date('2025-12-01T00:00:00.000Z')},
       ${new Date('2025-12-01T00:00:00.000Z')}, ${retiredAt}
     )
@@ -535,7 +539,9 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
     });
 
     expect(plan).toContain('idx_cards_deck_sort_order');
-    expect(plan).toContain('uq_fsrs_card_states_user_card');
+    // 0028 replaced idx_fsrs_card_states_card with a (card_id, user_id)
+    // composite, which now covers this join better than the owner unique.
+    expect(plan).toContain('idx_fsrs_card_states_card_user');
     expect(plan).not.toContain('Seq Scan on fsrs_card_states');
   });
 

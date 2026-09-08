@@ -15,6 +15,7 @@ import type {
   FsrsReplayApplyRepositoryInput,
   FsrsReplayRepository,
 } from './fsrs-replay.service';
+import { fsrsForgettingCurveConstants } from './fsrs-revision';
 import {
   FSRS_ALGORITHM_VERSION,
   FSRS_LIBRARY_VERSION,
@@ -476,9 +477,16 @@ async function insertReplayPlan(sql: Queryable, plan: FsrsReplayManifest) {
       'parameters',
       'params_hash',
       'source',
+      'decay',
+      'factor',
     ],
-    ['::uuid', '::uuid', '', '', '', '', '::text::jsonb', '', ''],
-    plan.parameterRevisions.map((revision) => [
+    [
+      '::uuid', '::uuid', '', '', '', '', '::text::jsonb', '', '',
+      '::double precision', '::double precision',
+    ],
+    plan.parameterRevisions.map((revision) => {
+      const curve = fsrsForgettingCurveConstants(revision.parameters);
+      return [
         revision.id,
         revision.userId,
         revision.revision,
@@ -488,7 +496,10 @@ async function insertReplayPlan(sql: Queryable, plan: FsrsReplayManifest) {
         bindJson(revision.parameters),
         revision.paramsHash,
         revision.source,
-      ]),
+        curve.decay,
+        curve.factor,
+      ];
+    }),
   );
   await insertRows(
     sql,

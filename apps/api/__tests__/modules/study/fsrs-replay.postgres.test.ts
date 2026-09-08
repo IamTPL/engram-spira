@@ -12,6 +12,7 @@ import {
   createPostgresFsrsReplayRepository,
 } from '../../../src/modules/study/fsrs-replay.postgres';
 import { createFsrsReplayService } from '../../../src/modules/study/fsrs-replay.service';
+import { fsrsForgettingCurveConstants } from '../../../src/modules/study/fsrs-revision';
 
 const ADMIN_URL =
   process.env.TEST_POSTGRES_ADMIN_URL ??
@@ -403,13 +404,15 @@ describe('PostgreSQL FSRS replay repository', () => {
       userId: CONFLICT_USER_ID,
     };
     const dryRun = await service.dryRun(scope);
+    const curve = fsrsForgettingCurveConstants(undefined);
     await sql`
       INSERT INTO fsrs_parameter_revisions (
         user_id, revision, engine_version, algorithm_version, policy_version,
-        parameters, params_hash, source
+        parameters, params_hash, source, decay, factor
       ) VALUES (
         ${CONFLICT_USER_ID}, 1, 'foreign-engine', 'foreign-algorithm',
-        'foreign-policy', ${sql.json({})}, ${'f'.repeat(64)}, 'manual'
+        'foreign-policy', ${sql.json({})}, ${'f'.repeat(64)}, 'manual',
+        ${curve.decay}, ${curve.factor}
       )
     `;
 

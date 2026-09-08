@@ -25,6 +25,7 @@ import {
   FSRS_POLICY_VERSION,
   normalizeFsrsParameters,
 } from '../../../src/modules/study/fsrs.engine';
+import { fsrsForgettingCurveConstants } from '../../../src/modules/study/fsrs-revision';
 
 const ADMIN_URL =
   process.env.TEST_POSTGRES_ADMIN_URL ??
@@ -126,14 +127,17 @@ async function insertRevision(
     canonicalJson(normalizeFsrsParameters(parametersInput)),
   ) as Record<string, unknown>;
   const paramsHash = sha256Canonical(parameters);
+  const curve = fsrsForgettingCurveConstants(parameters);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO fsrs_parameter_revisions (
       user_id, revision, engine_version, algorithm_version, policy_version,
-      parameters, params_hash, source, created_at, activated_at, retired_at
+      parameters, params_hash, source, decay, factor,
+      created_at, activated_at, retired_at
     ) VALUES (
       ${userId}, ${revision}, ${FSRS_LIBRARY_VERSION},
       ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
       ${sql.json(parameters as any)}, ${paramsHash}, 'manual',
+      ${curve.decay}, ${curve.factor},
       ${timestamps.activatedAt}, ${timestamps.activatedAt},
       ${timestamps.retiredAt}
     )

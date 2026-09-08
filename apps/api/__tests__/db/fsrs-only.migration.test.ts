@@ -4,11 +4,14 @@ import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import postgres, { type Sql } from 'postgres';
 
+import { fsrsForgettingCurveConstants } from '../../src/modules/study/fsrs-revision';
+
 const ADMIN_URL =
   process.env.TEST_POSTGRES_ADMIN_URL ??
   'postgresql://postgres:postgrespassword@localhost:5435/postgres';
 const MIGRATIONS_DIR = resolve(import.meta.dir, '../../src/db/migrations');
 const createdDatabases = new Set<string>();
+const CURVE = fsrsForgettingCurveConstants(undefined);
 
 async function canUseDisposablePostgres() {
   const admin = postgres(ADMIN_URL, {
@@ -156,7 +159,26 @@ async function seedDeckForUser(sql: Sql, userId: string) {
   return deck.id;
 }
 
+// Migration 0028 adds NOT NULL curve constants, so the columns exist only for
+// databases migrated through it; earlier snapshots must omit them.
+async function revisionCurveColumnsExist(sql: Sql) {
+  const [row] = await sql<{ present: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'fsrs_parameter_revisions'
+        AND column_name = 'decay'
+    ) AS present
+  `;
+  return row?.present === true;
+}
+
 async function insertRevision(sql: Sql, userId: string, revision = 1) {
+  const hasCurve = await revisionCurveColumnsExist(sql);
+  const curveColumns = hasCurve ? sql`, decay, factor` : sql``;
+  const curveValues = hasCurve
+    ? sql`, ${CURVE.decay}, ${CURVE.factor}`
+    : sql``;
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO fsrs_parameter_revisions (
       user_id,
@@ -166,7 +188,7 @@ async function insertRevision(sql: Sql, userId: string, revision = 1) {
       policy_version,
       parameters,
       params_hash,
-      source
+      source${curveColumns}
     )
     VALUES (
       ${userId},
@@ -176,7 +198,7 @@ async function insertRevision(sql: Sql, userId: string, revision = 1) {
       'policy-1',
       '{"desiredRetention":0.9}'::jsonb,
       ${revision.toString().padStart(64, 'a')},
-      'default'
+      'default'${curveValues}
     )
     RETURNING id
   `;
@@ -2053,6 +2075,89 @@ describe('0027 FSRS-only hardening migration', () => {
         `;
         expect(index.definition).toContain(
           'INCLUDE (card_id, state)',
+        );
+      } finally {
+        await sql.end();
+        await dropDisposableDatabase(databaseName);
+      }
+    },
+    30_000,
+  );
+});
+
+describe('0028 FSRS curve expansion migration', () => {
+  integrationTest(
+    'adds NOT NULL curve constants, an IMMUTABLE retrievability function, and the covering indexes',
+    async () => {
+      const { databaseName, sql } = await createDisposableDatabase();
+      try {
+        await applyMigrationsThrough(sql, 28);
+
+        const [fn] = await sql<
+          { provolatile: string; proparallel: string }[]
+        >`
+          SELECT provolatile, proparallel
+          FROM pg_proc
+          WHERE proname = 'fsrs_retrievability'
+        `;
+        expect(fn).toEqual({ provolatile: 'i', proparallel: 's' });
+
+        const columns = await sql<
+          { column_name: string; is_nullable: string }[]
+        >`
+          SELECT column_name, is_nullable
+          FROM information_schema.columns
+          WHERE table_name = 'fsrs_parameter_revisions'
+            AND column_name IN ('decay', 'factor')
+          ORDER BY column_name
+        `;
+        expect([...columns]).toEqual([
+          { column_name: 'decay', is_nullable: 'NO' },
+          { column_name: 'factor', is_nullable: 'NO' },
+        ]);
+
+        const indexes = await sql<{ indexname: string }[]>`
+          SELECT indexname
+          FROM pg_indexes
+          WHERE tablename = 'fsrs_card_states'
+          ORDER BY indexname
+        `;
+        const names = indexes.map((row) => row.indexname);
+        expect(names).toContain('idx_fsrs_card_states_user_due');
+        expect(names).toContain('idx_fsrs_card_states_card_user');
+        expect(names).not.toContain('idx_fsrs_card_states_due');
+        expect(names).not.toContain('idx_fsrs_card_states_card');
+
+        // R(t = S) is exactly the 0.9 retention the curve is anchored on.
+        const [retrievability] = await sql<{ r: number }[]>`
+          SELECT fsrs_retrievability(
+            10,
+            10 * 86400,
+            -0.1542,
+            round((exp(ln(0.9) / -0.1542) - 1)::numeric, 8)
+          ) AS r
+        `;
+        expect(retrievability.r).toBe(0.9);
+
+        const { userId } = await seedUserAndCard(sql);
+        const revisionId = await insertRevision(sql, userId);
+        const [stored] = await sql<{ decay: number; factor: number }[]>`
+          SELECT decay, factor
+          FROM fsrs_parameter_revisions
+          WHERE id = ${revisionId}
+        `;
+        expect(stored).toEqual({
+          decay: CURVE.decay,
+          factor: CURVE.factor,
+        });
+
+        await expectCheckViolation(
+          'chk_fsrs_parameter_revisions_curve',
+          () => sql`
+            UPDATE fsrs_parameter_revisions
+            SET decay = 0.1542
+            WHERE id = ${revisionId}
+          `,
         );
       } finally {
         await sql.end();

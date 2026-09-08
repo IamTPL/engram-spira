@@ -32,6 +32,7 @@ import {
   canonicalDefaultFsrsParameters as canonicalDefaultParameters,
   canonicalFsrsParameters as canonicalParameters,
   deterministicFsrsParameterRevisionId as deterministicRevisionId,
+  fsrsForgettingCurveConstants,
   validateFsrsParameterRevisionIdentity as validateRevisionIdentity,
 } from './fsrs-revision';
 import type {
@@ -565,12 +566,14 @@ async function rotateParametersTransaction(
       (maximum, revision) => Math.max(maximum, revision.revision),
       0,
     ) + 1;
+  const curve = fsrsForgettingCurveConstants(parameters);
   const [created] = await sql.unsafe<ParameterRevisionRow[]>(
     `INSERT INTO fsrs_parameter_revisions (
        id, user_id, revision, engine_version, algorithm_version,
-       policy_version, parameters, params_hash, source
+       policy_version, parameters, params_hash, source, decay, factor
      ) VALUES (
-       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::text::jsonb, $8, 'manual'
+       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::text::jsonb, $8, 'manual',
+       $9::double precision, $10::double precision
      )
      RETURNING
        id::text AS id,
@@ -591,6 +594,8 @@ async function rotateParametersTransaction(
       FSRS_POLICY_VERSION,
       bindJson(parameters),
       paramsHash,
+      curve.decay,
+      curve.factor,
     ],
   );
   if (!created) {
@@ -934,12 +939,14 @@ async function createOrReactivateDefaultRevision(
       'FSRS default revision identity conflicts with existing revision',
     );
   }
+  const curve = fsrsForgettingCurveConstants(parameters);
   const [created] = await sql.unsafe<DefaultRevision[]>(
     `INSERT INTO fsrs_parameter_revisions (
        id, user_id, revision, engine_version, algorithm_version,
-       policy_version, parameters, params_hash, source
+       policy_version, parameters, params_hash, source, decay, factor
      ) VALUES (
-       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::text::jsonb, $8, 'default'
+       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::text::jsonb, $8, 'default',
+       $9::double precision, $10::double precision
      )
      RETURNING
        id::text AS id,
@@ -960,6 +967,8 @@ async function createOrReactivateDefaultRevision(
       FSRS_POLICY_VERSION,
       bindJson(parameters),
       paramsHash,
+      curve.decay,
+      curve.factor,
     ],
   );
   return created!;
