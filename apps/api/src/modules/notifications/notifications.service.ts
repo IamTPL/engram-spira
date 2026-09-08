@@ -1,7 +1,7 @@
-import { eq, and, lte, isNull, or, sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
-import { cards, decks, studyProgress } from '../../db/schema';
 import { NOTIFICATIONS } from '../../shared/constants';
+import { fsrsDue, fsrsStateJoin } from '../study/fsrs-sql';
 
 export interface DueDeckNotification {
   deckId: string;
@@ -9,64 +9,48 @@ export interface DueDeckNotification {
   dueCount: number;
 }
 
-/**
- * Returns all decks owned by the user that have at least one due card.
- * "Due" = study_progress.next_review_at <= NOW() OR no progress record yet.
- *
- * Uses decks.user_id (denormalized) for O(1) ownership — no JOIN chain needed.
- */
+/** Decks with at least one due card. Due = no state row, or next_review_at <= asOf. */
+export function dueDecksSql(userId: string, asOf: Date, limit: number): SQL {
+  return sql`
+    SELECT d.id::text AS "deckId", d.name AS "deckName", COUNT(*)::int AS "dueCount"
+    FROM cards c
+    JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+    ${fsrsStateJoin(userId)}
+    WHERE ${fsrsDue(asOf)}
+    GROUP BY d.id, d.name
+    ORDER BY "dueCount" DESC, d.name ASC
+    LIMIT ${limit}`;
+}
+
+export function totalDueSql(userId: string, asOf: Date): SQL {
+  return sql`
+    SELECT COUNT(*)::int AS total
+    FROM cards c
+    JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+    ${fsrsStateJoin(userId)}
+    WHERE ${fsrsDue(asOf)}`;
+}
+
 export async function getDueDecks(
   userId: string,
+  asOf: Date = new Date(),
 ): Promise<DueDeckNotification[]> {
-  const now = new Date();
-
-  const rows = await db
-    .select({
-      deckId: decks.id,
-      deckName: decks.name,
-      dueCount: sql<number>`count(${cards.id})::int`,
-    })
-    .from(cards)
-    .innerJoin(decks, eq(cards.deckId, decks.id))
-    .leftJoin(
-      studyProgress,
-      and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
-    )
-    .where(
-      and(
-        eq(decks.userId, userId),
-        or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)),
-      ),
-    )
-    .groupBy(decks.id, decks.name)
-    .orderBy(sql`count(${cards.id}) DESC`)
-    .limit(NOTIFICATIONS.MAX_DUE_DECKS);
-
-  return rows.map((r) => ({
-    deckId: r.deckId,
-    deckName: r.deckName,
-    dueCount: r.dueCount,
+  const rows = await db.execute<{
+    deckId: string;
+    deckName: string;
+    dueCount: number;
+  }>(dueDecksSql(userId, asOf, NOTIFICATIONS.MAX_DUE_DECKS));
+  return rows.map((row) => ({
+    deckId: row.deckId,
+    deckName: row.deckName,
+    dueCount: row.dueCount,
   }));
 }
 
-/** Total count of all due cards across all decks for badge display. */
-export async function getTotalDueCount(userId: string): Promise<number> {
-  const now = new Date();
-
-  const [row] = await db
-    .select({ total: sql<number>`count(${cards.id})::int` })
-    .from(cards)
-    .innerJoin(decks, eq(cards.deckId, decks.id))
-    .leftJoin(
-      studyProgress,
-      and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
-    )
-    .where(
-      and(
-        eq(decks.userId, userId),
-        or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)),
-      ),
-    );
-
+export async function getTotalDueCount(
+  userId: string,
+  asOf: Date = new Date(),
+): Promise<number> {
+  const [row] = await db.execute<{ total: number }>(totalDueSql(userId, asOf));
   return row?.total ?? 0;
 }
