@@ -233,11 +233,4 @@ describe('study.service', () => {
       expect(result.due).toBe(0);
     });
   });
-
-  describe('reviewCardBatch', () => {
-    test('returns reviewed:0 for empty items', async () => {
-      const result = await studyService.reviewCardBatch('user-1', []);
-      expect(result.reviewed).toBe(0);
-    });
-  });
 });

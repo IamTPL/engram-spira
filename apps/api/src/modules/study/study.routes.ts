@@ -1,5 +1,4 @@
 import Elysia, { t } from 'elysia';
-import { eq } from 'drizzle-orm';
 import { rateLimit } from 'elysia-rate-limit';
 import { requireAuth } from '../auth/auth.middleware';
 import * as studyService from './study.service';
@@ -8,15 +7,21 @@ import * as recommendationsService from './recommendations.service';
 import * as retentionOverviewService from './retention-overview.service';
 import * as retentionDetailsService from './retention-details.service';
 import { REVIEW_ACTIONS, STREAK } from '../../shared/constants';
-import { db } from '../../db';
-import { users } from '../../db/schema';
 import {
   parseStudyCardIds,
   studyDeckQuerySchema,
 } from './study-cluster';
 
-const VALID_ACTIONS = Object.values(REVIEW_ACTIONS);
-const reviewActionSchema = t.Union(VALID_ACTIONS.map((a) => t.Literal(a)));
+const reviewRatingSchema = t.Union(
+  Object.values(REVIEW_ACTIONS).map((rating) => t.Literal(rating)),
+);
+const reviewEventSchema = t.Object({
+  requestId: t.String({ format: 'uuid' }),
+  cardId: t.String({ format: 'uuid' }),
+  rating: reviewRatingSchema,
+  reviewedAt: t.String({ format: 'date-time' }),
+  durationMs: t.Optional(t.Integer({ minimum: 0, maximum: 60 * 60 * 1000 })),
+});
 
 function getTimezoneOffsetMinutes(headers: Record<string, string | undefined>) {
   const raw = headers['x-timezone-offset'];
@@ -31,11 +36,17 @@ function getTimezoneOffsetMinutes(headers: Record<string, string | undefined>) {
 export type StudyRouteServices = {
   getRetentionOverview: typeof retentionOverviewService.getRetentionOverview;
   getRetentionDetails: typeof retentionDetailsService.getRetentionDetails;
+  reviewBatch: typeof studyService.fsrsLiveService.reviewBatch;
+  resetDeck: typeof studyService.fsrsLiveService.resetDeck;
+  resetCard: typeof studyService.fsrsLiveService.resetCard;
 };
 
 const defaultStudyRouteServices: StudyRouteServices = {
   getRetentionOverview: retentionOverviewService.getRetentionOverview,
   getRetentionDetails: retentionDetailsService.getRetentionDetails,
+  reviewBatch: studyService.fsrsLiveService.reviewBatch,
+  resetDeck: studyService.fsrsLiveService.resetDeck,
+  resetCard: studyService.fsrsLiveService.resetCard,
 };
 
 export function createStudyRoutes(
@@ -112,47 +123,31 @@ export function createStudyRoutes(
       return studyService.getDashboardSnapshot(currentUser.id, tzOffset);
     })
     .post(
-      '/review',
-      ({ currentUser, body, headers }) => {
-        const tzOffset = getTimezoneOffsetMinutes(headers);
-        return studyService.reviewCard(
-          body.cardId,
-          currentUser.id,
-          body.action,
-          tzOffset,
-        );
-      },
-      {
-        body: t.Object({
-          cardId: t.String({ format: 'uuid' }),
-          action: reviewActionSchema,
-        }),
-      },
-    )
-    .post(
       '/review-batch',
       ({ currentUser, body, headers }) => {
         const tzOffset = getTimezoneOffsetMinutes(headers);
-        return studyService.reviewCardBatch(currentUser.id, body.items, tzOffset);
+        return services.reviewBatch(currentUser.id, body.items, tzOffset);
       },
       {
         body: t.Object({
-          items: t.Array(
-            t.Object({
-              cardId: t.String({ format: 'uuid' }),
-              action: reviewActionSchema,
-            }),
-            { minItems: 1, maxItems: 100 },
-          ),
+          items: t.Array(reviewEventSchema, { minItems: 1, maxItems: 100 }),
         }),
       },
     )
     // --------------- Reset Progress ---------------
-    .post('/deck/:deckId/reset-progress', ({ currentUser, params }) =>
-      studyService.resetDeckProgress(params.deckId, currentUser.id),
+    .post(
+      '/deck/:deckId/reset-progress',
+      async ({ currentUser, params }) => ({
+        reset: await services.resetDeck(currentUser.id, params.deckId),
+      }),
+      { params: t.Object({ deckId: t.String({ format: 'uuid' }) }) },
     )
-    .post('/card/:cardId/reset-progress', ({ currentUser, params }) =>
-      studyService.resetCardProgress(params.cardId, currentUser.id),
+    .post(
+      '/card/:cardId/reset-progress',
+      async ({ currentUser, params }) => ({
+        reset: await services.resetCard(currentUser.id, params.cardId),
+      }),
+      { params: t.Object({ cardId: t.String({ format: 'uuid' }) }) },
     )
     // --------------- Interleaved Practice ---------------
     .post(
@@ -268,30 +263,6 @@ export function createStudyRoutes(
       {
         query: t.Object({
           limit: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
-        }),
-      },
-    )
-    // --------------- Algorithm Selection ---------------
-    .get('/algorithm', async ({ currentUser }) => {
-      const [row] = await db
-        .select({ srsAlgorithm: users.srsAlgorithm })
-        .from(users)
-        .where(eq(users.id, currentUser.id))
-        .limit(1);
-      return { algorithm: row?.srsAlgorithm ?? 'sm2' };
-    })
-    .patch(
-      '/algorithm',
-      async ({ currentUser, body }) => {
-        await db
-          .update(users)
-          .set({ srsAlgorithm: body.algorithm })
-          .where(eq(users.id, currentUser.id));
-        return { algorithm: body.algorithm };
-      },
-      {
-        body: t.Object({
-          algorithm: t.Union([t.Literal('sm2'), t.Literal('fsrs')]),
         }),
       },
     );
