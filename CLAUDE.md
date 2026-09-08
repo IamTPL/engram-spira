@@ -33,7 +33,7 @@ A direct CodeGraph answer is typically 1–3 calls; the equivalent grep/read loo
 
 ### Writing new docs
 
-`.gitignore` ignores `/skills` (root-only — the vendored `ui-ux-pro-max` clone) and `docs/superpowers/`. `.agents/skills/` is trackable and holds real skill packs (`elysiajs`, `solid-js-best-practices`) — do not confuse it with the ignored root folder. Write agent docs to `docs/agents/`, `docs/<topic>/`, `.agents/workflows/`, or the root `CLAUDE.md`/`AGENTS.md` — and confirm any new path with `git check-ignore -v <path>` first.
+`.gitignore` ignores `/skills` (root-only — the vendored `ui-ux-pro-max` clone). `docs/superpowers/` is tracked: specs in `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`. `.agents/skills/` is trackable and holds real skill packs (`elysiajs`, `solid-js-best-practices`) — do not confuse it with the ignored root folder. Write agent docs to `docs/agents/`, `docs/<topic>/`, `.agents/workflows/`, or the root `CLAUDE.md`/`AGENTS.md` — and confirm any new path with `git check-ignore -v <path>` first.
 
 ### Scope discipline
 

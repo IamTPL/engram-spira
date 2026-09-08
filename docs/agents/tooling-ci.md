@@ -132,14 +132,14 @@ Rules:
 | Line | Pattern | Effect |
 |---|---|---|
 | 64 | `/skills` | **root-anchored** — ignores only `<repo-root>/skills` (the vendored `ui-ux-pro-max` clone). Does **not** touch `.agents/skills/`, `.claude/skills/`, or `docs/skills/` |
-| 65 | `docs/superpowers` | ignores that subtree (its 2 existing files stay tracked — gitignore is not retroactive) |
+| ~~65~~ | ~~`docs/superpowers`~~ | **removed 2026-09-08** — the subtree is tracked again so brainstorming specs and plans can be committed |
 | 66 | `.gitnexus` | — |
 | 67 | `.codegraph` | the local CodeGraph index |
 | 69 | `**/.superpowers` | superpowers session state at any depth |
 
 Until this pattern was narrowed from a bare `skills` (no leading slash) to `/skills`, it ignored *any* path segment named `skills` at any depth — which is why `.agents/skills/` was invisible to git for a period and its content had to be re-authored from scratch after being deleted. **Do not widen it back.** `.agents/skills/` is now the intended home for project skill packs (see below); the root `/skills` vendored clone is the only thing meant to stay ignored.
 
-**Rule: never place authored documentation under the root `skills/` directory or under `docs/superpowers/`.** Safe homes: root `CLAUDE.md`/`AGENTS.md`, `docs/agents/`, `docs/<topic>/`, `.agents/workflows/`, `.agents/skills/`. Always confirm with `git check-ignore -v <path>` first.
+**Rule: never place authored documentation under the root `skills/` directory.** Safe homes: root `CLAUDE.md`/`AGENTS.md`, `docs/agents/`, `docs/<topic>/`, `docs/superpowers/{specs,plans}/`, `.agents/workflows/`, `.agents/skills/`. Always confirm with `git check-ignore -v <path>` first.
 
 Also: `dist/` and `build/` are directory-only patterns, so `git check-ignore apps/api/dist` reports "not ignored" purely because that directory does not exist yet — do not conclude api build output is tracked.
 
