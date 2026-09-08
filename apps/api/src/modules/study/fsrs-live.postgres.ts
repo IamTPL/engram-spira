@@ -27,7 +27,7 @@ import {
 } from './fsrs-live.domain';
 import {
   sha256Canonical,
-} from './fsrs-replay-planner';
+} from './fsrs-canonical';
 import {
   canonicalDefaultFsrsParameters as canonicalDefaultParameters,
   canonicalFsrsParameters as canonicalParameters,

@@ -1,11 +1,11 @@
 import { ValidationError } from '../../shared/errors';
 import { canonicalUuid } from './fsrs-live.domain';
 import {
+  FSRS_UUID_NAMESPACE,
   canonicalJson,
-  FSRS_REPLAY_UUID_NAMESPACE,
   sha256Canonical,
   uuidV5,
-} from './fsrs-replay-planner';
+} from './fsrs-canonical';
 import {
   FSRS_ALGORITHM_VERSION,
   FSRS_LIBRARY_VERSION,
@@ -61,7 +61,7 @@ export function deterministicFsrsParameterRevisionId(
       FSRS_POLICY_VERSION,
       paramsHash,
     ].join('/'),
-    FSRS_REPLAY_UUID_NAMESPACE,
+    FSRS_UUID_NAMESPACE,
   );
 }
 

@@ -1,7 +1,14 @@
-import { createHash } from 'node:crypto';
 import { State, type Card, type FSRSParameters } from 'ts-fsrs';
 import type { ReviewAction } from '../../shared/constants';
 import { ValidationError } from '../../shared/errors';
+import {
+  FSRS_UUID_NAMESPACE,
+  asciiCompare,
+  canonicalJson,
+  sha256Canonical,
+  uuidV5,
+  validateUuid,
+} from './fsrs-canonical';
 import {
   FSRS_ALGORITHM_VERSION,
   FSRS_LIBRARY_VERSION,
@@ -10,9 +17,9 @@ import {
   scheduleFsrsReview,
 } from './fsrs.engine';
 
+export { canonicalJson, sha256Canonical, uuidV5 };
 export const FSRS_REPLAY_VERSION = 'engram-fsrs-replay-v1';
-export const FSRS_REPLAY_UUID_NAMESPACE =
-  '6ba7b811-9dad-11d1-80b4-00c04fd430c8';
+export const FSRS_REPLAY_UUID_NAMESPACE = FSRS_UUID_NAMESPACE;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -259,36 +266,6 @@ export function createFsrsReplayPlan(
       error instanceof Error ? error.message : 'Invalid FSRS replay snapshot',
     );
   }
-}
-
-export function canonicalJson(value: unknown): string {
-  return serializeCanonical(value, new WeakSet<object>());
-}
-
-export function sha256Canonical(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex');
-}
-
-export function uuidV5(name: string, namespace: string): string {
-  if (typeof name !== 'string') {
-    throw new ValidationError('UUIDv5 name must be a string');
-  }
-  validateUuid(namespace, 'UUIDv5 namespace');
-  const namespaceBytes = Buffer.from(namespace.replaceAll('-', ''), 'hex');
-  const digest = createHash('sha1')
-    .update(namespaceBytes)
-    .update(Buffer.from(name, 'utf8'))
-    .digest();
-  digest[6] = (digest[6]! & 0x0f) | 0x50;
-  digest[8] = (digest[8]! & 0x3f) | 0x80;
-  const hex = digest.subarray(0, 16).toString('hex');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20),
-  ].join('-');
 }
 
 function validateScope(
@@ -949,13 +926,6 @@ function validateCardOwner(
   owners.set(cardId, ownerUserId);
 }
 
-function validateUuid(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
-    throw new ValidationError(`${name} must be a canonical lowercase UUID`);
-  }
-  return value;
-}
-
 function ensureUnique(values: readonly string[], name: string) {
   if (new Set(values).size !== values.length) {
     throw new ValidationError(`Duplicate ${name}`);
@@ -1003,10 +973,6 @@ function compareTuple(
   return 0;
 }
 
-function asciiCompare(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 function padSequence(value: number): string {
   return value.toString().padStart(12, '0');
 }
@@ -1015,89 +981,6 @@ function cloneScope(scope: FsrsReplayScope): FsrsReplayScope {
   return scope.kind === 'all_users'
     ? { kind: 'all_users' }
     : { kind: 'user', userId: scope.userId };
-}
-
-function serializeCanonical(
-  value: unknown,
-  ancestors: WeakSet<object>,
-): string {
-  if (value === null) return 'null';
-  switch (typeof value) {
-    case 'string':
-      return JSON.stringify(value);
-    case 'boolean':
-      return value ? 'true' : 'false';
-    case 'number':
-      if (!Number.isFinite(value)) {
-        throw new ValidationError('Canonical JSON requires finite numbers');
-      }
-      return JSON.stringify(Object.is(value, -0) ? 0 : value);
-    case 'undefined':
-    case 'bigint':
-    case 'symbol':
-    case 'function':
-      throw new ValidationError('Canonical JSON contains unsupported values');
-    case 'object':
-      break;
-  }
-
-  const objectValue = value as object;
-  if (ancestors.has(objectValue)) {
-    throw new ValidationError('Canonical JSON cannot contain cycles');
-  }
-  ancestors.add(objectValue);
-  try {
-    if (Array.isArray(value)) {
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index)) {
-          throw new ValidationError(
-            'Canonical JSON cannot contain sparse arrays',
-          );
-        }
-      }
-      return `[${value
-        .map((item) => serializeCanonical(item, ancestors))
-        .join(',')}]`;
-    }
-
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      throw new ValidationError(
-        'Canonical JSON requires plain objects',
-      );
-    }
-    const record = value as Record<string, unknown>;
-    const ownKeys = Reflect.ownKeys(record);
-    if (ownKeys.some((key) => typeof key === 'symbol')) {
-      throw new ValidationError(
-        'Canonical JSON cannot contain symbol keys',
-      );
-    }
-    for (const key of ownKeys as string[]) {
-      const descriptor = Object.getOwnPropertyDescriptor(record, key);
-      if (
-        !descriptor ||
-        !descriptor.enumerable ||
-        !Object.hasOwn(descriptor, 'value')
-      ) {
-        throw new ValidationError(
-          'Canonical JSON requires enumerable data properties',
-        );
-      }
-    }
-    const keys = Object.keys(record).sort(asciiCompare);
-    return `{${keys
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${serializeCanonical(
-            record[key],
-            ancestors,
-          )}`,
-      )
-      .join(',')}}`;
-  } finally {
-    ancestors.delete(objectValue);
-  }
 }
 
 function isNonNegativeInteger(value: number): boolean {
