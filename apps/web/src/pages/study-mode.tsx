@@ -87,8 +87,11 @@ const StudyModePage: Component = () => {
         query: buildStudyDeckQuery(effectiveStudyMode(), searchParams.cardIds),
       });
       if (error || !data) {
+        const detail = error ? getApiError(error) : null;
         setStudyError(
-          'Failed to load study cards. Please go back and try again.',
+          detail
+            ? `Failed to load study cards: ${detail}`
+            : 'Failed to load study cards. Please go back and try again.',
         );
         return null;
       }

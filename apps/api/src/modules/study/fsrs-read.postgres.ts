@@ -1,5 +1,10 @@
 import type { TransactionSql } from 'postgres';
 import { NotFoundError, ValidationError } from '../../shared/errors';
+import {
+  nullableTimestampFromRow,
+  timestampFromRow,
+  type PgTimestamp,
+} from '../../db/pg-codecs';
 import { canonicalUuid } from './fsrs-live.domain';
 import {
   validateCanonicalFsrsRead,
@@ -17,8 +22,8 @@ interface CanonicalFsrsReadRow {
   stateId: string | null;
   stateUserId: string | null;
   stateCardId: string | null;
-  nextReviewAt: Date | null;
-  lastReviewedAt: Date | null;
+  nextReviewAt: PgTimestamp | null;
+  lastReviewedAt: PgTimestamp | null;
   stability: number | null;
   difficulty: number | null;
   state: string | null;
@@ -30,7 +35,7 @@ interface CanonicalFsrsReadRow {
   parameterRevisionId: string | null;
   stateVersion: string | null;
   learningCycle: number | null;
-  stateUpdatedAt: Date | null;
+  stateUpdatedAt: PgTimestamp | null;
   revisionId: string | null;
   revisionUserId: string | null;
   revisionNumber: number | null;
@@ -40,9 +45,9 @@ interface CanonicalFsrsReadRow {
   parameters: unknown;
   paramsHash: string | null;
   revisionSource: string | null;
-  revisionCreatedAt: Date | null;
-  revisionActivatedAt: Date | null;
-  revisionRetiredAt: Date | null;
+  revisionCreatedAt: PgTimestamp | null;
+  revisionActivatedAt: PgTimestamp | null;
+  revisionRetiredAt: PgTimestamp | null;
 }
 
 export interface CanonicalFsrsCardRead {
@@ -242,8 +247,11 @@ function stateFromRow(
     id: row.stateId!,
     userId: row.stateUserId!,
     cardId: row.stateCardId!,
-    nextReviewAt: row.nextReviewAt!,
-    lastReviewedAt: row.lastReviewedAt!,
+    nextReviewAt: timestampFromRow(row.nextReviewAt, 'FSRS state nextReviewAt'),
+    lastReviewedAt: timestampFromRow(
+      row.lastReviewedAt,
+      'FSRS state lastReviewedAt',
+    ),
     stability: row.stability!,
     difficulty: row.difficulty!,
     state: row.state as CanonicalFsrsCardState['state'],
@@ -255,7 +263,7 @@ function stateFromRow(
     parameterRevisionId: row.parameterRevisionId!,
     stateVersion: Number(row.stateVersion),
     learningCycle: row.learningCycle!,
-    updatedAt: row.stateUpdatedAt!,
+    updatedAt: timestampFromRow(row.stateUpdatedAt, 'FSRS state updatedAt'),
   };
 }
 
@@ -272,9 +280,18 @@ function revisionFromRow(
     parameters: row.parameters as Record<string, unknown>,
     paramsHash: row.paramsHash!,
     source: row.revisionSource as CanonicalFsrsParameterRevision['source'],
-    createdAt: row.revisionCreatedAt!,
-    activatedAt: row.revisionActivatedAt!,
-    retiredAt: row.revisionRetiredAt,
+    createdAt: timestampFromRow(
+      row.revisionCreatedAt,
+      'FSRS parameter revision createdAt',
+    ),
+    activatedAt: timestampFromRow(
+      row.revisionActivatedAt,
+      'FSRS parameter revision activatedAt',
+    ),
+    retiredAt: nullableTimestampFromRow(
+      row.revisionRetiredAt,
+      'FSRS parameter revision retiredAt',
+    ),
   };
 }
 

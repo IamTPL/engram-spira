@@ -12,28 +12,23 @@ Each entry is tagged:
 
 ## The red baseline
 
-**As of 2026-07-28 this section's headline claims (22 tsc errors, CI red, 3 failing tests) are stale — re-measured below.** Section kept because 2 test failures are still genuinely pre-existing; do not misattribute them to your change. **Always re-run `bun run typecheck` and both `bun test` commands yourself** before trusting any number on this page — this baseline has already flipped once (red → green) across recent commits and nothing prevents it flipping back.
+**As of 2026-09-08 the baseline is green: `bun run typecheck` exits 0 and `cd apps/api && bun test` is 748 pass / 0 fail across 77 files (`apps/web`: 87 pass / 16 files).** The section is kept because the baseline has flipped red → green → red before. **Always re-run `bun run typecheck` and both `bun test` commands yourself** before trusting any number on this page.
 
-### `bun run typecheck` — now passes clean, CI is green
+### `bun run typecheck` — passes clean, CI is green
 
-Re-measured: `bun run typecheck` exits **0** for both `@engram/api` and `@engram/web`. `.github/workflows/ci.yml`'s only job is `typecheck`, so CI is currently green.
+`.github/workflows/ci.yml`'s only job is `typecheck`. This section used to document a 22-error Eden Treaty path-inference collapse, root-caused to `apps/api/src/modules/experience/experience.routes.ts` typing every handler context as `any`. That file has since been refactored to an injectable-services pattern and the collapse no longer reproduces. If typecheck goes red again, re-diagnose from scratch rather than assuming the old root cause.
 
-This section used to document a 22-error Eden Treaty path-inference collapse, root-caused to `apps/api/src/modules/experience/experience.routes.ts` typing every handler context as `any` with no Elysia `t` schemas. That file has since been refactored to an injectable-services pattern (`ExperienceRouteServices`, a swappable services object — see [experience-bff.md](experience-bff.md) if it covers the new shape) and the collapse no longer reproduces. Whether it was that specific refactor that fixed inference, or something else in `apps/web`, was not re-diagnosed — only the end state (0 errors) was verified. If typecheck goes red again, don't assume the old root cause or the old file:line list still apply; re-diagnose from scratch.
+### API tests — 0 fail (was 3, all fixed 2026-09-08)
 
-### 2 API tests fail (was 3, but not the same 3)
-
-`cd apps/api && bun test` → **599 pass / 2 fail** / 1931 assertions / 601 tests / 67 files.
-
-| Test | Cause | Verdict |
+| Test | Cause | Fix |
 |---|---|---|
-| `0026 FSRS-only expansion migration > provides a supporting index for every foreign key` (`fsrs-only.migration.test.ts`) | bug in the test's own SQL | not a real bug |
-| `study queue service > covers non-empty mixed queues with deterministic ordering, reason, and summary` (`experience.service.test.ts:780`) | rotten fixture | real, unchanged |
+| `study queue service > covers non-empty mixed queues…` (`experience.service.test.ts`) | `__tests__/helpers/fixtures.ts` hard-coded `now/past/future` calendar dates that real time overtook | fixture now derives the three instants from `Date.now()` ± 1 day |
+| `PostgreSQL canonical FSRS live writer > reactivates a matching arbitrary-ID manual revision…` and `> uses active parameters for New…` (`fsrs-live.postgres.test.ts`) | tests seeded `fsrs_parameter_revisions` rows retired at the fixed `RECEIVED_AT` (2026-07-29) while `created_at`/`activated_at` took the column default `now()`; once the real clock passed 2026-07-29 the row violated `chk_fsrs_parameter_revisions_timestamps` | seeded revisions pin `created_at = activated_at = SEEDED_REVISION_AT` (one hour before `RECEIVED_AT`) |
+| `0026 FSRS-only expansion migration > provides a supporting index for every foreign key` (`fsrs-only.migration.test.ts`) | ambiguous `table_name` in the test's own `information_schema` join | introspection rewritten against `pg_catalog` (`pg_constraint` / `pg_index`) |
 
-**The FK-index test bug (new).** The test's introspection query joins `information_schema.table_constraints tc` to `information_schema.key_column_usage kcu` via `USING (constraint_schema, constraint_name)` — which does not disambiguate `table_name`, present on both views — then references bare `table_name` in the `SELECT`/`GROUP BY`. Postgres rejects it: `42702 column reference "table_name" is ambiguous`. The migration itself is fine — manually checking every FK in the 4 new `fsrs_*` tables against their indexes (see [database.md](database.md#tables)) shows each is covered by a leading-column index or unique constraint. → **`safe-to-fix`**: qualify as `tc.table_name` (or `kcu.table_name`) in that query.
+**Postgres-backed suites.** `fsrs-deck-reads`, `fsrs-live`, `fsrs-read`, `fsrs-replay` `.postgres.test.ts` create a disposable database through `TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`) and drop it in `afterAll`. If the dev container is down they fail with connection errors — start it, do not "fix" the tests.
 
-**The previously-documented mock leak is gone.** `__tests__/modules/knowledge-graph/kg.service.test.ts` no longer stubs `checkAiRateLimit` via `mock.module` — confirmed by grep and by re-running `bun test __tests__/modules/knowledge-graph/kg.service.test.ts __tests__/modules/ai/config-ai.test.ts` together (14 pass / 0 fail). Do not go looking for it.
-
-**The fixture time bomb (unchanged, still real).** `__tests__/helpers/fixtures.ts:110-113` hard-codes `now = 2026-06-28`, `past = 2026-06-27`, `future = 2026-06-29`. Real time has passed 2026-06-29, so `study-queue.service.ts:159 isDue()` classifies the "future" rows as due and the queue returns `[card-due, card-learning, card-risk, card-new]` instead of `[card-due, card-new, card-learning, card-risk]`. → **`safe-to-fix`**: derive the dates from `Date.now()`.
+**The previously-documented mock leak is gone.** `__tests__/modules/knowledge-graph/kg.service.test.ts` no longer stubs `checkAiRateLimit` via `mock.module`. Do not go looking for it.
 
 ---
 
@@ -43,6 +38,7 @@ This section used to document a 22-error Eden Treaty path-inference collapse, ro
 
 | Issue | Where | Verdict |
 |---|---|---|
+| **Fixed 2026-09-08 — kept for context.** `GET /study/deck/:deckId` (due mode) returned 500 for every deck: `fsrs-deck-reads.postgres.ts` bound a JS `Date` into `$3::timestamptz` through the shared `pgClient`, whose timestamp serializer `drizzle()` had replaced with an identity function. A second latent defect in the same family (timestamp columns read back as text and rejected by `validDate`) would have surfaced as soon as any `fsrs_card_states` row existed. Both fixed via `src/db/pg-codecs.ts`; see AGENTS.md §3 rule 27 | `fsrs-deck-reads.postgres.ts`, `fsrs-read.postgres.ts`, `fsrs-live.postgres.ts`, `fsrs-replay.postgres.ts` | resolved |
 | **`POST /study/review` is SM-2-only.** Calls `calculateNextReview` directly, never reads `users.srs_algorithm` or `fsrs_user_params`, writes no FSRS columns. An FSRS user silently gets SM-2 scheduling. Masked because the web client only calls `/review-batch` | `study.service.ts:256` | `own-task` |
 | **FSRS stability never grows for review-state cards.** `last_review` is hardcoded to `new Date()`, so ts-fsrs computes `elapsed_days = 0` every time. Measured: S=10 / 30 d elapsed / Good → stays 10.0, interval 11 d; correct continuation gives 53.56 / 54 d. `last_elapsed_days` therefore always persists as 0 | `fsrs.engine.ts:377` (was `:74` before ~280 lines were inserted above it — still the live `calculateFsrsReview` path; see [srs-study.md](srs-study.md#fsrs-engine) for a dormant, unwired second engine surface, `scheduleFsrsReview`, that structurally avoids this) | `own-task` |
 | **FSRS state lost on zero stability.** The restore is gated on `current?.stability` being *truthy*, so `stability = 0` or `NULL` rebuilds a brand-new card, discarding difficulty, state and learning steps | `fsrs.engine.ts:366` (was `:63`) | `own-task` |

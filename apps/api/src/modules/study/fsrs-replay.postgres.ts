@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 import type { ReservedSql, TransactionSql } from 'postgres';
 import { ConflictError, ValidationError } from '../../shared/errors';
+import { bindJson } from '../../db/pg-codecs';
 import {
   canonicalJson,
   fsrsReplayPersistedEventPayload,
@@ -129,9 +130,9 @@ async function applyWithLock(
                algorithm_version = $3,
                policy_version = $4,
                finished_at = clock_timestamp(),
-               source_counts = $5::jsonb,
-               result_counts = $6::jsonb,
-               anomalies = $7::jsonb,
+               source_counts = $5::text::jsonb,
+               result_counts = $6::text::jsonb,
+               anomalies = $7::text::jsonb,
                result_checksum = $8
            WHERE id = $1::uuid AND status = 'running'
            RETURNING id::text AS id`,
@@ -140,9 +141,9 @@ async function applyWithLock(
             plan.engineVersion,
             plan.algorithmVersion,
             plan.policyVersion,
-            sourceCounts(plan),
-            plan.counts,
-            anomalyList(plan),
+            bindJson(sourceCounts(plan)),
+            bindJson(plan.counts),
+            bindJson(anomalyList(plan)),
             plan.resultChecksum,
           ],
         );
@@ -476,7 +477,7 @@ async function insertReplayPlan(sql: Queryable, plan: FsrsReplayManifest) {
       'params_hash',
       'source',
     ],
-    ['::uuid', '::uuid', '', '', '', '', '::jsonb', '', ''],
+    ['::uuid', '::uuid', '', '', '', '', '::text::jsonb', '', ''],
     plan.parameterRevisions.map((revision) => [
         revision.id,
         revision.userId,
@@ -484,7 +485,7 @@ async function insertReplayPlan(sql: Queryable, plan: FsrsReplayManifest) {
         revision.engineVersion,
         revision.algorithmVersion,
         revision.policyVersion,
-        revision.parameters as any,
+        bindJson(revision.parameters),
         revision.paramsHash,
         revision.source,
       ]),

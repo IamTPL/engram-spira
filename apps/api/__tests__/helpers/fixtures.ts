@@ -108,9 +108,12 @@ export function createCardFieldValue(overrides: Record<string, any> = {}) {
 }
 
 export function createExperienceFixtureRows() {
-  const now = new Date('2026-06-28T10:00:00.000Z');
-  const past = new Date('2026-06-27T10:00:00.000Z');
-  const future = new Date('2026-06-29T10:00:00.000Z');
+  // Derived from the real clock: the queue classifies rows by comparing
+  // dueAt against Date.now(), so a baked calendar date rots (AGENTS.md §3.26).
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const now = new Date(Date.now());
+  const past = new Date(now.getTime() - DAY_MS);
+  const future = new Date(now.getTime() + DAY_MS);
 
   return {
     now,

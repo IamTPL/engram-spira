@@ -7,6 +7,7 @@ import {
 } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { State } from 'ts-fsrs';
 import { ConflictError, NotFoundError } from '../../../src/shared/errors';
@@ -36,9 +37,23 @@ const MIGRATIONS_DIR = resolve(import.meta.dir, '../../../src/db/migrations');
 const DATABASE_NAME =
   `engram_fsrs_live_${crypto.randomUUID().replaceAll('-', '')}`;
 const RECEIVED_AT = new Date('2026-07-29T12:00:00.000Z');
+/**
+ * Revisions seeded directly by these tests are later retired at RECEIVED_AT,
+ * and `chk_fsrs_parameter_revisions_timestamps` requires
+ * created_at <= activated_at <= retired_at. Pin both to an instant before
+ * RECEIVED_AT instead of relying on the column default (`now()`), which would
+ * make the ordering depend on the real clock.
+ */
+const SEEDED_REVISION_AT = new Date(RECEIVED_AT.getTime() - 60 * 60 * 1000);
 
 let admin: Sql;
 let sql: Sql;
+/**
+ * Mirrors the production `pgClient`: `drizzle()` mutates the postgres.js
+ * client it wraps, replacing the timestamp serializers and parsers with
+ * identity functions (see `src/db/pg-codecs.ts`).
+ */
+let drizzleWrappedSql: Sql;
 let databaseUrl: string;
 
 interface SeededUser {
@@ -203,11 +218,12 @@ async function insertRevision(
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO fsrs_parameter_revisions (
       user_id, revision, engine_version, algorithm_version, policy_version,
-      parameters, params_hash, source
+      parameters, params_hash, source, created_at, activated_at
     ) VALUES (
       ${userId}, ${revision}, ${FSRS_LIBRARY_VERSION},
       ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
-      ${sql.json(normalized as any)}, ${paramsHash}, 'manual'
+      ${sql.json(normalized as any)}, ${paramsHash}, 'manual',
+      ${SEEDED_REVISION_AT}, ${SEEDED_REVISION_AT}
     )
     RETURNING id
   `;
@@ -299,9 +315,12 @@ beforeAll(async () => {
   databaseUrl = url.toString();
   sql = postgres(databaseUrl, { max: 8, onnotice: () => {} });
   await applyMigrations(sql);
+  drizzleWrappedSql = postgres(databaseUrl, { max: 2, onnotice: () => {} });
+  drizzle(drizzleWrappedSql);
 });
 
 afterAll(async () => {
+  await drizzleWrappedSql?.end();
   await sql?.end();
   assertDisposableName(DATABASE_NAME);
   await admin?.unsafe(`DROP DATABASE IF EXISTS "${DATABASE_NAME}" WITH (FORCE)`);
@@ -383,12 +402,13 @@ describe('PostgreSQL canonical FSRS live writer', () => {
     await sql`
       INSERT INTO fsrs_parameter_revisions (
         id, user_id, revision, engine_version, algorithm_version,
-        policy_version, parameters, params_hash, source, retired_at
+        policy_version, parameters, params_hash, source,
+        created_at, activated_at, retired_at
       ) VALUES (
         ${manualId}, ${seeded.userId}, 2, ${FSRS_LIBRARY_VERSION},
         ${FSRS_ALGORITHM_VERSION}, ${FSRS_POLICY_VERSION},
         ${sql.json(manualParameters as any)}, ${manualHash}, 'manual',
-        ${RECEIVED_AT}
+        ${SEEDED_REVISION_AT}, ${SEEDED_REVISION_AT}, ${RECEIVED_AT}
       )
     `;
 
@@ -534,6 +554,67 @@ describe('PostgreSQL canonical FSRS live writer', () => {
         active: true,
       },
     ]);
+  });
+
+  test('reviews, exact-retries, re-reviews and rotates through a Drizzle-wrapped client with identity timestamp codecs', async () => {
+    const seeded = await seedUser();
+    const live = service(drizzleWrappedSql);
+    const input = review(seeded.cardIds[0]!, {
+      requestId: crypto.randomUUID(),
+      durationMs: 250,
+    });
+
+    const first = await live.reviewCard(seeded.userId, input, 0);
+    const duplicate = await live.reviewCard(seeded.userId, input, 0);
+    const secondReviewedAt = '2026-07-29T11:30:00.000Z';
+    const second = await live.reviewCard(
+      seeded.userId,
+      review(seeded.cardIds[0]!, { reviewedAt: secondReviewedAt }),
+      0,
+    );
+    const rotated = await live.rotateParameters(seeded.userId, {
+      request_retention: 0.85,
+    });
+
+    expect(first).toMatchObject({
+      status: 'applied',
+      learningCycle: 1,
+      sequence: 1,
+    });
+    expect(duplicate).toEqual({ ...first, status: 'duplicate' });
+    expect(second).toMatchObject({
+      status: 'applied',
+      learningCycle: 1,
+      sequence: 2,
+    });
+    expect(new Date(second.nextReviewAt).toISOString()).toBe(second.nextReviewAt);
+    expect(rotated.status).toBe('created');
+    expect([
+      ...await sql`
+        SELECT
+          last_reviewed_at AS "lastReviewedAt",
+          next_review_at AS "nextReviewAt",
+          state_version::int AS "stateVersion"
+        FROM fsrs_card_states
+        WHERE user_id = ${seeded.userId}
+          AND card_id = ${seeded.cardIds[0]!}
+      `,
+    ]).toEqual([
+      {
+        lastReviewedAt: new Date(secondReviewedAt),
+        nextReviewAt: new Date(second.nextReviewAt),
+        stateVersion: 2,
+      },
+    ]);
+    expect([
+      ...await sql`
+        SELECT count(*)::int AS events,
+          count(*) FILTER (WHERE received_at = ${RECEIVED_AT})::int AS "receivedAtMatches",
+          count(*) FILTER (WHERE before_due_at IS NOT NULL)::int AS "withBeforeDue"
+        FROM fsrs_review_events
+        WHERE user_id = ${seeded.userId}
+      `,
+    ]).toEqual([{ events: 2, receivedAtMatches: 2, withBeforeDue: 1 }]);
   });
 
   test('exact retry reconstructs the immutable response without extra writes and payload reuse conflicts', async () => {

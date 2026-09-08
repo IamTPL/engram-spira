@@ -96,7 +96,7 @@ On an FSRS review, `box_level` and `ease_factor` are **carried over unchanged** 
 
 **`fsrs_user_params`** — read-only in app code (see above).
 
-**Not owned by anything above**: `fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs` exist (migration `0026`) but are written and read by **nothing** in `apps/api/src` outside their own schema/test files — a dormant shadow model, not a fifth table this module manages. Full definitions in [database.md](database.md#tables).
+**Partly wired since 2026-09**: `fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs` (migrations `0026`–`0027`) are now the **read** side of `GET /study/deck/:deckId` and `/schedule` — `study.service.ts` delegates `getDueCards`/`getDeckSchedule`/`enrichCards` to `createPostgresFsrsDeckReadRepository(pgClient)` in `fsrs-deck-reads.postgres.ts`, which treats a card with no `fsrs_card_states` row as New/due. The **write** side (`fsrs-live.postgres.ts`, `fsrs-live.service.ts`) and the legacy → canonical replay (`fsrs-replay.postgres.ts`, `scripts/fsrs-replay.ts`) exist and are tested but are not yet called by any route; `review-batch` still writes `study_progress`. All four repositories go through `src/db/pg-codecs.ts` because `pgClient` is drizzle-wrapped (AGENTS.md §3 rule 27). Full definitions in [database.md](database.md#tables).
 
 ## Review path
 

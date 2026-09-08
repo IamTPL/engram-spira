@@ -7,6 +7,7 @@ import {
 } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { forgetting_curve, type FSRSParameters } from 'ts-fsrs';
 import { NotFoundError } from '../../../src/shared/errors';
@@ -35,6 +36,13 @@ const AS_OF = new Date('2026-01-11T12:00:00.000Z');
 
 let admin: Sql;
 let sql: Sql;
+/**
+ * Mirrors the production `pgClient`: `drizzle()` mutates the postgres.js
+ * client it wraps, replacing the timestamp serializers and parsers with
+ * identity functions. Repositories that share that client must not rely
+ * on the driver converting `Date` values in either direction.
+ */
+let drizzleWrappedSql: Sql;
 
 interface SeededDeck {
   userId: string;
@@ -209,9 +217,12 @@ beforeAll(async () => {
   url.pathname = `/${DATABASE_NAME}`;
   sql = postgres(url.toString(), { max: 4, onnotice: () => {} });
   await applyMigrations(sql);
+  drizzleWrappedSql = postgres(url.toString(), { max: 2, onnotice: () => {} });
+  drizzle(drizzleWrappedSql);
 });
 
 afterAll(async () => {
+  await drizzleWrappedSql?.end();
   await sql?.end();
   assertDisposableName(DATABASE_NAME);
   await admin?.unsafe(`DROP DATABASE IF EXISTS "${DATABASE_NAME}" WITH (FORCE)`);
@@ -428,6 +439,66 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
     expect(result.cards[0]!.progress?.retrievability).toBe(
       directRetrievability(revision.parameters, lastReviewedAt, AS_OF),
     );
+  });
+
+  test('reads due cards and the schedule through a Drizzle-wrapped client with identity timestamp codecs', async () => {
+    const deck = await seedDeck(3);
+    const revision = await insertRevision(deck.userId, 1, {}, null);
+    const lastReviewedAt = new Date('2026-01-11T00:00:00.000Z');
+    await insertState(deck.userId, deck.cardIds[1]!, revision.id, {
+      lastReviewedAt,
+      nextReviewAt: AS_OF,
+    });
+    await insertState(deck.userId, deck.cardIds[2]!, revision.id, {
+      nextReviewAt: new Date('2026-01-13T12:00:00.000Z'),
+    });
+    const repository = createPostgresFsrsDeckReadRepository(drizzleWrappedSql);
+
+    const result = await repository.getDueCards({
+      deckId: deck.deckId,
+      userId: deck.userId,
+      reviewAll: false,
+      asOf: AS_OF,
+    });
+
+    expect(result.total).toBe(3);
+    expect(result.due).toBe(2);
+    expect(result.cards.map((card) => card.id)).toEqual([
+      deck.cardIds[0],
+      deck.cardIds[1],
+    ]);
+    expect(result.cards[0]!.createdAt).toBeInstanceOf(Date);
+    expect(result.cards[0]!.progress).toBeNull();
+    expect(result.cards[1]!.progress).toMatchObject({
+      state: 'review',
+      nextReviewAt: AS_OF.toISOString(),
+      lastReviewedAt: lastReviewedAt.toISOString(),
+      retrievability: directRetrievability(
+        revision.parameters,
+        lastReviewedAt,
+        AS_OF,
+      ),
+    });
+
+    await expect(
+      repository.getDeckSchedule({
+        deckId: deck.deckId,
+        userId: deck.userId,
+        asOf: AS_OF,
+      }),
+    ).resolves.toEqual({
+      totalCards: 3,
+      learnedCards: 2,
+      upcoming: [
+        {
+          daysFromNow: 2,
+          count: 1,
+          date: new Date('2026-01-13T12:00:00.000Z').toISOString(),
+        },
+      ],
+      dueSoon: 0,
+      nextReviewDate: new Date('2026-01-13T12:00:00.000Z').toISOString(),
+    });
   });
 
   test('uses the deck-sort and current-state composite indexes for the scaled due query under a forced plan', async () => {

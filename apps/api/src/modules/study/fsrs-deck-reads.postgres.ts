@@ -3,6 +3,11 @@ import { NotFoundError, ValidationError } from '../../shared/errors';
 import { MAX_STUDY_CLUSTER_CARDS } from './study-cluster';
 import { canonicalUuid } from './fsrs-live.domain';
 import {
+  bindTimestamp,
+  timestampFromRow,
+  type PgTimestamp,
+} from '../../db/pg-codecs';
+import {
   createPostgresCanonicalFsrsReadLoader,
   type CanonicalFsrsReadLoader,
 } from './fsrs-read.postgres';
@@ -94,7 +99,7 @@ interface CardFieldRow {
   cardId: string;
   deckId: string;
   cardSortOrder: number;
-  createdAt: Date;
+  createdAt: PgTimestamp;
   templateFieldId: string | null;
   fieldName: string | null;
   fieldType: string | null;
@@ -177,7 +182,7 @@ export function createPostgresFsrsDeckReadRepository(
           : sql.unsafe<{ id: string }[]>(DUE_CARD_IDS_SQL, [
               deckId,
               userId,
-              asOf,
+              bindTimestamp(asOf),
             ]),
       ]);
 
@@ -274,7 +279,7 @@ async function enrichCards(
       id: row.cardId,
       deckId: row.deckId,
       sortOrder: row.cardSortOrder,
-      createdAt: row.createdAt,
+      createdAt: timestampFromRow(row.createdAt, 'Card createdAt'),
       fields: [],
       progress: null,
     };

@@ -15,21 +15,22 @@ Canonical agent instructions for this repository. Tool-agnostic; `CLAUDE.md` imp
 | API modules | `ls -d apps/api/src/modules/*/ \| wc -l` | **16** |
 | Postgres tables | `grep -rho 'pgTable(' apps/api/src/db/schema/ \| wc -l` | **30** |
 | HTTP routes | `grep -rhE '^\s*\.(get\|post\|put\|patch\|delete)\(' apps/api/src/modules/*/*.routes.ts \| wc -l` | **103** + `GET /health` = **104** |
-| SQL migrations | `ls apps/api/src/db/migrations/*.sql \| wc -l` | **27** (`0000`–`0026`) |
-| API tests | `cd apps/api && bun test` | **601** in 67 files — 599 pass / **2 fail** |
+| SQL migrations | `ls apps/api/src/db/migrations/*.sql \| wc -l` | **28** (`0000`–`0027`) |
+| API tests | `cd apps/api && bun test` | **748** in 77 files — all pass |
 | Web tests | `cd apps/web && bun test` | **87** in 16 files, all pass |
 | Web routes | `apps/web/src/app.tsx` | **13** `<Route>` |
 
-Re-measured 2026-07-28. The table drifts fast — a 12-table, 13-migration jump happened across a handful of commits (knowledge graph, folder view, FSRS-only persistence). Re-derive before trusting any of these, including this row.
+Re-measured 2026-09-08. The table drifts fast — a 12-table, 13-migration jump happened across a handful of commits (knowledge graph, folder view, FSRS-only persistence), and the API test count grew by ~150 with the FSRS-only Postgres suites. Re-derive before trusting any of these, including this row.
 
 Toolchain: Bun 1.3.10, TypeScript 5.9.3, Node 22.22.2. Ports: API 3001, Vite dev 3002, Vite preview 4173, Postgres **5435** (host) → 5432 (container), Structurizr 8080.
 
 ## 2. The red baseline — do not mistake it for your regression
 
-Capture this before you change anything; it is pre-existing on `master`. It is **not** what the section name implies anymore — typecheck is currently green — but the name stays because there are still 2 pre-existing test failures to not misattribute to your own change.
+Capture this before you change anything so you can prove you did not add to it. As of 2026-09-08 the baseline is **fully green** — the name stays as a reminder that it has flipped red → green → red before and will again.
 
-- **`bun run typecheck` PASSES (exit 0).** Both `@engram/api` and `@engram/web` are clean. **CI is green.** The 22-error Eden Treaty path-inference collapse this section used to describe (blamed on untyped handlers in `experience.routes.ts`) no longer reproduces — that file has since been refactored to an injectable-services pattern. Re-verify with `bun run typecheck` before trusting this; it has flipped between red and green across recent commits and will likely do so again.
-- **2 API tests fail**, of 601 across 67 files. One (`study queue service > covers non-empty…`, `experience.service.test.ts:780`) is the same longstanding issue: `__tests__/helpers/fixtures.ts:110-113` hard-codes calendar dates that are now in the past. The other is new: `fsrs-only.migration.test.ts` → *"provides a supporting index for every foreign key"* fails with Postgres error 42702 `column reference "table_name" is ambiguous` — a bug in that test's own introspection SQL (an unqualified `table_name` where both joined `information_schema` views expose the column), not a missing index; every FK in the new `fsrs_*` tables does have a covering index. The previously-documented `config-ai.test.ts` mock-leak from `kg.service.test.ts` is also gone — that file no longer stubs `checkAiRateLimit`.
+- **`bun run typecheck` PASSES (exit 0).** Both `@engram/api` and `@engram/web` are clean. **CI is green.** The 22-error Eden Treaty path-inference collapse this section used to describe (blamed on untyped handlers in `experience.routes.ts`) no longer reproduces — that file has since been refactored to an injectable-services pattern. Re-verify with `bun run typecheck` before trusting this.
+- **0 API tests fail**, of 748 across 77 files. Three long-standing failures were fixed on 2026-09-08 and must not come back: the `experience` fixture time bomb (`__tests__/helpers/fixtures.ts` now derives `now/past/future` from `Date.now()`), two `fsrs-live.postgres.test.ts` cases that seeded parameter revisions with a baked `retired_at` older than the column-default `created_at` (violating `chk_fsrs_parameter_revisions_timestamps` once the real clock passed the baked date — they now pin `created_at`/`activated_at` explicitly), and the `fsrs-only.migration.test.ts` FK-index introspection query's ambiguous `table_name` (rewritten against `pg_catalog`). The previously-documented `config-ai.test.ts` mock-leak from `kg.service.test.ts` is also gone.
+- **The Postgres-backed suites need the dev database up** (`docker compose up -d`): `fsrs-*.postgres.test.ts` each create and drop a disposable database via `TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`). Without it they fail with connection errors that are not a regression.
 
 See [docs/agents/known-issues.md](docs/agents/known-issues.md) for the full list and which are safe to fix.
 
@@ -81,6 +82,10 @@ Violating any of these breaks the build, the types, the database, reactivity, or
 22. `apps/web/src/api/client.ts:2` imports `App` from `../../../api/src/index` and `apps/web/src/lib/experience-api.ts` imports `experience.types.ts` by relative path. Do not move/rename `apps/api/src/index.ts`, do not delete `export type App`, and do not move `experience.types.ts` — each breaks the web typecheck with no API-side error.
 23. `.gitignore` ignores exactly `/skills` (root-anchored — the vendored `ui-ux-pro-max` clone) and `docs/superpowers/`. **`.agents/skills/` is intentionally trackable**: that is where project skill packs (`elysiajs`, `solid-js-best-practices`) live, versioned via `scripts/skills-update.ts` / `skills-lock.json` — run `bun run skills:update` after adding or editing one. Do not widen `/skills` back into a bare `skills` pattern; that previously hid `.agents/skills/` too (see git history). Confirm any new path with `git check-ignore -v <path>` before writing a doc.
 
+**Raw SQL through `pgClient`**
+
+27. `db/index.ts` hands the **same** postgres.js client to `drizzle()`, and the drizzle driver mutates it: timestamp/date parsers **and** serializers, plus the `json`/`jsonb` serializers, become identity functions. So through `pgClient` (tagged template or `.unsafe()`): a bound `Date` throws `Received an instance of Date`, a bound object for `$n::jsonb` throws `Received an instance of Object`, and `timestamptz` columns come back as **text**, not `Date`. Tests that open their own `postgres()` client see none of this, which is how it reached production. Use `apps/api/src/db/pg-codecs.ts`: `bindTimestamp(date)` for `$n::timestamptz`, `bindJson(value)` with the placeholder cast **`$n::text::jsonb`** (a bare `::jsonb` corrupts the value on a pristine client), and `timestampFromRow(row.x, name)` before treating a column as a `Date`. Any new `*.postgres.test.ts` must also exercise the repository through a client wrapped with `drizzle()` — see `drizzleWrappedSql` in `fsrs-deck-reads.postgres.test.ts`.
+
 **Testing**
 
 24. Run API tests **only** from `apps/api` (`cd apps/api && bun test`). `bunfig.toml`'s preload is CWD-relative; a root run silently drops 15 tests with `Missing required environment variable: DATABASE_URL`. Web tests: `cd apps/web && bun test` — no `test` script exists in `apps/web`.
@@ -92,9 +97,9 @@ Violating any of these breaks the build, the types, the database, reactivity, or
 Run all three and compare against the §2 baseline. CI runs **only** `bun run typecheck` — no tests, no lint, no build, no migrations.
 
 ```bash
-bun run typecheck          # expect: api clean, web 22 errors in 7 files
-cd apps/api && bun test    # expect: 271 pass / 3 fail
-cd apps/web && bun test    # expect: 16 pass
+bun run typecheck          # expect: exit 0, api and web both clean
+cd apps/api && bun test    # expect: 748 pass / 0 fail (needs the dev Postgres up)
+cd apps/web && bun test    # expect: 87 pass
 ```
 
 Both tsconfigs typecheck their test files, so a type error in a test breaks CI.

@@ -7,6 +7,12 @@ import {
   ValidationError,
 } from '../../shared/errors';
 import {
+  bindJson,
+  bindTimestamp,
+  timestampFromRow,
+  type PgTimestamp,
+} from '../../db/pg-codecs';
+import {
   assertMatchingLiveReviewRequest,
   assertReviewChronology,
   canonicalUuid,
@@ -91,7 +97,8 @@ interface ParameterRevisionRow {
   policyVersion: string;
   paramsHash: string;
   source: string;
-  retiredAt: Date | null;
+  /** Only ever compared against `null`; may be postgres text via pgClient. */
+  retiredAt: PgTimestamp | null;
 }
 
 interface DefaultRevision {
@@ -563,7 +570,7 @@ async function rotateParametersTransaction(
        id, user_id, revision, engine_version, algorithm_version,
        policy_version, parameters, params_hash, source
      ) VALUES (
-       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::jsonb, $8, 'manual'
+       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::text::jsonb, $8, 'manual'
      )
      RETURNING
        id::text AS id,
@@ -582,7 +589,7 @@ async function rotateParametersTransaction(
       FSRS_LIBRARY_VERSION,
       FSRS_ALGORITHM_VERSION,
       FSRS_POLICY_VERSION,
-      parameters as any,
+      bindJson(parameters),
       paramsHash,
     ],
   );
@@ -751,7 +758,14 @@ async function lockRequestEvents(
   requestIds: readonly string[],
 ): Promise<LiveReviewEventSnapshot[]> {
   const sortedRequestIds = sortedUniqueText(requestIds);
-  return sql.unsafe<LiveReviewEventSnapshot[]>(
+  const rows = await sql.unsafe<
+    Array<
+      Omit<LiveReviewEventSnapshot, 'reviewedAt' | 'afterDueAt'> & {
+        reviewedAt: PgTimestamp;
+        afterDueAt: PgTimestamp;
+      }
+    >
+  >(
     `SELECT
        request_id::text AS "requestId",
        card_id::text AS "cardId",
@@ -773,6 +787,11 @@ async function lockRequestEvents(
      FOR UPDATE`,
     [userId, sortedRequestIds],
   );
+  return rows.map((row) => ({
+    ...row,
+    reviewedAt: timestampFromRow(row.reviewedAt, 'Persisted review reviewedAt'),
+    afterDueAt: timestampFromRow(row.afterDueAt, 'Persisted review afterDueAt'),
+  }));
 }
 
 async function lockStates(
@@ -780,7 +799,14 @@ async function lockStates(
   userId: string,
   cardIds: readonly string[],
 ): Promise<PersistedStateRow[]> {
-  return sql.unsafe<PersistedStateRow[]>(
+  const rows = await sql.unsafe<
+    Array<
+      Omit<PersistedStateRow, 'nextReviewAt' | 'lastReviewedAt'> & {
+        nextReviewAt: PgTimestamp;
+        lastReviewedAt: PgTimestamp;
+      }
+    >
+  >(
     `SELECT
        card_id::text AS "cardId",
        next_review_at AS "nextReviewAt",
@@ -803,6 +829,14 @@ async function lockStates(
      FOR UPDATE`,
     [userId, cardIds],
   );
+  return rows.map((row) => ({
+    ...row,
+    nextReviewAt: timestampFromRow(row.nextReviewAt, 'FSRS state nextReviewAt'),
+    lastReviewedAt: timestampFromRow(
+      row.lastReviewedAt,
+      'FSRS state lastReviewedAt',
+    ),
+  }));
 }
 
 async function loadMaximumLearningCycles(
@@ -905,7 +939,7 @@ async function createOrReactivateDefaultRevision(
        id, user_id, revision, engine_version, algorithm_version,
        policy_version, parameters, params_hash, source
      ) VALUES (
-       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::jsonb, $8, 'default'
+       $1::uuid, $2::uuid, $3::int, $4, $5, $6, $7::text::jsonb, $8, 'default'
      )
      RETURNING
        id::text AS id,
@@ -924,7 +958,7 @@ async function createOrReactivateDefaultRevision(
       FSRS_LIBRARY_VERSION,
       FSRS_ALGORITHM_VERSION,
       FSRS_POLICY_VERSION,
-      parameters as any,
+      bindJson(parameters),
       paramsHash,
     ],
   );
@@ -1043,14 +1077,14 @@ async function insertEvent(
       event.durationMs,
       event.parameterRevisionId,
       event.beforeState,
-      event.beforeDueAt,
+      bindTimestamp(event.beforeDueAt),
       event.beforeStability,
       event.beforeDifficulty,
       event.beforeScheduledDays,
       event.beforeLearningSteps,
       event.elapsedDays,
       event.afterState,
-      event.afterDueAt,
+      bindTimestamp(event.afterDueAt),
       event.afterStability,
       event.afterDifficulty,
       event.afterScheduledDays,
@@ -1106,8 +1140,8 @@ async function upsertState(
     [
       userId,
       cardId,
-      card.due,
-      card.last_review,
+      bindTimestamp(card.due),
+      bindTimestamp(card.last_review),
       card.stability,
       card.difficulty,
       persistedState(card.state),
