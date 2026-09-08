@@ -2,6 +2,7 @@ import {
   type Component,
   createSignal,
   createMemo,
+  createEffect,
   onMount,
   onCleanup,
   batch,
@@ -21,6 +22,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { REVIEW_ACTIONS, KEYBOARD_SHORTCUTS } from '@/constants';
 import { ArrowLeft, CheckCircle, RotateCcw, Shuffle } from 'lucide-solid';
+import { toast } from '@/stores/toast.store';
+import { buildReviewItem, type ReviewItem } from './study-review-state';
 
 /** `POST /study/interleaved` accepts at most 20 deck ids. */
 const INTERLEAVED_DECK_LIMIT = 20;
@@ -52,9 +55,8 @@ const InterleavedStudyPage: Component = () => {
   const [currentIndex, setCurrentIndex] = createSignal(0);
   const [isFlipped, setIsFlipped] = createSignal(false);
   const [reviewing, setReviewing] = createSignal(false);
-  const [pendingReviews, setPendingReviews] = createSignal<
-    { cardId: string; action: ReviewAction }[]
-  >([]);
+  const [pendingReviews, setPendingReviews] = createSignal<ReviewItem[]>([]);
+  const [cardShownAt, setCardShownAt] = createSignal<number | null>(null);
 
   // Session stats
   const [stats, setStats] = createSignal({
@@ -112,17 +114,21 @@ const InterleavedStudyPage: Component = () => {
   const studyData = () => studyQuery.data;
 
   const reviewBatchMutation = createMutation(() => ({
-    mutationFn: async (items: { cardId: string; action: ReviewAction }[]) => {
-      const { error } = await (api.study as any)['review-batch'].post({
-        items,
-      });
+    mutationFn: async (input: { items: ReviewItem[]; keepalive?: boolean }) => {
+      const { error } = await (api.study as any)['review-batch'].post(
+        { items: input.items },
+        input.keepalive ? { fetch: { keepalive: true } } : undefined,
+      );
       if (error) throw new Error(getApiError(error));
     },
+    retry: (failureCount, error) =>
+      failureCount < 2 && !/already used/i.test(error.message),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
+    onError: (error: Error) => toast.error(error.message),
   }));
 
   const currentCard = createMemo(() => {
@@ -130,6 +136,11 @@ const InterleavedStudyPage: Component = () => {
     if (!data || data.cards.length === 0) return null;
     const idx = currentIndex();
     return idx < data.cards.length ? data.cards[idx] : null;
+  });
+
+  createEffect(() => {
+    currentCard();
+    setCardShownAt(Date.now());
   });
 
   const progress = createMemo(() => {
@@ -142,13 +153,17 @@ const InterleavedStudyPage: Component = () => {
     () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
-  const flushPendingReviews = async (force = false) => {
+  const flushPendingReviews = async (force = false, keepalive = false) => {
     const pending = pendingReviews();
     if (pending.length === 0) return;
     if (!force && pending.length < 8) return;
-
-    await reviewBatchMutation.mutateAsync(pending);
     setPendingReviews((prev) => prev.slice(pending.length));
+    try {
+      await reviewBatchMutation.mutateAsync({ items: pending, keepalive });
+    } catch {
+      // Items keep their requestId; put them back so the next flush retries idempotently.
+      setPendingReviews((prev) => [...pending, ...prev]);
+    }
   };
 
   const handleReview = async (action: ReviewAction) => {
@@ -157,7 +172,10 @@ const InterleavedStudyPage: Component = () => {
 
     setReviewing(true);
     try {
-      setPendingReviews((prev) => [...prev, { cardId: card.id, action }]);
+      setPendingReviews((prev) => [
+        ...prev,
+        buildReviewItem(card.id, action, cardShownAt()),
+      ]);
       await flushPendingReviews(false);
       batch(() => {
         setStats((s) => ({
@@ -208,7 +226,7 @@ const InterleavedStudyPage: Component = () => {
 
   onMount(() => document.addEventListener('keydown', handleKeyDown));
   onCleanup(() => {
-    void flushPendingReviews(true);
+    void flushPendingReviews(true, true);
     document.removeEventListener('keydown', handleKeyDown);
   });
 

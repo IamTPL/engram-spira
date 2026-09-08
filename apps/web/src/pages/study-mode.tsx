@@ -37,6 +37,7 @@ import RelatedCardsPanel from '@/components/study/related-cards-panel';
 import { memoryHealthKeys } from '@/components/deck-view/memory-health-state';
 import { toast } from '@/stores/toast.store';
 import { buildStudyDeckQuery, isStudyCluster } from './study-mode-state';
+import { buildReviewItem, type ReviewItem } from './study-review-state';
 
 const StudyModePage: Component = () => {
   const params = useParams<{ deckId: string }>();
@@ -51,9 +52,8 @@ const StudyModePage: Component = () => {
   const effectiveStudyMode = () =>
     clusterStudy() ? 'all' : studyMode();
   const [checkingMore, setCheckingMore] = createSignal(false);
-  const [pendingReviews, setPendingReviews] = createSignal<
-    { cardId: string; action: ReviewAction }[]
-  >([]);
+  const [pendingReviews, setPendingReviews] = createSignal<ReviewItem[]>([]);
+  const [cardShownAt, setCardShownAt] = createSignal<number | null>(null);
 
   // Session stats
   const [stats, setStats] = createSignal({
@@ -137,12 +137,15 @@ const StudyModePage: Component = () => {
   }));
 
   const reviewBatchMutation = createMutation(() => ({
-    mutationFn: async (items: { cardId: string; action: ReviewAction }[]) => {
-      const { error } = await (api.study as any)['review-batch'].post({
-        items,
-      });
+    mutationFn: async (input: { items: ReviewItem[]; keepalive?: boolean }) => {
+      const { error } = await (api.study as any)['review-batch'].post(
+        { items: input.items },
+        input.keepalive ? { fetch: { keepalive: true } } : undefined,
+      );
       if (error) throw new Error(getApiError(error));
     },
+    retry: (failureCount, error) =>
+      failureCount < 2 && !/already used/i.test(error.message),
     onSuccess: () => {
       // NOTE: Do NOT invalidate studyData here — it causes a mid-session refetch
       // that replaces the cards array while currentIndex stays unchanged, triggering
@@ -155,6 +158,7 @@ const StudyModePage: Component = () => {
         queryKey: memoryHealthKeys.deck(params.deckId),
       });
     },
+    onError: (error: Error) => toast.error(error.message),
   }));
 
   const studyData = () => studyQuery.data;
@@ -164,6 +168,11 @@ const StudyModePage: Component = () => {
     if (!data || data.cards.length === 0) return null;
     const idx = currentIndex();
     return idx < data.cards.length ? data.cards[idx] : null;
+  });
+
+  createEffect(() => {
+    currentCard();
+    setCardShownAt(Date.now());
   });
 
   const progress = createMemo(() => {
@@ -177,13 +186,17 @@ const StudyModePage: Component = () => {
     () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
-  const flushPendingReviews = async (force = false) => {
+  const flushPendingReviews = async (force = false, keepalive = false) => {
     const pending = pendingReviews();
     if (pending.length === 0) return;
     if (!force && pending.length < 8) return;
-
-    await reviewBatchMutation.mutateAsync(pending);
     setPendingReviews((prev) => prev.slice(pending.length));
+    try {
+      await reviewBatchMutation.mutateAsync({ items: pending, keepalive });
+    } catch {
+      // Items keep their requestId; put them back so the next flush retries idempotently.
+      setPendingReviews((prev) => [...pending, ...prev]);
+    }
   };
 
   const handleReview = async (action: ReviewAction) => {
@@ -192,7 +205,10 @@ const StudyModePage: Component = () => {
 
     setReviewing(true);
     try {
-      setPendingReviews((prev) => [...prev, { cardId: card.id, action }]);
+      setPendingReviews((prev) => [
+        ...prev,
+        buildReviewItem(card.id, action, cardShownAt()),
+      ]);
       await flushPendingReviews(false);
       const nextIndex = currentIndex() + 1;
       batch(() => {
@@ -352,7 +368,7 @@ const StudyModePage: Component = () => {
 
   onMount(() => document.addEventListener('keydown', handleKeyDown));
   onCleanup(() => {
-    void flushPendingReviews(true);
+    void flushPendingReviews(true, true);
     document.removeEventListener('keydown', handleKeyDown);
   });
 
