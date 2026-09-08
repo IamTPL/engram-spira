@@ -1,11 +1,6 @@
-import { eq, and, lte, inArray, isNull, or, sql, gte, desc } from 'drizzle-orm';
+import { eq, and, sql, gte, desc } from 'drizzle-orm';
 import { db, pgClient } from '../../db';
-import {
-  studyProgress,
-  studyDailyLogs,
-  cards,
-  decks,
-} from '../../db/schema';
+import { studyDailyLogs } from '../../db/schema';
 import { ValidationError } from '../../shared/errors';
 import { STREAK } from '../../shared/constants';
 import * as notificationsService from '../notifications/notifications.service';
@@ -60,24 +55,32 @@ export function createStudyDeckReadService(
       const asOf = new Date();
       return repository.getDeckSchedule({ deckId, userId, asOf });
     },
+
+    getInterleavedDueCards(userId: string, deckIds: string[], limit = 50) {
+      return repository.getInterleavedDueCards({
+        userId,
+        deckIds,
+        limit,
+        asOf: new Date(),
+      });
+    },
+
+    async getAutoInterleavedCards(userId: string, topN = 5, limit = 50) {
+      const asOf = new Date();
+      const deckIds = await repository.getTopDueDeckIds({ userId, topN, asOf });
+      if (deckIds.length === 0) return { cards: [], total: 0, due: 0, deckIds: [] };
+      const result = await repository.getInterleavedDueCards({
+        userId,
+        deckIds,
+        limit,
+        asOf,
+      });
+      return { ...result, deckIds };
+    },
   };
 }
 
 const defaultStudyDeckReadService = createStudyDeckReadService();
-
-/** Canonical card enrichment for all existing callers, including interleaved mode. */
-async function enrichCards(
-  targetIds: string[],
-  userId: string,
-  sortByCardOrder = true,
-) {
-  return defaultFsrsDeckReadRepository.enrichCards(
-    targetIds,
-    userId,
-    new Date(),
-    sortByCardOrder,
-  );
-}
 
 export async function getDueCards(
   deckId: string,
@@ -244,125 +247,27 @@ export async function getDashboardSnapshot(userId: string, tzOffset = 0) {
   };
 }
 
-// =====================================================================
-// Interleaved Practice Mode
-// =====================================================================
-
-/**
- * Get due cards from multiple decks, interleaved with urgency-weighted
- * round-robin. Cards closer to being overdue are prioritized.
- */
-export async function getInterleavedDueCards(
+export function getInterleavedDueCards(
   userId: string,
   deckIds: string[],
-  limit: number = 50,
+  limit = 50,
 ) {
-  if (deckIds.length === 0) return { cards: [], total: 0, due: 0 };
-  const uniqueDeckIds =
-    deckIds.length > 1 ? Array.from(new Set(deckIds)) : deckIds;
-
-  const now = new Date();
-
-  // Fetch due cards across all selected decks with urgency ordering
-  // Urgency: overdue cards first (sorted by how overdue), then new cards
-  const dueRows = await db
-    .select({
-      id: cards.id,
-      deckId: cards.deckId,
-    })
-    .from(cards)
-    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
-    .leftJoin(
-      studyProgress,
-      and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
-    )
-    .where(
-      and(
-        inArray(cards.deckId, uniqueDeckIds),
-        or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)),
-      ),
-    )
-    .orderBy(
-      // NULL (new cards) → sort after overdue; overdue → earliest first
-      sql`COALESCE(${studyProgress.nextReviewAt}, NOW() + interval '1 hour') ASC`,
-    )
-    .limit(limit * 2); // Fetch extra for round-robin
-
-  if (dueRows.length === 0) return { cards: [], total: 0, due: 0 };
-
-  // Round-robin interleave by deck
-  const byDeck = new Map<string, typeof dueRows>();
-  for (const row of dueRows) {
-    const bucket = byDeck.get(row.deckId) ?? [];
-    bucket.push(row);
-    byDeck.set(row.deckId, bucket);
-  }
-
-  const interleaved: string[] = [];
-  const deckBuckets = Array.from(byDeck.values());
-  const indices = new Array(deckBuckets.length).fill(0);
-  let added = 0;
-
-  while (added < limit) {
-    let anyAdded = false;
-    for (let i = 0; i < deckBuckets.length && added < limit; i++) {
-      if (indices[i] < deckBuckets[i].length) {
-        interleaved.push(deckBuckets[i][indices[i]].id);
-        indices[i]++;
-        added++;
-        anyAdded = true;
-      }
-    }
-    if (!anyAdded) break;
-  }
-
-  const enrichedCards = await enrichCards(interleaved, userId, false);
-
-  // Preserve interleaved order
-  const orderMap = new Map(interleaved.map((id, idx) => [id, idx]));
-  enrichedCards.sort(
-    (a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0),
+  return defaultStudyDeckReadService.getInterleavedDueCards(
+    userId,
+    deckIds,
+    limit,
   );
-
-  return {
-    cards: enrichedCards,
-    total: dueRows.length,
-    due: interleaved.length,
-  };
 }
 
-/**
- * Auto-select top N decks by due count and return interleaved cards.
- */
-export async function getAutoInterleavedCards(
+export function getAutoInterleavedCards(
   userId: string,
-  topN: number = 5,
-  limit: number = 50,
+  topN = 5,
+  limit = 50,
 ) {
-  const now = new Date();
-
-  // Find decks with most due cards
-  const deckDueCounts = await db
-    .select({
-      deckId: cards.deckId,
-    })
-    .from(cards)
-    .innerJoin(decks, and(eq(cards.deckId, decks.id), eq(decks.userId, userId)))
-    .leftJoin(
-      studyProgress,
-      and(eq(studyProgress.cardId, cards.id), eq(studyProgress.userId, userId)),
-    )
-    .where(or(isNull(studyProgress.id), lte(studyProgress.nextReviewAt, now)))
-    .groupBy(cards.deckId)
-    .orderBy(sql`count(*) DESC`)
-    .limit(topN);
-
-  if (deckDueCounts.length === 0)
-    return { cards: [], total: 0, due: 0, deckIds: [] };
-
-  const deckIds = deckDueCounts.map((d) => d.deckId);
-  const result = await getInterleavedDueCards(userId, deckIds, limit);
-
-  return { ...result, deckIds };
+  return defaultStudyDeckReadService.getAutoInterleavedCards(
+    userId,
+    topN,
+    limit,
+  );
 }
 

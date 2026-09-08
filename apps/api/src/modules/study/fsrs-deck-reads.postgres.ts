@@ -93,6 +93,17 @@ export interface FsrsDeckReadRepository {
     due: number;
   }>;
   getDeckSchedule(input: GetDeckScheduleInput): Promise<DeckSchedule>;
+  getInterleavedDueCards(input: {
+    userId: string;
+    deckIds: readonly string[];
+    limit: number;
+    asOf: Date;
+  }): Promise<{ cards: EnrichedStudyCard[]; total: number; due: number }>;
+  getTopDueDeckIds(input: {
+    userId: string;
+    topN: number;
+    asOf: Date;
+  }): Promise<string[]>;
 }
 
 interface CardFieldRow {
@@ -230,6 +241,72 @@ export function createPostgresFsrsDeckReadRepository(
         cardRows.map((card) => card.id),
       );
       return scheduleFromReads(reads.map((item) => item.read), asOf);
+    },
+
+    async getInterleavedDueCards(input) {
+      const userId = canonicalUuid(input.userId, 'User id');
+      const deckIds = Array.from(
+        new Set(input.deckIds.map((id) => canonicalUuid(id, 'Deck id'))),
+      );
+      const asOf = validAsOf(input.asOf);
+      const limit = Math.max(1, Math.min(200, Math.trunc(input.limit)));
+      if (deckIds.length === 0) return { cards: [], total: 0, due: 0 };
+
+      // `deck_rank` preserves the caller's `deckIds` order for round-robin
+      // interleaving; ordering by `deck_id` text instead would make the
+      // sequence depend on random UUID lexicographic order.
+      const rows = await sql.unsafe<{ id: string; total: number }[]>(
+        `WITH requested AS (
+           SELECT deck_id, ord
+           FROM unnest($2::uuid[]) WITH ORDINALITY AS t(deck_id, ord)
+         ),
+         due AS (
+           SELECT
+             c.id,
+             r.ord AS deck_rank,
+             ROW_NUMBER() OVER (
+               PARTITION BY c.deck_id
+               ORDER BY s.next_review_at NULLS LAST, c.sort_order, c.id
+             ) AS rn
+           FROM cards c
+           JOIN requested r ON r.deck_id = c.deck_id
+           JOIN decks d ON d.id = c.deck_id AND d.user_id = $1::uuid
+           LEFT JOIN fsrs_card_states s
+             ON s.card_id = c.id AND s.user_id = $1::uuid
+           WHERE s.id IS NULL OR s.next_review_at <= $3::timestamptz
+         )
+         SELECT id::text AS id, COUNT(*) OVER ()::int AS total
+         FROM due
+         ORDER BY rn, deck_rank, id
+         LIMIT $4::int`,
+        [userId, deckIds, bindTimestamp(asOf), limit],
+      );
+      if (rows.length === 0) return { cards: [], total: 0, due: 0 };
+      const ids = rows.map((row) => row.id);
+      const cards = await enrichCards(sql, canonicalLoader, ids, userId, asOf, false);
+      return { cards, total: rows[0]!.total, due: ids.length };
+    },
+
+    async getTopDueDeckIds(input) {
+      const userId = canonicalUuid(input.userId, 'User id');
+      const asOf = validAsOf(input.asOf);
+      const topN = Math.max(1, Math.min(50, Math.trunc(input.topN)));
+      // Tie-break by deck creation order (oldest first), not by deck_id
+      // text — a raw UUID tie-break would make the result depend on random
+      // UUID lexicographic order instead of a stable, meaningful order.
+      const rows = await sql.unsafe<{ deckId: string }[]>(
+        `SELECT c.deck_id::text AS "deckId"
+         FROM cards c
+         JOIN decks d ON d.id = c.deck_id AND d.user_id = $1::uuid
+         LEFT JOIN fsrs_card_states s
+           ON s.card_id = c.id AND s.user_id = $1::uuid
+         WHERE s.id IS NULL OR s.next_review_at <= $2::timestamptz
+         GROUP BY c.deck_id, d.created_at
+         ORDER BY COUNT(*) DESC, d.created_at, c.deck_id
+         LIMIT $3::int`,
+        [userId, bindTimestamp(asOf), topN],
+      );
+      return rows.map((row) => row.deckId);
     },
   };
 }

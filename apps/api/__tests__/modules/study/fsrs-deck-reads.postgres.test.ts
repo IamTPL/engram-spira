@@ -538,4 +538,52 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
     expect(plan).toContain('uq_fsrs_card_states_user_card');
     expect(plan).not.toContain('Seq Scan on fsrs_card_states');
   });
+
+  test('interleaves due cards round-robin across decks in SQL with the real due total', async () => {
+    const first = await seedDeck(3);
+    const second = await sql<{ id: string }[]>`
+      INSERT INTO decks (user_id, folder_id, card_template_id, name)
+      SELECT user_id, folder_id, card_template_id, 'Second'
+      FROM decks WHERE id = ${first.deckId}
+      RETURNING id
+    `;
+    const secondDeckId = second[0]!.id;
+    await sql`
+      INSERT INTO cards (deck_id, sort_order)
+      SELECT ${secondDeckId}, series FROM generate_series(0, 1) AS series
+    `;
+    const secondCards = await sql<{ id: string }[]>`
+      SELECT id::text AS id FROM cards WHERE deck_id = ${secondDeckId} ORDER BY sort_order
+    `;
+    const revision = await insertRevision(first.userId, 1, {}, null);
+    // one card in the first deck is not due yet
+    await insertState(first.userId, first.cardIds[2]!, revision.id, {
+      nextReviewAt: new Date('2026-01-13T12:00:00.000Z'),
+    });
+
+    const repository = createPostgresFsrsDeckReadRepository(drizzleWrappedSql);
+    const result = await repository.getInterleavedDueCards({
+      userId: first.userId,
+      deckIds: [first.deckId, secondDeckId],
+      limit: 3,
+      asOf: AS_OF,
+    });
+
+    expect(result.total).toBe(4);
+    expect(result.due).toBe(3);
+    expect(result.cards.map((card) => card.deckId)).toEqual([
+      first.deckId,
+      secondDeckId,
+      first.deckId,
+    ]);
+    expect(result.cards.map((card) => card.id)).toEqual([
+      first.cardIds[0],
+      secondCards[0]!.id,
+      first.cardIds[1],
+    ]);
+
+    await expect(
+      repository.getTopDueDeckIds({ userId: first.userId, topN: 1, asOf: AS_OF }),
+    ).resolves.toEqual([first.deckId]);
+  });
 });

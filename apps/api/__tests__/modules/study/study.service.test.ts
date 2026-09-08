@@ -33,6 +33,8 @@ function deckReadService(overrides: Record<string, unknown> = {}) {
       dueSoon: 0,
       nextReviewDate: null,
     }),
+    getInterleavedDueCards: async () => ({ cards: [], total: 0, due: 0 }),
+    getTopDueDeckIds: async () => [],
     ...overrides,
   } as never);
 }
@@ -225,12 +227,15 @@ describe('study.service', () => {
     });
   });
 
-  describe('getInterleavedDueCards', () => {
-    test('returns empty for empty deckIds', async () => {
-      const result = await studyService.getInterleavedDueCards('user-1', []);
-      expect(result.cards).toHaveLength(0);
-      expect(result.total).toBe(0);
-      expect(result.due).toBe(0);
+  describe('getAutoInterleavedCards', () => {
+    test('returns an empty session when no deck has due cards', async () => {
+      const service = deckReadService({ getTopDueDeckIds: async () => [] });
+      await expect(service.getAutoInterleavedCards('user-1')).resolves.toEqual({
+        cards: [],
+        total: 0,
+        due: 0,
+        deckIds: [],
+      });
     });
   });
 });
