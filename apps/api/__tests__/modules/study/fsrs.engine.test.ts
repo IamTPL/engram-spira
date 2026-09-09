@@ -361,7 +361,7 @@ describe('interval policy cap', () => {
     expect(normalizeFsrsParameters().maximum_interval).toBe(365);
   });
 
-  test('never schedules more than one year ahead even when the revision allows 36500 days', () => {
+  test('schedules exactly one year ahead when ts-fsrs would go past it, even if the revision allows 36500 days', () => {
     const current = reviewCard({ stability: 50_000 });
     const adapter = scheduleFsrsReview({
       current,
@@ -370,10 +370,42 @@ describe('interval policy cap', () => {
       parameters: { maximum_interval: 36_500 },
     });
 
-    expect(adapter.after.scheduled_days).toBeLessThanOrEqual(365);
-    expect(
-      (adapter.after.due.getTime() - REVIEWED_AT.getTime()) / DAY_MS,
-    ).toBeLessThanOrEqual(365);
+    expect(adapter.after.scheduled_days).toBe(365);
+    expect(adapter.after.due).toEqual(
+      new Date(REVIEWED_AT.getTime() + 365 * DAY_MS),
+    );
+    // Stability is the memory model, not the schedule: it stays uncapped so
+    // later reviews keep diverging.
+    expect(adapter.after.stability).toBeGreaterThan(365);
+  });
+
+  test('hard, good and easy converge on the same due date at the cap (Anki behaviour; stability still separates them)', () => {
+    const current = reviewCard({ stability: 5_000 });
+    const [hard, good, easy] = (['hard', 'good', 'easy'] as const).map((rating) =>
+      scheduleFsrsReview({
+        current,
+        rating,
+        reviewedAt: REVIEWED_AT,
+        parameters: { maximum_interval: 36_500 },
+      }).after,
+    );
+
+    expect([hard!.scheduled_days, good!.scheduled_days, easy!.scheduled_days]).toEqual([365, 365, 365]);
+    expect(hard!.due).toEqual(good!.due);
+    expect(good!.due).toEqual(easy!.due);
+    expect(hard!.stability).toBeLessThan(good!.stability);
+    expect(good!.stability).toBeLessThan(easy!.stability);
+  });
+
+  test('leaves learning-step (minute-scale) schedules untouched', () => {
+    const adapter = scheduleFsrsReview({
+      current: null,
+      rating: 'good',
+      reviewedAt: REVIEWED_AT,
+      parameters: {},
+    });
+    expect(adapter.after.due.getTime() - REVIEWED_AT.getTime()).toBe(15 * 60 * 1000);
+    expect(adapter.after.scheduled_days).toBe(0);
   });
 
   test('a stored revision keeps its own maximum_interval for identity, the cap applies only when scheduling', () => {

@@ -931,18 +931,26 @@ describe('PostgreSQL canonical FSRS live writer', () => {
     ]).toEqual([{ source: 'manual', active: false }]);
   });
 
-  test('groups newly applied daily activity across local dates and ignores duplicate retries', async () => {
+  test('groups newly applied daily activity by the server clock across local dates and ignores duplicate retries', async () => {
     const seeded = await seedUser(2);
-    const events = [
-      review(seeded.cardIds[0]!, {
-        reviewedAt: '2026-07-28T06:59:59.999Z',
-      }),
-      review(seeded.cardIds[1]!, {
-        reviewedAt: '2026-07-28T07:00:00.000Z',
-      }),
-    ];
-    await service().reviewBatch(seeded.userId, events, 420);
-    const retry = await service().reviewBatch(seeded.userId, events, 420);
+    const repository = createPostgresFsrsLiveRepository(sql);
+    const atClock = (iso: string) =>
+      createFsrsLiveService(repository, () => new Date(iso));
+    const first = review(seeded.cardIds[0]!, {
+      reviewedAt: '2026-07-28T06:59:59.999Z',
+    });
+    const second = review(seeded.cardIds[1]!, {
+      // Client clock a day behind the server: the study date still follows
+      // the server's receivedAt (07:00 UTC = 00:00 at UTC-7).
+      reviewedAt: '2026-07-27T07:00:00.000Z',
+    });
+    await atClock('2026-07-28T06:59:59.999Z').reviewBatch(seeded.userId, [first], 420);
+    await atClock('2026-07-28T07:00:00.000Z').reviewBatch(seeded.userId, [second], 420);
+    const retry = await atClock('2026-07-29T12:00:00.000Z').reviewBatch(
+      seeded.userId,
+      [first, second],
+      420,
+    );
 
     expect(retry).toMatchObject({ applied: 0, duplicates: 2 });
     expect([

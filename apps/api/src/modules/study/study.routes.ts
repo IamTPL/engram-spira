@@ -11,6 +11,7 @@ import {
   parseStudyCardIds,
   studyDeckQuerySchema,
 } from './study-cluster';
+import { studyRateLimitKey } from './study-rate-limit';
 
 const reviewRatingSchema = t.Union(
   Object.values(REVIEW_ACTIONS).map((rating) => t.Literal(rating)),
@@ -63,15 +64,9 @@ export function createStudyRoutes(
         duration: 60 * 1000,
         max: 180,
         skip: (req) => !req,
-        generator: async (req, server) => {
-          if (!req) return 'anonymous';
-          return (
-            req.headers.get('x-forwarded-for') ??
-            req.headers.get('x-real-ip') ??
-            server?.requestIP(req)?.address ??
-            'anonymous'
-          );
-        },
+        // Per session, not per IP: each grade is its own request.
+        generator: async (req, server) =>
+          studyRateLimitKey(req, req && server?.requestIP(req)?.address),
         errorResponse: new Response(
           JSON.stringify({ error: 'Too many study requests, please retry' }),
           { status: 429, headers: { 'Content-Type': 'application/json' } },

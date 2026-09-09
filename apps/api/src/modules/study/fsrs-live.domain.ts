@@ -3,12 +3,13 @@ import { ConflictError, ValidationError } from '../../shared/errors';
 
 const MAX_BATCH_SIZE = 100;
 /**
- * Client clocks are untrusted. An instant after the server's `receivedAt` is
- * clamped to `receivedAt`; an instant more than a week before it is rejected
- * as implausible (a keepalive flush on page exit lags by minutes, a queued
- * offline session by hours — never weeks).
+ * Client clocks are untrusted and a grade is never rejected for one. The
+ * client instant is clamped into `[receivedAt - 24 h, receivedAt]`: it only
+ * refines sub-hour ordering (a re-queued grade retried minutes later, a
+ * keepalive flush on page exit). Calendar facts (`study_daily_logs`) use the
+ * server's `receivedAt` alone — see `groupReviewsByStudyDate`.
  */
-const MAX_PAST_SKEW_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_PAST_SKEW_MS = 24 * 60 * 60 * 1000;
 const MAX_DURATION_MS = 60 * 60 * 1000;
 const MIN_TIMEZONE_OFFSET_MINUTES = -840;
 const MAX_TIMEZONE_OFFSET_MINUTES = 720;
@@ -138,15 +139,11 @@ export function normalizeLiveReviewCommands(
       rawInput.reviewedAt,
       `Review event ${index + 1} reviewedAt`,
     );
-    if (clientReviewedAt.milliseconds < receivedAtMs - MAX_PAST_SKEW_MS) {
-      throw new ValidationError(
-        `Review event ${index + 1} reviewedAt is more than 7 days before receivedAt`,
-      );
-    }
-    const reviewedAt =
-      clientReviewedAt.milliseconds > receivedAtMs
-        ? { iso: receivedAtIso, milliseconds: receivedAtMs }
-        : clientReviewedAt;
+    const reviewedAt = clampInstant(
+      clientReviewedAt,
+      receivedAtMs - MAX_PAST_SKEW_MS,
+      receivedAtMs,
+    );
     const durationMs = normalizeDuration(
       rawInput.durationMs,
       `Review event ${index + 1} durationMs`,
@@ -279,6 +276,12 @@ export function studyDateForReviewedAt(
     .slice(0, 10);
 }
 
+/**
+ * Daily activity is a calendar fact, so it follows the server clock
+ * (`receivedAt`) — the same clock `getUserStreak` compares against. Grouping
+ * by the client instant would let a slow client clock write a days-old row
+ * and silently break the streak it just extended.
+ */
 export function groupReviewsByStudyDate(
   commands: readonly NormalizedLiveReviewCommand[],
   timezoneOffsetMinutes: number,
@@ -287,7 +290,7 @@ export function groupReviewsByStudyDate(
   const counts = new Map<string, number>();
   for (const command of commands) {
     const studyDate = studyDateForReviewedAt(
-      command.reviewedAt,
+      command.receivedAt,
       timezoneOffsetMinutes,
     );
     counts.set(studyDate, (counts.get(studyDate) ?? 0) + 1);
@@ -412,6 +415,20 @@ export function canonicalUuid(value: unknown, name: string): string {
     throw new ValidationError(`${name} must be a valid UUID`);
   }
   return value.toLowerCase();
+}
+
+function clampInstant(
+  instant: { iso: string; milliseconds: number },
+  minimumMs: number,
+  maximumMs: number,
+): { iso: string; milliseconds: number } {
+  if (instant.milliseconds < minimumMs) {
+    return { iso: new Date(minimumMs).toISOString(), milliseconds: minimumMs };
+  }
+  if (instant.milliseconds > maximumMs) {
+    return { iso: new Date(maximumMs).toISOString(), milliseconds: maximumMs };
+  }
+  return instant;
 }
 
 function canonicalInstant(

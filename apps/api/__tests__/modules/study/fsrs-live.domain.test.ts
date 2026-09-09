@@ -120,19 +120,25 @@ describe('live FSRS command normalization', () => {
     expect(command.reviewedAt).toBe('2026-07-28T07:20:16.123Z');
   });
 
-  test('keeps an instant up to 7 days before receivedAt and rejects anything older', () => {
+  test('clamps an instant more than 24 h before receivedAt up to that bound (client clock far behind)', () => {
     expect(
       normalize(
-        reviewInput({ reviewedAt: '2026-07-21T07:20:16.123Z' }),
+        reviewInput({ reviewedAt: '2026-07-27T07:20:16.123Z' }),
         new Date('2026-07-28T07:20:16.123Z'),
       ).reviewedAt,
-    ).toBe('2026-07-21T07:20:16.123Z');
-    expect(() =>
+    ).toBe('2026-07-27T07:20:16.123Z');
+    expect(
       normalize(
-        reviewInput({ reviewedAt: '2026-07-21T07:20:16.122Z' }),
+        reviewInput({ reviewedAt: '2026-07-27T07:20:16.122Z' }),
         new Date('2026-07-28T07:20:16.123Z'),
-      ),
-    ).toThrow(ValidationError);
+      ).reviewedAt,
+    ).toBe('2026-07-27T07:20:16.123Z');
+    expect(
+      normalize(
+        reviewInput({ reviewedAt: '2019-01-01T00:00:00.000Z' }),
+        new Date('2026-07-28T07:20:16.123Z'),
+      ).reviewedAt,
+    ).toBe('2026-07-27T07:20:16.123Z');
   });
 
   test('rejects a lower timezone-crossing instant whose canonical UTC year is 0000', () => {
@@ -434,14 +440,19 @@ describe('local study dates', () => {
     }
   });
 
-  test('groups newly applied reviews by local date in stable date order', () => {
-    const commands = normalizeLiveReviewCommands(
+  test('groups newly applied reviews by the local date of the server receivedAt, never the client instant', () => {
+    const late = normalizeLiveReviewCommands(
       [
         reviewInput({
           requestId: REQUEST_1,
           cardId: CARD_1,
-          reviewedAt: '2026-07-29T01:00:00.000Z',
+          reviewedAt: '2026-07-28T06:30:00.000Z',
         }),
+      ],
+      new Date('2026-07-29T01:00:00.000Z'),
+    );
+    const early = normalizeLiveReviewCommands(
+      [
         reviewInput({
           requestId: REQUEST_2,
           cardId: CARD_2,
@@ -450,15 +461,16 @@ describe('local study dates', () => {
         reviewInput({
           requestId: REQUEST_3,
           cardId: CARD_3,
-          reviewedAt: '2026-07-28T23:30:00.000Z',
+          // Client clock ahead: clamped to receivedAt, same local date.
+          reviewedAt: '2026-07-29T05:00:00.000Z',
         }),
       ],
-      new Date('2026-07-29T01:00:00.000Z'),
+      new Date('2026-07-28T06:59:59.999Z'),
     );
 
-    expect(groupReviewsByStudyDate(commands, 420)).toEqual([
-      { studyDate: '2026-07-27', cardsReviewed: 1 },
-      { studyDate: '2026-07-28', cardsReviewed: 2 },
+    expect(groupReviewsByStudyDate([...late, ...early], 420)).toEqual([
+      { studyDate: '2026-07-27', cardsReviewed: 2 },
+      { studyDate: '2026-07-28', cardsReviewed: 1 },
     ]);
   });
 });
