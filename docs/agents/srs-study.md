@@ -89,10 +89,11 @@ ISO-8601 instant; `durationMs` is an integer 0…3 600 000.
 
 | Condition | Where | Result |
 |---|---|---|
-| Same `requestId`, byte-identical payload | `assertMatchingLiveReviewRequest` (`fsrs-live.domain.ts:162`) | `status: 'duplicate'`, the stored event replayed, nothing written |
-| Same `requestId`, **different** payload | same | `ConflictError` → **409** |
-| `reviewedAt` > 5 min in the future | `fsrs-live.domain.ts:135` (`MAX_FUTURE_SKEW_MS`) | `ValidationError` → **422** |
-| `reviewedAt` earlier than the card's `last_reviewed_at` | `assertReviewChronology` (`:239`) | `ValidationError` → **422** |
+| Same `requestId`, same card + rating + live origin | `assertMatchingLiveReviewRequest` (`fsrs-live.domain.ts`) | `status: 'duplicate'`, the stored event replayed, nothing written. `reviewedAt`/`durationMs` are **not** compared: the server clamps `reviewedAt`, so a byte-identical retry can differ from what was persisted |
+| Same `requestId`, different card or rating | same | `ConflictError` → **409** |
+| `reviewedAt` after the server's `receivedAt` (client clock ahead) | `normalizeLiveReviewCommands` | **clamped to `receivedAt`**, applied |
+| `reviewedAt` more than 7 days before `receivedAt` | same (`MAX_PAST_SKEW_MS`) | `ValidationError` → **422** |
+| `reviewedAt` earlier than the card's `last_reviewed_at` (client clock behind; a 1-minute learning step graded from a slow machine) | `clampReviewChronology` | **clamped up to `last_reviewed_at`** (elapsed 0), applied — the grade is never lost |
 | Duplicate `requestId` **within one batch** | `:145` | `ValidationError` → **422** |
 | Card not owned by the caller | `requireOwnedCardsAfterLocks` (`fsrs-live.postgres.ts:711`) | `NotFoundError('Card')` → **404** |
 
@@ -128,9 +129,9 @@ means New; otherwise the caller passes a full `ts-fsrs` `Card` reconstructed fro
 `log.elapsed_days` is cross-checked against `after.elapsed_days` (`:395`).
 
 `normalizeFsrsParameters` (`:56`) allow-lists exactly 7 keys, range-checks `request_retention` (0, 1] and
-`maximum_interval` [1, 36500], validates step strings against `/^[1-9]\d*[mhd]$/`, migrates 17- and 19-weight
+`maximum_interval` [1, 36500] for stored-revision identity, validates step strings against `/^[1-9]\d*[mhd]$/`, migrates 17- and 19-weight
 vectors to the current 21, clamps every weight to the `ts-fsrs` `CLAMP_PARAMETERS` range, and throws
-`ValidationError` on any violation. Nothing reaches `generatorParameters()` unvalidated. Policy defaults
+`ValidationError` on any violation. Nothing reaches `generatorParameters()` unvalidated. **Interval cap:** whatever a revision's `maximum_interval` says, `scheduleFsrsReview` clamps the scheduled interval to `FSRS_MAX_INTERVAL_DAYS = 365` after ts-fsrs runs (ts-fsrs only soft-caps: it still forces `hard < good < easy`, so Easy on a mature card would land on cap + 2 days). New revisions default to `maximum_interval: 365`. Policy defaults
 (`:43-44`, `:172-182`): `learning_steps ['1m','15m']`, `relearning_steps ['10m']`, `enable_fuzz` **forced
 false**.
 
@@ -184,7 +185,7 @@ disagree about "now" and tests become time-dependent.
 - `getTopDueDeckIds` (`:290`) — decks by due count, tie-broken by `d.created_at` then `c.deck_id`, `topN`
   clamped to `[1, 50]`. Feeds `GET /study/interleaved/auto`.
 - `getDeckSchedule` (`:216`) — loads every card's canonical read, then buckets in JS
-  (`scheduleFromReads`, `:436`): `learnedCards` counts `state = 'review'`; anything due within 1 hour goes to
+  (`scheduleFromReads`): `learnedCards` counts mature cards (`state = 'review'` **and** `stability >= LEARNED_STABILITY_DAYS = 21`) — one Easy on a New card lands in review with S ≈ 8 d and is *not* learned; anything due within 1 hour goes to
   `dueSoon`; day offsets are `max(1, round(diffMs / 86_400_000))`, so 23 h 59 m reads as "Tomorrow". Both the
   zero-card and non-empty paths return `dueSoon` (`:234` / `:477`).
 
@@ -329,7 +330,9 @@ review wave. The module's only remaining retention read is inside `getStudyRecom
 | Where | Values |
 |---|---|
 | `study-cluster.ts:3` | `MAX_STUDY_CLUSTER_CARDS` = 12 (selected-card study, and the memory-health attention cap) |
-| `fsrs-live.domain.ts:4-9` | batch cap 100, future skew 5 min, duration cap 1 h, tz `[-840, 720]` |
+| `fsrs-live.domain.ts:4-12` | batch cap 100, past skew bound 7 days (future is clamped to `receivedAt`), duration cap 1 h, tz `[-840, 720]` |
+| `fsrs.engine.ts` | `FSRS_MAX_INTERVAL_DAYS` = 365 hard interval cap |
+| `fsrs-deck-reads.postgres.ts` | `LEARNED_STABILITY_DAYS` = 21 (mature threshold for `learnedCards`) |
 | `fsrs-live.postgres.ts:54-55` | 5 serializable attempts, retryable codes `40001`/`40P01` |
 | `fsrs.engine.ts:43-44` | `['1m','15m']` learning, `['10m']` relearning; `enable_fuzz` forced false at `:180` |
 | `fsrs-deck-reads.postgres.ts:22-23,252,293` | 1 h `dueSoon` window, interleave limit `[1,200]`, `topN` `[1,50]` |

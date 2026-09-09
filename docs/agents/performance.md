@@ -159,17 +159,22 @@ placeholder, `timestampFromRow` (:28) on the way out. Full rationale in `AGENTS.
   `interleaved-study.tsx:150`). Invalidate only the keys that really changed
   (`schedule`, `memoryHealthKeys.deck`) and **never** the in-flight `studyData` key — mid-session
   refetch swaps the card array and fires a premature "Session Complete" (`study-mode.tsx:158-160`).
-- **Batch grades client-side.** `flushPendingReviews` (`study-mode.tsx:198-205`) holds grades and
-  posts once per ≥ 8, force-flushes at session end and uses `fetch: { keepalive: true }` on unload
-  (`:385`) — one request per 8 cards instead of one per card.
+- **Send each grade immediately, never block the UI on it.** `flushPendingReviews` (`study-mode.tsx`,
+  `interleaved-study.tsx`) posts every grade as soon as it is made — the idempotent `requestId` makes
+  a retry safe, so buffering buys nothing and risks losing grades — tracks in-flight requests and
+  `await`s them (`settleReviews`) before the batch-end refetch, and flushes with
+  `fetch: { keepalive: true }` on `pagehide` and on unmount so closing the tab cannot drop a review.
 - **`requestId` per grade, generated once.** `buildReviewItem`
   (`apps/web/src/pages/study-review-state.ts:23`) mints it at grade time, not per attempt, so a
   retry is idempotent server-side and the client can retry freely (`retry` at `study-mode.tsx:155`).
 - **Deliberate `staleTime` / `refetchOnWindowFocus`.** Defaults are 5 min stale / refetch on focus
   (`apps/web/src/lib/query-client.ts:6-9`). In-session study data pins
-  `refetchOnWindowFocus: false` + `staleTime: 60_000` (`study-mode.tsx:91-92`,
-  `interleaved-study.tsx:77-78`). Pick a number per query and say why; do not inherit the default by
-  accident for data that must not move mid-session.
+  `refetchOnWindowFocus: false` + `staleTime: 5_000` (`study-mode.tsx`, `interleaved-study.tsx`,
+  `lib/prefetch-study.ts`) and is **removed from the cache on exit** (`queryClient.removeQueries` in
+  `onCleanup`) and invalidated by every card mutation (`use-deck-data.ts` `refetchCards`,
+  `duplicate-scanner.tsx`), so 'Back to deck' → 'Study' always fetches the current due list while a
+  hover prefetch a few seconds earlier is still reused. Pick a number per query and say why; do not
+  inherit the default by accident for data that must not move mid-session.
 - **`createRoot` for module-scope reactivity** (`apps/web/src/stores/theme.store.ts:43`,
   `stores/notifications.store.ts:15`) — `AGENTS.md` §3 rule 19. Without it the primitive leaks and
   re-subscribes.
