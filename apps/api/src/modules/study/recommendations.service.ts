@@ -199,24 +199,39 @@ export async function getSmartGroups(
   // for ALL top concepts at once. Retention comes from `fsrs_card_states` +
   // `fsrs_parameter_revisions`; AVG ignores never-reviewed (NULL) cards, so
   // `avgRetention` is NULL for a concept with none.
+  //
+  // `card_concepts` has no uniqueness on (card_id, concept), so the pairs are
+  // de-duplicated before scoring — otherwise a duplicate mapping would
+  // double-weight one card in AVG and burn two of the five sample slots, while
+  // `cardCount` above counts each card once (`COUNT(DISTINCT cc.card_id)`).
+  // Retention is a function of the card's single `fsrs_card_states` row
+  // (unique per user+card), so DISTINCT collapses duplicates without losing a
+  // distinct card.
   const groupRows = await db.execute<{
     concept: string;
     avgRetention: number | null;
     sampleCardIds: string[] | null;
   }>(sql`
-    WITH scored AS (
-      SELECT
+    WITH pairs AS (
+      SELECT DISTINCT
         cc2.concept,
         c.id AS card_id,
-        ${fsrsRetrievability(asOf)} AS retention,
-        ROW_NUMBER() OVER (
-          PARTITION BY cc2.concept ORDER BY c.id
-        ) AS rn
+        ${fsrsRetrievability(asOf)} AS retention
       FROM card_concepts cc2
       JOIN cards c ON cc2.card_id = c.id
       JOIN decks d ON c.deck_id = d.id AND d.user_id = ${userId}::uuid
       ${fsrsStateJoin(userId)}
       WHERE cc2.concept = ANY(ARRAY[${conceptNames}]::text[])
+    ),
+    scored AS (
+      SELECT
+        concept,
+        card_id,
+        retention,
+        ROW_NUMBER() OVER (
+          PARTITION BY concept ORDER BY card_id
+        ) AS rn
+      FROM pairs
     )
     SELECT
       concept,
