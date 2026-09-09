@@ -75,7 +75,9 @@ const InterleavedStudyPage: Component = () => {
   const studyQuery = createQuery(() => ({
     queryKey: ['interleavedStudy', scopedFolderId()],
     refetchOnWindowFocus: false,
-    staleTime: 60_000,
+    // Short: the queue is invalidated by card mutations and removed on exit;
+    // this only lets a hover prefetch a few seconds earlier be reused on mount.
+    staleTime: 5_000,
     queryFn: async () => {
       const folderId = scopedFolderId();
 
@@ -184,22 +186,30 @@ const InterleavedStudyPage: Component = () => {
     () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
-  const flushPendingReviews = async (force = false, keepalive = false) => {
+  // Every grade is sent as soon as it is made (the requestId makes a retry
+  // idempotent, so nothing can double-apply). In-flight requests are tracked
+  // so the batch-end refetch waits until the server holds every review.
+  const inFlight = new Set<Promise<void>>();
+  const flushPendingReviews = (keepalive = false): Promise<void> => {
     const pending = pendingReviews();
-    if (pending.length === 0) return;
-    if (!force && pending.length < 8) return;
+    if (pending.length === 0) return Promise.resolve();
     setPendingReviews((prev) => prev.slice(pending.length));
-    try {
-      await reviewBatchMutation.mutateAsync({ items: pending, keepalive });
-    } catch (error) {
-      if (error instanceof Error && /already used/i.test(error.message)) {
-        // Non-retryable: the server already applied these requestIds. Drop
-        // them instead of re-queuing forever (onError already toasted).
-        return;
-      }
-      // Items keep their requestId; put them back so the next flush retries idempotently.
-      setPendingReviews((prev) => [...pending, ...prev]);
-    }
+    const request: Promise<void> = reviewBatchMutation
+      .mutateAsync({ items: pending, keepalive })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        if (error instanceof Error && /already used/i.test(error.message)) {
+          // Non-retryable: the server already applied these requestIds.
+          return;
+        }
+        // Items keep their requestId; put them back so the next flush retries idempotently.
+        setPendingReviews((prev) => [...pending, ...prev]);
+      })
+      .finally(() => {
+        inFlight.delete(request);
+      });
+    inFlight.add(request);
+    return request;
   };
 
   const handleReview = async (action: ReviewAction) => {
@@ -212,7 +222,7 @@ const InterleavedStudyPage: Component = () => {
         ...prev,
         buildReviewItem(card.id, action, cardShownAt()),
       ]);
-      await flushPendingReviews(false);
+      void flushPendingReviews();
       batch(() => {
         setStats((s) => ({
           ...s,
@@ -260,10 +270,21 @@ const InterleavedStudyPage: Component = () => {
     }
   };
 
-  onMount(() => document.addEventListener('keydown', handleKeyDown));
+  // pagehide covers tab close and hard navigation, where onCleanup may never run.
+  const handlePageHide = () => {
+    void flushPendingReviews(true);
+  };
+  onMount(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('pagehide', handlePageHide);
+  });
   onCleanup(() => {
-    void flushPendingReviews(true, true);
+    void flushPendingReviews(true);
     document.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('pagehide', handlePageHide);
+    // The session is over: drop the queue snapshot so the next visit (or a
+    // hover prefetch) fetches the current due list instead of this one.
+    queryClient.removeQueries({ queryKey: ['interleavedStudy'] });
   });
 
   return (

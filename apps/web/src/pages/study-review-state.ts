@@ -61,3 +61,56 @@ export function applyReviewedCards<T extends DueDeckLike>(
     return dueCount === 0 ? [] : [{ ...deck, dueCount }];
   });
 }
+
+export interface CardProgressLike {
+  state: 'learning' | 'review' | 'relearning';
+  stability: number;
+  reps: number;
+  lastReviewedAt: string;
+}
+
+export interface CardProgressSummary {
+  label: 'New' | 'Learning' | 'Relearning' | 'Review';
+  detail: string | null;
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+function formatAge(ms: number): string {
+  if (ms < MINUTE_MS) return 'just now';
+  if (ms < HOUR_MS) return `${Math.round(ms / MINUTE_MS)} min ago`;
+  if (ms < 2 * DAY_MS) return `${Math.round(ms / HOUR_MS)} h ago`;
+  return `${Math.round(ms / DAY_MS)} days ago`;
+}
+
+function formatStability(days: number): string {
+  if (days < 1 / 24) return `${Math.max(1, Math.round(days * 24 * 60))} min`;
+  if (days < 1) return `${Math.round(days * 24)} h`;
+  return `${Math.round(days)} d`;
+}
+
+/**
+ * One-line provenance for the card being studied, so a card with replayed or
+ * old history is never mistaken for a brand-new one (FSRS rewards recall
+ * after a long gap with a much longer interval than a first Easy would).
+ */
+export function describeCardProgress(
+  progress: CardProgressLike | null,
+  now: Date,
+): CardProgressSummary {
+  if (progress === null) return { label: 'New', detail: null };
+  const label =
+    progress.state === 'review'
+      ? 'Review'
+      : progress.state === 'relearning'
+        ? 'Relearning'
+        : 'Learning';
+  const age = now.getTime() - new Date(progress.lastReviewedAt).getTime();
+  const reviews = `${progress.reps} review${progress.reps === 1 ? '' : 's'}`;
+  return {
+    label,
+    detail: `Last seen ${formatAge(age)} · ${reviews} · stability ${formatStability(progress.stability)}`,
+  };
+}

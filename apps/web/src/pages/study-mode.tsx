@@ -41,6 +41,7 @@ import { buildStudyDeckQuery, isStudyCluster } from './study-mode-state';
 import {
   applyReviewedCards,
   buildReviewItem,
+  describeCardProgress,
   type DueDeckLike,
   type ReviewItem,
 } from './study-review-state';
@@ -89,7 +90,9 @@ const StudyModePage: Component = () => {
       searchParams.cardIds ?? '',
     ],
     refetchOnWindowFocus: false,
-    staleTime: 60_000,
+    // Short: the queue is invalidated by card mutations and removed on exit;
+    // this only lets a hover prefetch a few seconds earlier be reused on mount.
+    staleTime: 5_000,
     queryFn: async () => {
       const { data, error } = await (api.study.deck as any)[params.deckId].get({
         query: buildStudyDeckQuery(effectiveStudyMode(), searchParams.cardIds),
@@ -197,23 +200,32 @@ const StudyModePage: Component = () => {
     () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
-  const flushPendingReviews = async (force = false, keepalive = false) => {
+  // Every grade is sent as soon as it is made (the requestId makes a retry
+  // idempotent, so nothing can double-apply). In-flight requests are tracked
+  // so the batch-end refetch waits until the server holds every review.
+  const inFlight = new Set<Promise<void>>();
+  const flushPendingReviews = (keepalive = false): Promise<void> => {
     const pending = pendingReviews();
-    if (pending.length === 0) return;
-    if (!force && pending.length < 8) return;
+    if (pending.length === 0) return Promise.resolve();
     setPendingReviews((prev) => prev.slice(pending.length));
-    try {
-      await reviewBatchMutation.mutateAsync({ items: pending, keepalive });
-    } catch (error) {
-      if (error instanceof Error && /already used/i.test(error.message)) {
-        // Non-retryable: the server already applied these requestIds. Drop
-        // them instead of re-queuing forever (onError already toasted).
-        return;
-      }
-      // Items keep their requestId; put them back so the next flush retries idempotently.
-      setPendingReviews((prev) => [...pending, ...prev]);
-    }
+    const request: Promise<void> = reviewBatchMutation
+      .mutateAsync({ items: pending, keepalive })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        if (error instanceof Error && /already used/i.test(error.message)) {
+          // Non-retryable: the server already applied these requestIds.
+          return;
+        }
+        // Items keep their requestId; put them back so the next flush retries idempotently.
+        setPendingReviews((prev) => [...pending, ...prev]);
+      })
+      .finally(() => {
+        inFlight.delete(request);
+      });
+    inFlight.add(request);
+    return request;
   };
+  const settleReviews = () => Promise.all(inFlight).then(() => undefined);
 
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
@@ -225,7 +237,7 @@ const StudyModePage: Component = () => {
         ...prev,
         buildReviewItem(card.id, action, cardShownAt()),
       ]);
-      await flushPendingReviews(false);
+      void flushPendingReviews();
       const nextIndex = currentIndex() + 1;
       batch(() => {
         setStats((s) => ({
@@ -248,7 +260,7 @@ const StudyModePage: Component = () => {
         nextIndex >= data.cards.length &&
         effectiveStudyMode() === 'due'
       ) {
-        await flushPendingReviews(true);
+        await settleReviews();
         setCheckingMore(true);
         // Brief delay for learning-step cards to become due
         await new Promise((r) => setTimeout(r, 1500));
@@ -382,10 +394,21 @@ const StudyModePage: Component = () => {
     onCleanup(() => clearInterval(timer));
   });
 
-  onMount(() => document.addEventListener('keydown', handleKeyDown));
+  // pagehide covers tab close and hard navigation, where onCleanup may never run.
+  const handlePageHide = () => {
+    void flushPendingReviews(true);
+  };
+  onMount(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('pagehide', handlePageHide);
+  });
   onCleanup(() => {
-    void flushPendingReviews(true, true);
+    void flushPendingReviews(true);
     document.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('pagehide', handlePageHide);
+    // The session is over: drop the queue snapshot so the next visit (or a
+    // hover prefetch) fetches the current due list instead of this one.
+    queryClient.removeQueries({ queryKey: ['studyData', params.deckId] });
   });
 
   return (
@@ -412,7 +435,7 @@ const StudyModePage: Component = () => {
                 {deckQuery.data!.name}
               </p>
             </Show>
-            <Show when={studyData()}>
+            <Show when={studyData() && studyData()!.cards.length > 0}>
               <p class="mt-0.5 truncate text-[11px] font-medium tabular-nums text-muted-foreground">
                 {Math.min(currentIndex(), studyData()!.cards.length)} of{' '}
                 {studyData()!.cards.length}
@@ -426,6 +449,22 @@ const StudyModePage: Component = () => {
                 </span>
                 <span class="ml-2 text-foreground">{progress()}%</span>
               </p>
+            </Show>
+            <Show when={currentCard()}>
+              {(card) => {
+                const summary = () =>
+                  describeCardProgress(card().progress, new Date());
+                return (
+                  <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    <span class="font-medium text-foreground">
+                      {summary().label}
+                    </span>
+                    <Show when={summary().detail}>
+                      {(detail) => <span> · {detail()}</span>}
+                    </Show>
+                  </p>
+                );
+              }}
             </Show>
           </div>
 

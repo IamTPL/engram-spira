@@ -42,3 +42,58 @@ describe('applyReviewedCards', () => {
     expect(applyReviewedCards(decks, 'zzz', 1)).toEqual(decks);
   });
 });
+
+import { describeCardProgress } from './study-review-state';
+
+describe('describeCardProgress', () => {
+  const now = new Date('2026-09-09T12:00:00.000Z');
+
+  test('describes a New card without history', () => {
+    expect(describeCardProgress(null, now)).toEqual({ label: 'New', detail: null });
+  });
+
+  test('describes a review card with last-seen age, review count and stability', () => {
+    expect(
+      describeCardProgress(
+        {
+          state: 'review',
+          stability: 13.046,
+          reps: 2,
+          lastReviewedAt: '2026-06-27T13:24:39.027Z',
+        },
+        now,
+      ),
+    ).toEqual({
+      label: 'Review',
+      detail: 'Last seen 74 days ago · 2 reviews · stability 13 d',
+    });
+  });
+
+  test('uses hours and minutes for young learning cards', () => {
+    expect(
+      describeCardProgress(
+        {
+          state: 'learning',
+          stability: 0.0104,
+          reps: 1,
+          lastReviewedAt: '2026-09-09T11:57:00.000Z',
+        },
+        now,
+      ),
+    ).toEqual({
+      label: 'Learning',
+      detail: 'Last seen 3 min ago · 1 review · stability 15 min',
+    });
+    expect(
+      describeCardProgress(
+        {
+          state: 'relearning',
+          stability: 0.5,
+          reps: 4,
+          lastReviewedAt: '2026-09-09T06:00:00.000Z',
+        },
+        now,
+      ).detail,
+    ).toBe('Last seen 6 h ago · 4 reviews · stability 12 h');
+  });
+});

@@ -152,6 +152,11 @@ export function useDeckData() {
       queryClient.invalidateQueries({
         queryKey: memoryHealthKeys.deck(params.deckId),
       }),
+      // The study queue is a snapshot of this deck's cards; card mutations
+      // must not leave a stale one behind.
+      queryClient.invalidateQueries({
+        queryKey: ['studyData', params.deckId],
+      }),
     ];
 
     // Also invalidate folder's deck list so cardCount updates when navigating back

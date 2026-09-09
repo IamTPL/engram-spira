@@ -20,6 +20,8 @@ export function prefetchStudyDeck(deckId: string | undefined) {
       }
       return data;
     },
-    staleTime: 60_000,
+    // Reused only when the page mounts within seconds of the hover; anything
+    // older is refetched so card edits and finished sessions are never masked.
+    staleTime: 5_000,
   });
 }
