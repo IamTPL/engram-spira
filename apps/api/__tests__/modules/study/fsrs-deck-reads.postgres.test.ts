@@ -13,6 +13,7 @@ import { forgetting_curve, type FSRSParameters } from 'ts-fsrs';
 import { NotFoundError } from '../../../src/shared/errors';
 import {
   DUE_CARD_IDS_SQL,
+  LEARNED_STABILITY_DAYS,
   createPostgresFsrsDeckReadRepository,
 } from '../../../src/modules/study/fsrs-deck-reads.postgres';
 import {
@@ -163,6 +164,7 @@ async function insertState(
     lastReviewedAt?: Date;
     nextReviewAt?: Date;
     state?: 'learning' | 'review' | 'relearning';
+    stability?: number;
   } = {},
 ) {
   await sql`
@@ -175,7 +177,7 @@ async function insertState(
       ${userId}, ${cardId},
       ${overrides.nextReviewAt ?? new Date('2026-01-12T12:00:00.000Z')},
       ${overrides.lastReviewedAt ?? new Date('2026-01-01T12:00:00.000Z')},
-      10.123456789, 5.5, ${overrides.state ?? 'review'}, 10, 10,
+      ${overrides.stability ?? 10.123456789}, 5.5, ${overrides.state ?? 'review'}, 10, 10,
       0, 3, 1, ${parameterRevisionId}, 3, 1,
       ${new Date('2026-01-01T12:00:00.000Z')}
     )
@@ -368,9 +370,10 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
     ).rejects.toThrow('Card not found');
   });
 
-  test('counts only review states as learned and preserves due-soon, nearest, and upcoming schedule semantics', async () => {
+  test('counts only mature review states (stability >= 21 days) as learned and preserves due-soon, nearest, and upcoming schedule semantics', async () => {
     const deck = await seedDeck();
     const revision = await insertRevision(deck.userId, 1, {}, null);
+    // review state but young (S ≈ 10 d): not learned yet
     await insertState(deck.userId, deck.cardIds[1]!, revision.id, {
       nextReviewAt: AS_OF,
       state: 'review',
@@ -378,10 +381,13 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
     await insertState(deck.userId, deck.cardIds[2]!, revision.id, {
       nextReviewAt: new Date('2026-01-11T12:30:00.000Z'),
       state: 'learning',
+      stability: 40,
     });
+    // review state and mature: the only learned card
     await insertState(deck.userId, deck.cardIds[3]!, revision.id, {
       nextReviewAt: new Date('2026-01-13T12:00:00.000Z'),
       state: 'review',
+      stability: LEARNED_STABILITY_DAYS,
     });
 
     const result = await createPostgresFsrsDeckReadRepository(sql).getDeckSchedule({
@@ -392,7 +398,7 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
 
     expect(result).toEqual({
       totalCards: 4,
-      learnedCards: 2,
+      learnedCards: 1,
       upcoming: [
         {
           daysFromNow: 2,
@@ -455,6 +461,7 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
     });
     await insertState(deck.userId, deck.cardIds[2]!, revision.id, {
       nextReviewAt: new Date('2026-01-13T12:00:00.000Z'),
+      stability: 30,
     });
     const repository = createPostgresFsrsDeckReadRepository(drizzleWrappedSql);
 
@@ -492,7 +499,7 @@ describe('PostgreSQL canonical FSRS deck reads', () => {
       }),
     ).resolves.toEqual({
       totalCards: 3,
-      learnedCards: 2,
+      learnedCards: 1,
       upcoming: [
         {
           daysFromNow: 2,

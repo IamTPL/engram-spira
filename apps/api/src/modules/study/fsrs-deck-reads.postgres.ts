@@ -21,6 +21,12 @@ type Queryable = Pick<TransactionSql, 'unsafe'>;
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+/**
+ * A card counts as "learned" once it is in the review state with a memory
+ * stability of at least this many days (Anki's "mature" threshold). A single
+ * Easy on a New card lands in review with S ≈ 8 d and is therefore not learned.
+ */
+export const LEARNED_STABILITY_DAYS = 21;
 
 export interface FsrsProgress {
   state: PersistedFsrsReadState;
@@ -70,6 +76,7 @@ export interface GetDeckScheduleInput {
 
 export interface DeckSchedule {
   totalCards: number;
+  /** Review-state cards with stability >= LEARNED_STABILITY_DAYS. */
   learnedCards: number;
   upcoming: Array<{
     daysFromNow: number;
@@ -447,7 +454,12 @@ function scheduleFromReads(
   for (const read of reads) {
     if (read === null) continue;
     const state = read.state;
-    if (state.state === 'review') learnedCards++;
+    if (
+      state.state === 'review' &&
+      state.stability >= LEARNED_STABILITY_DAYS
+    ) {
+      learnedCards++;
+    }
     const reviewTime = state.nextReviewAt.getTime();
     if (reviewTime <= asOfMs) continue;
     if (reviewTime < nearestMs) {

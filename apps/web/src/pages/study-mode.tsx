@@ -585,7 +585,7 @@ const StudyModePage: Component = () => {
                             Deck progress
                           </p>
                           <p class="text-xs text-muted-foreground">
-                            Cards learned
+                            Learned · stability ≥ 21 days
                           </p>
                         </div>
                       </div>
