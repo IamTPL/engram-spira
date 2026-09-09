@@ -11,7 +11,7 @@ budgets and the `EXPLAIN` gate live in [performance.md](performance.md) — this
 
 | File | Role |
 |---|---|
-| `fsrs.engine.ts` | Pure `ts-fsrs` adapter: `scheduleFsrsReview` (`:136`), `normalizeFsrsParameters` (`:56`). No `db` import |
+| `fsrs.engine.ts` | Pure `ts-fsrs` adapter: `scheduleFsrsReview` (`:144`), `normalizeFsrsParameters` (`:64`). No `db` import |
 | `fsrs-live.domain.ts` | Pure write-path domain: request normalisation, idempotency comparison, `learning_cycle`/`sequence` derivation, study-date grouping |
 | `fsrs-live.service.ts` | Thin service over the repository interface — `reviewBatch`, `reviewCard`, `resetCard`, `resetDeck`, `rotateParameters` |
 | `fsrs-live.postgres.ts` | The only writer of `fsrs_card_states` / `fsrs_review_events`. One serializable transaction per call |
@@ -92,9 +92,9 @@ ISO-8601 instant; `durationMs` is an integer 0…3 600 000.
 | Same `requestId`, same card + rating + live origin | `assertMatchingLiveReviewRequest` (`fsrs-live.domain.ts`) | `status: 'duplicate'`, the stored event replayed, nothing written. `reviewedAt`/`durationMs` are **not** compared: the server clamps `reviewedAt`, so a byte-identical retry can differ from what was persisted |
 | Same `requestId`, different card or rating | same | `ConflictError` → **409** |
 | `reviewedAt` after the server's `receivedAt` (client clock ahead) | `normalizeLiveReviewCommands` | **clamped to `receivedAt`**, applied |
-| `reviewedAt` more than 7 days before `receivedAt` | same (`MAX_PAST_SKEW_MS`) | `ValidationError` → **422** |
+| `reviewedAt` more than 24 h before `receivedAt` (client clock far behind) | same (`MAX_PAST_SKEW_MS`) | **clamped up to `receivedAt − 24 h`**, applied — a grade is never rejected for a clock. The client instant only refines sub-hour ordering; nothing legitimate lags by days (there is no offline queue) |
 | `reviewedAt` earlier than the card's `last_reviewed_at` (client clock behind; a 1-minute learning step graded from a slow machine) | `clampReviewChronology` | **clamped up to `last_reviewed_at`** (elapsed 0), applied — the grade is never lost |
-| Duplicate `requestId` **within one batch** | `:145` | `ValidationError` → **422** |
+| Duplicate `requestId` **within one batch** | `:153` | `ValidationError` → **422** |
 | Card not owned by the caller | `requireOwnedCardsAfterLocks` (`fsrs-live.postgres.ts:711`) | `NotFoundError('Card')` → **404** |
 
 **Transaction shape** (`applyReviewBatchTransaction`, `fsrs-live.postgres.ts:236-463`), all inside one
@@ -114,28 +114,32 @@ The per-event `insertEvent`/`upsertState` pair is the one deliberate loop in the
 inside a single transaction, so it costs one round trip's latency. **Reads may not do this** — see
 [performance.md](performance.md) §2.2.
 
-**Position derivation** (`deriveNextReviewPosition`, `fsrs-live.domain.ts:283`): with a state row,
+**Position derivation** (`deriveNextReviewPosition`, `fsrs-live.domain.ts:303`): with a state row,
 `learningCycle` is carried and `sequence = state_version + 1`. With no state row, `learningCycle` is
 `max(prior learning_cycle) + 1` (1 if the card has no history at all) and `sequence = 1`. That is what makes a
 reset open a fresh cycle without touching the immutable event log.
 
-**Scheduling itself** is `scheduleFsrsReview` (`fsrs.engine.ts:136`), injected as
-`options.schedule` so tests can substitute it (`fsrs-live.postgres.ts:163`). It wraps `ts-fsrs@5.4.1`, which
+**Scheduling itself** is `scheduleFsrsReview` (`fsrs.engine.ts:144`), injected as
+`options.schedule` so tests can substitute it (`fsrs-live.postgres.ts:149`). It wraps `ts-fsrs@5.4.1`, which
 self-identifies as generation **FSRS-6**; the three version tags (`FSRS_ALGORITHM_VERSION`,
 `FSRS_LIBRARY_VERSION`, `FSRS_POLICY_VERSION`, `:19-21`) are persisted on each revision. `input.current === null`
 means New; otherwise the caller passes a full `ts-fsrs` `Card` reconstructed from the persisted row
-(`cardFromState`, `fsrs-live.postgres.ts:1243`), so `last_review` is the **real** persisted instant and
+(`cardFromState`, `fsrs-live.postgres.ts:1249`), so `last_review` is the **real** persisted instant and
 `ts-fsrs` computes elapsed time itself — stability grows for review-state cards, and the scheduler's
-`log.elapsed_days` is cross-checked against `after.elapsed_days` (`:395`).
+`log.elapsed_days` is cross-checked against `after.elapsed_days` (`:403`).
 
-`normalizeFsrsParameters` (`:56`) allow-lists exactly 7 keys, range-checks `request_retention` (0, 1] and
+`normalizeFsrsParameters` (`:64`) allow-lists exactly 7 keys, range-checks `request_retention` (0, 1] and
 `maximum_interval` [1, 36500] for stored-revision identity, validates step strings against `/^[1-9]\d*[mhd]$/`, migrates 17- and 19-weight
 vectors to the current 21, clamps every weight to the `ts-fsrs` `CLAMP_PARAMETERS` range, and throws
-`ValidationError` on any violation. Nothing reaches `generatorParameters()` unvalidated. **Interval cap:** whatever a revision's `maximum_interval` says, `scheduleFsrsReview` clamps the scheduled interval to `FSRS_MAX_INTERVAL_DAYS = 365` after ts-fsrs runs (ts-fsrs only soft-caps: it still forces `hard < good < easy`, so Easy on a mature card would land on cap + 2 days). New revisions default to `maximum_interval: 365`. Policy defaults
-(`:43-44`, `:172-182`): `learning_steps ['1m','15m']`, `relearning_steps ['10m']`, `enable_fuzz` **forced
-false**.
+`ValidationError` on any violation. Nothing reaches `generatorParameters()` unvalidated.
 
-**Parameter rotation** is `fsrsLiveService.rotateParameters` → `rotateParametersTransaction` (`:494`): it
+**Interval cap** (`FSRS_MAX_INTERVAL_DAYS = 365`, `fsrs.engine.ts:28`): whatever a revision's `maximum_interval` says, `scheduleFsrsReview` clamps `due`/`scheduled_days` to one year after ts-fsrs runs (ts-fsrs only soft-caps: it still forces `hard < good < easy`, so Easy on a mature card would land on cap + 2 days). At the cap the three passing grades land on the **same** due date — the grade signal survives only in `stability`, which is deliberately left uncapped so later reviews keep diverging (Anki behaves the same). New revisions default to `maximum_interval: 365`; stored revisions keep their own value for `params_hash` identity. **This is a tail-risk guard, not a way to shorten intervals:** it only bites above one year, which on default weights needs stability ≳ 400 d. A card with S = 13 d recalled Easy after 74 days legitimately schedules ~243 days at 90 % desired retention — that is FSRS working, and the study header's provenance line (`describeCardProgress`) exists so such a card is never mistaken for a first-time one. Shorter intervals across the board are a `request_retention` decision, never a cap.
+
+Policy defaults
+(`:51-52`, `:204-214`): `learning_steps ['1m','15m']`, `relearning_steps ['10m']`, `enable_fuzz` **forced
+false** (`:212`).
+
+**Parameter rotation** is `fsrsLiveService.rotateParameters` → `rotateParametersTransaction` (`:500`): it
 retires the active revision and creates (or reactivates) the one matching the new canonical hash. **It has no
 HTTP route** — there is no optimizer feature and no per-user parameter endpoint.
 
@@ -265,8 +269,8 @@ UTC+13/+14 users (Kiritimati, Samoa DST, Chatham) are no longer clipped to UTC+1
 step, or the narrower one silently undoes the other.
 
 On the write path the offset only decides which `study_daily_logs.study_date` a review lands on
-(`studyDateForReviewedAt`, `fsrs-live.domain.ts:252`), and the domain layer independently validates it as an
-integer in `[-840, 720]` (`:493`) — **the same bounds and the same sign convention** as the route. There
+(`groupReviewsByStudyDate` → `studyDateForReviewedAt`, `fsrs-live.domain.ts:285`/`:266`) — computed from the **server's `receivedAt`**, never the client's `reviewedAt`, because that is the clock `getUserStreak` compares against (a slow client clock must not extend a streak and then break it). The domain layer independently validates the offset as an
+integer in `[-840, 720]` (`:527`) — **the same bounds and the same sign convention** as the route. There
 never was a reversed convention: both sides take the JS `getTimezoneOffset()` sign and subtract it; the only
 defect was the route's clamp range, fixed in the final review wave.
 
@@ -330,15 +334,15 @@ review wave. The module's only remaining retention read is inside `getStudyRecom
 | Where | Values |
 |---|---|
 | `study-cluster.ts:3` | `MAX_STUDY_CLUSTER_CARDS` = 12 (selected-card study, and the memory-health attention cap) |
-| `fsrs-live.domain.ts:4-12` | batch cap 100, past skew bound 7 days (future is clamped to `receivedAt`), duration cap 1 h, tz `[-840, 720]` |
-| `fsrs.engine.ts` | `FSRS_MAX_INTERVAL_DAYS` = 365 hard interval cap |
+| `fsrs-live.domain.ts:4-15` | batch cap 100, `reviewedAt` clamp window `[receivedAt − 24 h, receivedAt]`, duration cap 1 h, tz `[-840, 720]` |
+| `fsrs.engine.ts:28` | `FSRS_MAX_INTERVAL_DAYS` = 365 hard interval cap (tail-risk guard; inert below one year) |
 | `fsrs-deck-reads.postgres.ts` | `LEARNED_STABILITY_DAYS` = 21 (mature threshold for `learnedCards`) |
 | `fsrs-live.postgres.ts:54-55` | 5 serializable attempts, retryable codes `40001`/`40P01` |
-| `fsrs.engine.ts:43-44` | `['1m','15m']` learning, `['10m']` relearning; `enable_fuzz` forced false at `:180` |
+| `fsrs.engine.ts:51-52` | `['1m','15m']` learning, `['10m']` relearning; `enable_fuzz` forced false at `:212` |
 | `fsrs-deck-reads.postgres.ts:22-23,252,293` | 1 h `dueSoon` window, interleave limit `[1,200]`, `topN` `[1,50]` |
 | `study.service.ts:237` | 91-day dashboard activity window |
 | `constants.ts:52-54` | `ACTIVITY_MAX_DAYS` 365, `ACTIVITY_DEFAULT_DAYS` 90 |
-| `study.routes.ts:26-37,63-64` | tz clamp `[-840,720]`, 180 req/60 s |
+| `study.routes.ts:27-38,64-65` | tz clamp `[-840,720]`, 180 req/60 s **per session** (`studyRateLimitKey`, `study-rate-limit.ts` — hashed session cookie, IP only when unauthenticated; every grade is its own request, so a per-IP bucket would starve users behind one NAT) |
 | `forecast.service.ts:118` | forecast `days` clamped `[1,90]` |
 | migration `0028:38` | the retrievability curve itself, rounded to 8 dp |
 
