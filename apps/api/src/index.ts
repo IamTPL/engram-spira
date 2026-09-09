@@ -28,7 +28,6 @@ import {
   cleanupExpiredJobs,
   recoverOrphanedJobs,
 } from './modules/ai/ai.service';
-import { cleanupOldReviewLogs } from './modules/study/review-logs-cleanup';
 import { startVerificationEmailWorker } from './modules/auth/verification-email-outbox';
 import {
   startKgWorker,
@@ -301,22 +300,5 @@ const cleanupInterval = setInterval(async () => {
 
 // Unref so the interval never prevents the process from exiting gracefully
 cleanupInterval.unref();
-
-// ── Review logs retention cleanup ─────────────────────────────────────────
-// Run once on startup (non-blocking)
-cleanupOldReviewLogs().catch((err) =>
-  logger.warn(toErrorInfo(err), 'Review logs cleanup failed on startup'),
-);
-
-// Periodic cleanup every 24h
-const reviewLogsCleanupInterval = setInterval(
-  () => {
-    cleanupOldReviewLogs().catch((err) =>
-      logger.warn(toErrorInfo(err), 'Periodic review logs cleanup failed'),
-    );
-  },
-  24 * 60 * 60 * 1000,
-);
-reviewLogsCleanupInterval.unref();
 
 export type App = typeof app;

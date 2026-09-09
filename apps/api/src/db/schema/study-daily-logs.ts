@@ -12,7 +12,7 @@ import { users } from './users';
 /**
  * One row per user per calendar day.
  * Upserted on every review action so we can compute streaks and heatmaps
- * without scanning the entire study_progress table.
+ * without scanning the entire review-event history.
  */
 export const studyDailyLogs = pgTable(
   'study_daily_logs',

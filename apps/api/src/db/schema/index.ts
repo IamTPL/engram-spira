@@ -15,7 +15,6 @@ export {
   cardFieldValues,
   cardFieldValuesRelations,
 } from './cards';
-export { studyProgress, studyProgressRelations } from './study-progress';
 export { studyDailyLogs, studyDailyLogsRelations } from './study-daily-logs';
 export {
   passwordResetTokens,
@@ -25,14 +24,12 @@ export {
   emailVerificationOutbox,
   emailVerificationOutboxRelations,
 } from './email-verification-outbox';
-export { reviewLogs, reviewLogsRelations } from './review-logs';
 export {
   aiGenerationJobs,
   aiGenerationJobsRelations,
 } from './ai-generation-jobs';
 export { cardLinks, cardLinksRelations } from './card-links';
 export { cardConcepts, cardConceptsRelations } from './card-concepts';
-export { fsrsUserParams, fsrsUserParamsRelations } from './fsrs-user-params';
 export {
   dismissedSuggestions,
   dismissedSuggestionsRelations,
@@ -68,7 +65,3 @@ export {
   fsrsReviewEvents,
   fsrsReviewEventsRelations,
 } from './fsrs-review-events';
-export {
-  fsrsMigrationRuns,
-  fsrsMigrationRunsRelations,
-} from './fsrs-migration-runs';

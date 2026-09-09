@@ -3,15 +3,12 @@ import { resetMocks, setMockReturn } from '../../helpers/db-mock';
 
 // Mock all schema tables
 mock.module('../../../src/db/schema', () => ({
-  studyProgress: { id: 'id', userId: 'userId', cardId: 'cardId', boxLevel: 'boxLevel', easeFactor: 'easeFactor', intervalDays: 'intervalDays', nextReviewAt: 'nextReviewAt', lastReviewedAt: 'lastReviewedAt', stability: 'stability', difficulty: 'difficulty', fsrsState: 'fsrsState', lastElapsedDays: 'lastElapsedDays', fsrsLearningSteps: 'fsrsLearningSteps' },
   studyDailyLogs: { userId: 'userId', studyDate: 'studyDate', cardsReviewed: 'cardsReviewed' },
   cards: { id: 'id', deckId: 'deckId', sortOrder: 'sortOrder' },
   cardFieldValues: { cardId: 'cardId', templateFieldId: 'templateFieldId', value: 'value' },
   templateFields: { id: 'id', name: 'name', fieldType: 'fieldType', side: 'side', sortOrder: 'sortOrder', templateId: 'templateId' },
   decks: { id: 'id', userId: 'userId', cardTemplateId: 'cardTemplateId', name: 'name' },
-  reviewLogs: { userId: 'userId', cardId: 'cardId', rating: 'rating', state: 'state', elapsedDays: 'elapsedDays', scheduledDays: 'scheduledDays' },
-  users: { id: 'id', srsAlgorithm: 'srsAlgorithm' },
-  fsrsUserParams: { userId: 'userId', params: 'params' },
+  users: { id: 'id' },
 }));
 
 // Mock notifications service

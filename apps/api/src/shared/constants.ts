@@ -8,23 +8,6 @@ export const REVIEW_ACTIONS = {
 
 export type ReviewAction = (typeof REVIEW_ACTIONS)[keyof typeof REVIEW_ACTIONS];
 
-// SM-2 Algorithm constants
-// easeFactor controls how fast intervals grow per card (adaptive per-user-per-card)
-export const SM2 = {
-  DEFAULT_EASE_FACTOR: 2.5, // starting multiplier for new cards
-  MIN_EASE_FACTOR: 1.3, // floor — even the hardest card grows eventually
-  // Per-action ease factor deltas
-  AGAIN_EF_DELTA: -0.2, // penalty for forgetting
-  HARD_EF_DELTA: -0.15, // penalty for difficulty
-  GOOD_EF_DELTA: 0, // neutral (no change)
-  EASY_EF_DELTA: 0.15, // bonus for easy recall
-  EASY_INTERVAL_BONUS: 1.3, // extra multiplier on interval for easy
-  // Initial intervals (repetitions 1 and 2 use fixed values like classic SM-2)
-  FIRST_INTERVAL_DAYS: 1,
-  SECOND_INTERVAL_DAYS: 6,
-  AGAIN_RELEARN_MINUTES: 10, // show again card after 10 minutes
-} as const;
-
 // Template Field Types
 export const FIELD_TYPES = {
   TEXT: 'text',

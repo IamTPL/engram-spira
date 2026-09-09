@@ -26,10 +26,10 @@ import {
 import { fsrsForgettingCurveConstants } from '../../../src/modules/study/fsrs-revision';
 import {
   canonicalJson,
-  FSRS_REPLAY_UUID_NAMESPACE,
+  FSRS_UUID_NAMESPACE,
   sha256Canonical,
   uuidV5,
-} from '../../../src/modules/study/fsrs-replay-planner';
+} from '../../../src/modules/study/fsrs-canonical';
 
 const ADMIN_URL =
   process.env.TEST_POSTGRES_ADMIN_URL ??
@@ -305,7 +305,7 @@ function deterministicDefaultRevision(userId: string) {
       FSRS_POLICY_VERSION,
       paramsHash,
     ].join('/'),
-    FSRS_REPLAY_UUID_NAMESPACE,
+    FSRS_UUID_NAMESPACE,
   );
   return { id, parameters, paramsHash };
 }
@@ -541,7 +541,7 @@ describe('PostgreSQL canonical FSRS live writer', () => {
         FSRS_POLICY_VERSION,
         paramsHash,
       ].join('/'),
-      FSRS_REPLAY_UUID_NAMESPACE,
+      FSRS_UUID_NAMESPACE,
     );
     expect([
       ...await sql`
@@ -640,11 +640,7 @@ describe('PostgreSQL canonical FSRS live writer', () => {
           (SELECT count(*)::int FROM fsrs_card_states
             WHERE user_id = ${seeded.userId}) AS states,
           (SELECT coalesce(sum(cards_reviewed), 0)::int FROM study_daily_logs
-            WHERE user_id = ${seeded.userId}) AS daily,
-          (SELECT count(*)::int FROM study_progress
-            WHERE user_id = ${seeded.userId}) AS legacy_progress,
-          (SELECT count(*)::int FROM review_logs
-            WHERE user_id = ${seeded.userId}) AS legacy_events
+            WHERE user_id = ${seeded.userId}) AS daily
       `,
     ];
 
@@ -666,11 +662,7 @@ describe('PostgreSQL canonical FSRS live writer', () => {
           (SELECT count(*)::int FROM fsrs_card_states
             WHERE user_id = ${seeded.userId}) AS states,
           (SELECT coalesce(sum(cards_reviewed), 0)::int FROM study_daily_logs
-            WHERE user_id = ${seeded.userId}) AS daily,
-          (SELECT count(*)::int FROM study_progress
-            WHERE user_id = ${seeded.userId}) AS legacy_progress,
-          (SELECT count(*)::int FROM review_logs
-            WHERE user_id = ${seeded.userId}) AS legacy_events
+            WHERE user_id = ${seeded.userId}) AS daily
       `,
     ]).toEqual(beforeRetry);
     expect([

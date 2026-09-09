@@ -70,22 +70,6 @@ export function createCard(overrides: Record<string, any> = {}) {
   };
 }
 
-export function createStudyProgress(overrides: Record<string, any> = {}) {
-  return {
-    cardId: 'card-1',
-    userId: 'user-1',
-    boxLevel: 0,
-    easeFactor: 2.5,
-    intervalDays: 1,
-    stability: null,
-    difficulty: null,
-    fsrsState: null,
-    lastReviewedAt: new Date('2026-01-01'),
-    nextReviewAt: new Date('2026-01-02'),
-    ...overrides,
-  };
-}
-
 export function createTemplateField(overrides: Record<string, any> = {}) {
   return {
     id: 'field-1',

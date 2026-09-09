@@ -15,8 +15,6 @@ const expectedExports = [
   'fsrsCardStatesRelations',
   'fsrsReviewEvents',
   'fsrsReviewEventsRelations',
-  'fsrsMigrationRuns',
-  'fsrsMigrationRunsRelations',
 ] as const;
 
 describe('FSRS-only Drizzle schema', () => {
@@ -54,13 +52,11 @@ describe('FSRS-only Drizzle schema', () => {
       fsrsParameterRevisions: Parameters<typeof getTableConfig>[0];
       fsrsCardStates: Parameters<typeof getTableConfig>[0];
       fsrsReviewEvents: Parameters<typeof getTableConfig>[0];
-      fsrsMigrationRuns: Parameters<typeof getTableConfig>[0];
     };
 
     const revisionConfig = getTableConfig(typedSchema.fsrsParameterRevisions);
     const stateConfig = getTableConfig(typedSchema.fsrsCardStates);
     const eventConfig = getTableConfig(typedSchema.fsrsReviewEvents);
-    const runConfig = getTableConfig(typedSchema.fsrsMigrationRuns);
 
     expect(
       revisionConfig.uniqueConstraints.map((constraint) => constraint.name),
@@ -95,12 +91,6 @@ describe('FSRS-only Drizzle schema', () => {
         'idx_fsrs_review_events_card',
         'idx_fsrs_review_events_parameter_revision',
       ]),
-    );
-    expect(runConfig.indexes.map((index) => index.config.name)).toContain(
-      'idx_fsrs_migration_runs_status_started',
-    );
-    expect(runConfig.checks.map((constraint) => constraint.name)).toContain(
-      'chk_fsrs_migration_runs_lifecycle',
     );
 
     expect(typedSchema.fsrsCardStates.lastReviewedAt.notNull).toBe(true);

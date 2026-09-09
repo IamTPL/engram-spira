@@ -18,7 +18,7 @@ import {
 import {
   canonicalJson,
   sha256Canonical,
-} from '../../../src/modules/study/fsrs-replay-planner';
+} from '../../../src/modules/study/fsrs-canonical';
 import {
   FSRS_ALGORITHM_VERSION,
   FSRS_LIBRARY_VERSION,

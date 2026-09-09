@@ -10,7 +10,6 @@ import {
 import { relations } from 'drizzle-orm';
 import { decks } from './decks';
 import { templateFields } from './card-templates';
-import { studyProgress } from './study-progress';
 import { cardSenses } from './card-senses';
 import { kgRelationSuggestions } from './kg-relation-suggestions';
 import { cardEmbeddingMetadata } from './card-embedding-metadata';
@@ -39,7 +38,6 @@ export const cardsRelations = relations(cards, ({ one, many }) => ({
     references: [decks.id],
   }),
   fieldValues: many(cardFieldValues),
-  studyProgress: many(studyProgress),
   senses: many(cardSenses),
   sourceSuggestions: many(kgRelationSuggestions, {
     relationName: 'suggestionSourceCard',
