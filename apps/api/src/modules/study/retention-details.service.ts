@@ -135,21 +135,21 @@ export const defaultRetentionDetailsLoaders: RetentionDetailsLoaders = {
     return db.execute<RetentionOutcomeBucketRow>(sql`
       SELECT
         (
-          (rl.reviewed_at AT TIME ZONE 'UTC')
+          (e.reviewed_at AT TIME ZONE 'UTC')
           - (${tzOffset}::integer * interval '1 minute')
         )::date::text AS date,
-        rl.rating,
+        e.rating,
         COUNT(*)::int AS count
-      FROM review_logs rl
-      INNER JOIN cards c ON c.id = rl.card_id
+      FROM fsrs_review_events e
+      INNER JOIN cards c ON c.id = e.card_id
       INNER JOIN decks d ON d.id = c.deck_id
-      WHERE rl.user_id = ${userId}
+      WHERE e.user_id = ${userId}
         AND d.id = ${deckId}
         AND d.user_id = ${userId}
-        AND rl.reviewed_at >= ${fromIso}::timestamptz
-        AND rl.reviewed_at <= ${untilIso}::timestamptz
-      GROUP BY date, rl.rating
-      ORDER BY date ASC, rl.rating ASC
+        AND e.reviewed_at >= ${fromIso}::timestamptz
+        AND e.reviewed_at <= ${untilIso}::timestamptz
+      GROUP BY date, e.rating
+      ORDER BY date ASC, e.rating ASC
     `);
   },
   loadWorkload(userId, deckId, asOf, tzOffset) {
@@ -162,19 +162,19 @@ export const defaultRetentionDetailsLoaders: RetentionDetailsLoaders = {
       SELECT
         GREATEST(
           (
-            (sp.next_review_at AT TIME ZONE 'UTC')
+            (s.next_review_at AT TIME ZONE 'UTC')
             - (${tzOffset}::integer * interval '1 minute')
           )::date,
           ${localToday}::date
         )::text AS date,
         COUNT(*)::int AS count
-      FROM study_progress sp
-      INNER JOIN cards c ON c.id = sp.card_id
+      FROM fsrs_card_states s
+      INNER JOIN cards c ON c.id = s.card_id
       INNER JOIN decks d ON d.id = c.deck_id
-      WHERE sp.user_id = ${userId}
+      WHERE s.user_id = ${userId}
         AND d.id = ${deckId}
         AND d.user_id = ${userId}
-        AND sp.next_review_at < ${upperBound}::timestamptz
+        AND s.next_review_at < ${upperBound}::timestamptz
       GROUP BY date
       ORDER BY date ASC
     `);
@@ -183,21 +183,22 @@ export const defaultRetentionDetailsLoaders: RetentionDetailsLoaders = {
     return db.execute<RetentionRecentReviewRow>(sql`
       WITH recent AS (
         SELECT
-          rl.id,
-          rl.card_id,
+          e.id,
+          e.card_id,
+          e.sequence,
           c.sort_order,
-          rl.rating,
-          rl.reviewed_at,
-          rl.elapsed_days,
-          rl.scheduled_days
-        FROM review_logs rl
-        INNER JOIN cards c ON c.id = rl.card_id
+          e.rating,
+          e.reviewed_at,
+          e.elapsed_days,
+          COALESCE(e.before_scheduled_days, 0) AS scheduled_days
+        FROM fsrs_review_events e
+        INNER JOIN cards c ON c.id = e.card_id
         INNER JOIN decks d ON d.id = c.deck_id
-        WHERE rl.user_id = ${userId}
+        WHERE e.user_id = ${userId}
           AND d.id = ${deckId}
           AND d.user_id = ${userId}
-          AND rl.rating IN ('again', 'hard', 'good', 'easy')
-        ORDER BY rl.reviewed_at DESC, rl.id DESC
+          AND e.rating IN ('again', 'hard', 'good', 'easy')
+        ORDER BY e.reviewed_at DESC, e.sequence DESC, e.id DESC
         LIMIT ${RECENT_REVIEW_LIMIT}
       )
       SELECT
@@ -223,7 +224,7 @@ export const defaultRetentionDetailsLoaders: RetentionDetailsLoaders = {
         ORDER BY tf.sort_order ASC, tf.id ASC
         LIMIT 1
       ) label ON true
-      ORDER BY recent.reviewed_at DESC, recent.id DESC
+      ORDER BY recent.reviewed_at DESC, recent.sequence DESC, recent.id DESC
     `);
   },
 };
