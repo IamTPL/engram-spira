@@ -23,7 +23,12 @@ import { Button } from '@/components/ui/button';
 import { REVIEW_ACTIONS, KEYBOARD_SHORTCUTS } from '@/constants';
 import { ArrowLeft, CheckCircle, RotateCcw, Shuffle } from 'lucide-solid';
 import { toast } from '@/stores/toast.store';
-import { buildReviewItem, type ReviewItem } from './study-review-state';
+import {
+  applyReviewedCards,
+  buildReviewItem,
+  type DueDeckLike,
+  type ReviewItem,
+} from './study-review-state';
 
 /** `POST /study/interleaved` accepts at most 20 deck ids. */
 const INTERLEAVED_DECK_LIMIT = 20;
@@ -31,6 +36,7 @@ const INTERLEAVED_DECK_LIMIT = 20;
 type InterleavedSession = {
   cards: {
     id: string;
+    deckId: string;
     fields: {
       fieldName: string;
       fieldType: string;
@@ -68,6 +74,8 @@ const InterleavedStudyPage: Component = () => {
 
   const studyQuery = createQuery(() => ({
     queryKey: ['interleavedStudy', scopedFolderId()],
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
     queryFn: async () => {
       const folderId = scopedFolderId();
 
@@ -123,10 +131,27 @@ const InterleavedStudyPage: Component = () => {
     },
     retry: (failureCount, error) =>
       failureCount < 2 && !/already used/i.test(error.message),
-    onSuccess: () => {
+    onSuccess: (_, input) => {
       queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      const cardDeckIds = new Map(
+        (studyData()?.cards ?? []).map((card) => [card.id, card.deckId]),
+      );
+      const reviewedByDeck = new Map<string, number>();
+      for (const item of input.items) {
+        const deckId = cardDeckIds.get(item.cardId);
+        if (!deckId) continue;
+        reviewedByDeck.set(deckId, (reviewedByDeck.get(deckId) ?? 0) + 1);
+      }
+      if (reviewedByDeck.size > 0) {
+        queryClient.setQueryData<DueDeckLike[] | undefined>(['notifications'], (old) => {
+          if (!old) return old;
+          let next = old;
+          for (const [deckId, count] of reviewedByDeck) {
+            next = applyReviewedCards(next, deckId, count);
+          }
+          return next;
+        });
+      }
     },
     onError: (error: Error) => toast.error(error.message),
   }));
@@ -160,7 +185,12 @@ const InterleavedStudyPage: Component = () => {
     setPendingReviews((prev) => prev.slice(pending.length));
     try {
       await reviewBatchMutation.mutateAsync({ items: pending, keepalive });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && /already used/i.test(error.message)) {
+        // Non-retryable: the server already applied these requestIds. Drop
+        // them instead of re-queuing forever (onError already toasted).
+        return;
+      }
       // Items keep their requestId; put them back so the next flush retries idempotently.
       setPendingReviews((prev) => [...pending, ...prev]);
     }

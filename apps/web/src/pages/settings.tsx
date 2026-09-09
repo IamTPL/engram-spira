@@ -241,7 +241,7 @@ const SettingsPage: Component = () => {
               Make Engram Spira yours
             </h1>
             <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Manage your identity, study model, appearance, and account security.
+              Manage your identity, appearance, and account security.
             </p>
           </div>
         </header>

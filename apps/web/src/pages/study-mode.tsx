@@ -38,7 +38,12 @@ import RelatedCardsPanel from '@/components/study/related-cards-panel';
 import { memoryHealthKeys } from '@/components/deck-view/memory-health-state';
 import { toast } from '@/stores/toast.store';
 import { buildStudyDeckQuery, isStudyCluster } from './study-mode-state';
-import { buildReviewItem, type ReviewItem } from './study-review-state';
+import {
+  applyReviewedCards,
+  buildReviewItem,
+  type DueDeckLike,
+  type ReviewItem,
+} from './study-review-state';
 
 const StudyModePage: Component = () => {
   const params = useParams<{ deckId: string }>();
@@ -83,6 +88,8 @@ const StudyModePage: Component = () => {
       effectiveStudyMode(),
       searchParams.cardIds ?? '',
     ],
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await (api.study.deck as any)[params.deckId].get({
         query: buildStudyDeckQuery(effectiveStudyMode(), searchParams.cardIds),
@@ -147,14 +154,15 @@ const StudyModePage: Component = () => {
     },
     retry: (failureCount, error) =>
       failureCount < 2 && !/already used/i.test(error.message),
-    onSuccess: () => {
+    onSuccess: (_, input) => {
       // NOTE: Do NOT invalidate studyData here — it causes a mid-session refetch
       // that replaces the cards array while currentIndex stays unchanged, triggering
       // premature "Session Complete". The batch-end handler in handleReview already
       // invalidates studyData explicitly when the current batch is exhausted.
+      queryClient.setQueryData<DueDeckLike[] | undefined>(['notifications'], (old) =>
+        old ? applyReviewedCards(old, params.deckId, input.items.length) : old,
+      );
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({
         queryKey: memoryHealthKeys.deck(params.deckId),
       });
@@ -194,7 +202,12 @@ const StudyModePage: Component = () => {
     setPendingReviews((prev) => prev.slice(pending.length));
     try {
       await reviewBatchMutation.mutateAsync({ items: pending, keepalive });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && /already used/i.test(error.message)) {
+        // Non-retryable: the server already applied these requestIds. Drop
+        // them instead of re-queuing forever (onError already toasted).
+        return;
+      }
       // Items keep their requestId; put them back so the next flush retries idempotently.
       setPendingReviews((prev) => [...pending, ...prev]);
     }

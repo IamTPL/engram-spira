@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildReviewItem } from './study-review-state';
+import { applyReviewedCards, buildReviewItem } from './study-review-state';
 
 const CARD = '22222222-2222-4222-8222-222222222222';
 const REQUEST = '33333333-3333-4333-8333-333333333333';
@@ -31,5 +31,14 @@ describe('buildReviewItem', () => {
     expect(a.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
+  });
+});
+
+describe('applyReviewedCards', () => {
+  test('decrements the matching deck and drops it at zero', () => {
+    const decks = [{ deckId: 'a', dueCount: 3 }, { deckId: 'b', dueCount: 1 }];
+    expect(applyReviewedCards(decks, 'a', 2)).toEqual([{ deckId: 'a', dueCount: 1 }, { deckId: 'b', dueCount: 1 }]);
+    expect(applyReviewedCards(decks, 'b', 5)).toEqual([{ deckId: 'a', dueCount: 3 }]);
+    expect(applyReviewedCards(decks, 'zzz', 1)).toEqual(decks);
   });
 });

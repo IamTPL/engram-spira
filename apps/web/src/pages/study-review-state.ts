@@ -39,3 +39,25 @@ export function buildReviewItem(
   }
   return item;
 }
+
+export interface DueDeckLike {
+  deckId: string;
+  dueCount: number;
+}
+
+/**
+ * Returns a new list with `by` subtracted from the deck's dueCount (floored
+ * at 0); decks at 0 are removed. Used to optimistically update the
+ * ['notifications'] cache after a review batch succeeds.
+ */
+export function applyReviewedCards<T extends DueDeckLike>(
+  decks: T[],
+  deckId: string,
+  by: number,
+): T[] {
+  return decks.flatMap((deck) => {
+    if (deck.deckId !== deckId) return [deck];
+    const dueCount = Math.max(0, deck.dueCount - by);
+    return dueCount === 0 ? [] : [{ ...deck, dueCount }];
+  });
+}
