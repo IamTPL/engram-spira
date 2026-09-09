@@ -19,6 +19,14 @@ import { ValidationError } from '../../shared/errors';
 export const FSRS_ALGORITHM_VERSION = 'FSRS-6';
 export const FSRS_LIBRARY_VERSION = 'ts-fsrs@5.4.1';
 export const FSRS_POLICY_VERSION = 'engram-fsrs-v1';
+/**
+ * Engram scheduling policy: never schedule a review more than one year out,
+ * whatever `maximum_interval` a parameter revision carries. Applied at
+ * scheduling time so revisions persisted with the old ts-fsrs default
+ * (36 500 days) keep their canonical identity and still obey the cap.
+ */
+export const FSRS_MAX_INTERVAL_DAYS = 365;
+const DAY_MS = 86_400_000;
 
 const RATING_MAP: Record<ReviewAction, Grade> = {
   again: Rating.Again,
@@ -149,16 +157,24 @@ export function scheduleFsrsReview(
       input.current === null
         ? createEmptyCard(reviewedAt)
         : validateAndCloneCard(input.current, reviewedAt);
-    const scheduler = fsrs(normalizeFsrsParameters(input.parameters));
+    const parameters = normalizeFsrsParameters(input.parameters);
+    const scheduler = fsrs({
+      ...parameters,
+      maximum_interval: Math.min(
+        parameters.maximum_interval,
+        FSRS_MAX_INTERVAL_DAYS,
+      ),
+    });
     const scheduled = scheduler.next(
       before,
       reviewedAt,
       RATING_MAP[input.rating],
     );
+    const after = capInterval(cloneCard(scheduled.card), reviewedAt);
 
     return {
       before: cloneCard(before),
-      after: cloneCard(scheduled.card),
+      after,
       log: cloneReviewLog(scheduled.log),
     };
   } catch (error) {
@@ -169,12 +185,28 @@ export function scheduleFsrsReview(
   }
 }
 
+/**
+ * ts-fsrs treats `maximum_interval` as a soft bound: after capping it still
+ * forces `hard < good < easy` by adding a day per step, so Easy on a mature
+ * card lands on cap + 2. The Engram policy is a hard bound.
+ */
+function capInterval(card: Card, reviewedAt: Date): Card {
+  const capMs = FSRS_MAX_INTERVAL_DAYS * DAY_MS;
+  if (card.due.getTime() - reviewedAt.getTime() <= capMs) return card;
+  return {
+    ...card,
+    due: new Date(reviewedAt.getTime() + capMs),
+    scheduled_days: FSRS_MAX_INTERVAL_DAYS,
+  };
+}
+
 function createPolicyParameters(
   parameters: Partial<FSRSParameters>,
 ): FSRSParameters {
   return generatorParameters({
     learning_steps: DEFAULT_LEARNING_STEPS,
     relearning_steps: DEFAULT_RELEARNING_STEPS,
+    maximum_interval: FSRS_MAX_INTERVAL_DAYS,
     ...parameters,
     w: parameters.w ? [...parameters.w] : [...default_w],
     enable_fuzz: false,

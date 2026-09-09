@@ -12,6 +12,7 @@ import { ValidationError } from '../../../src/shared/errors';
 import {
   FSRS_ALGORITHM_VERSION,
   FSRS_LIBRARY_VERSION,
+  FSRS_MAX_INTERVAL_DAYS,
   FSRS_POLICY_VERSION,
   normalizeFsrsParameters,
   scheduleFsrsReview,
@@ -23,6 +24,7 @@ const DEFAULT_POLICY_PARAMETERS = generatorParameters({
   enable_fuzz: false,
   learning_steps: ['1m', '15m'],
   relearning_steps: ['10m'],
+  maximum_interval: FSRS_MAX_INTERVAL_DAYS,
 });
 
 const RATING_CASES = [
@@ -106,7 +108,7 @@ describe('scheduleFsrsReview', () => {
     expect(result.after.scheduled_days).toBe(23);
   });
 
-  test('round-trips mature Card stability above the maximum interval domain', () => {
+  test('round-trips mature Card stability above the maximum interval domain under the hard one-year cap', () => {
     const current = reviewCard({ stability: 50_000 });
     const adapter = scheduleFsrsReview({
       current,
@@ -116,7 +118,13 @@ describe('scheduleFsrsReview', () => {
     const direct = directNext(current, Rating.Good, REVIEWED_AT);
 
     expect(adapter.before.stability).toBe(50_000);
-    expect(adapter.after).toEqual(direct.card);
+    // ts-fsrs only soft-caps (good = hard + 1 → 366); Engram clamps hard.
+    expect(direct.card.scheduled_days).toBeGreaterThan(FSRS_MAX_INTERVAL_DAYS);
+    expect(adapter.after).toEqual({
+      ...direct.card,
+      due: new Date(REVIEWED_AT.getTime() + FSRS_MAX_INTERVAL_DAYS * DAY_MS),
+      scheduled_days: FSRS_MAX_INTERVAL_DAYS,
+    });
     expect(adapter.log).toEqual(direct.log);
   });
 
@@ -344,6 +352,34 @@ describe('scheduleFsrsReview', () => {
         reviewedAt: REVIEWED_AT,
       }),
     ).toThrow(ValidationError);
+  });
+});
+
+describe('interval policy cap', () => {
+  test('FSRS_MAX_INTERVAL_DAYS is one year and is the default maximum_interval', () => {
+    expect(FSRS_MAX_INTERVAL_DAYS).toBe(365);
+    expect(normalizeFsrsParameters().maximum_interval).toBe(365);
+  });
+
+  test('never schedules more than one year ahead even when the revision allows 36500 days', () => {
+    const current = reviewCard({ stability: 50_000 });
+    const adapter = scheduleFsrsReview({
+      current,
+      rating: 'easy',
+      reviewedAt: REVIEWED_AT,
+      parameters: { maximum_interval: 36_500 },
+    });
+
+    expect(adapter.after.scheduled_days).toBeLessThanOrEqual(365);
+    expect(
+      (adapter.after.due.getTime() - REVIEWED_AT.getTime()) / DAY_MS,
+    ).toBeLessThanOrEqual(365);
+  });
+
+  test('a stored revision keeps its own maximum_interval for identity, the cap applies only when scheduling', () => {
+    expect(normalizeFsrsParameters({ maximum_interval: 36_500 }).maximum_interval).toBe(
+      36_500,
+    );
   });
 });
 
