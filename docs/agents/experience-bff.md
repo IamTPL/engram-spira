@@ -120,7 +120,7 @@ Do not assume the numbers add up across widgets:
 | command-center `dueDecks`, library-explorer | `fsrsDue` = `s.id IS NULL OR s.next_review_at <= asOf` — **includes New** (`:173`) |
 | deck-workspace `study.dueCount` | excludes New, same as `reviewQueue` (`deck-workspace.service.ts:191`) |
 | command-center `learningCount` | `FSRS_LEARNING AND s.next_review_at > asOf` — learning **and not due** (`:124-126`) |
-| deck-workspace `learningCount` | `FSRS_LEARNING` — **all** learning (`:193`). Known asymmetry, pending unification; see [known-issues.md](known-issues.md) |
+| deck-workspace `learningCount` | `FSRS_LEARNING AND s.next_review_at > asOf` — learning **and not due**, unified with command-center (`:194-195`) |
 
 `reviewQueue.nextAction` is hard-coded to `{ id: 'study.queue', label: 'Study queue' }` when any work exists, else null.
 

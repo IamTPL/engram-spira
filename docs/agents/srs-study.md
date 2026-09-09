@@ -335,7 +335,7 @@ review wave. The module's only remaining retention read is inside `getStudyRecom
 | `fsrs-deck-reads.postgres.ts:22-23,252,293` | 1 h `dueSoon` window, interleave limit `[1,200]`, `topN` `[1,50]` |
 | `study.service.ts:237` | 91-day dashboard activity window |
 | `constants.ts:52-54` | `ACTIVITY_MAX_DAYS` 365, `ACTIVITY_DEFAULT_DAYS` 90 |
-| `study.routes.ts:33,60-61` | tz clamp `[-720,840]`, 180 req/60 s |
+| `study.routes.ts:26-37,63-64` | tz clamp `[-840,720]`, 180 req/60 s |
 | `forecast.service.ts:118` | forecast `days` clamped `[1,90]` |
 | migration `0028:38` | the retrievability curve itself, rounded to 8 dp |
 

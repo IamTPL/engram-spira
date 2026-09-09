@@ -1,7 +1,7 @@
 # FSRS-only scheduling — design
 
 Date: 2026-09-08
-Status: approved in brainstorming, awaiting written-spec review
+Status: implemented
 Branch: `feat/fsrs-only` (from `fix/pgclient-codecs`)
 
 ## 1. Problem
@@ -358,3 +358,116 @@ owner to confirm replay numbers. Owner fast-forwards `master`.
 | Hidden legacy readers | `grep` gate in phase 2 plus web/api typecheck after schema deletion |
 | Replay anomalies (progress without logs) | manifest shows counts; `--allow-progress-without-logs` only after review |
 | `pgClient` codec traps in new SQL | everything goes through `pg-codecs`; drizzle-wrapped client in every Postgres test |
+
+## 14. Implementation notes (2026-09-09)
+
+All 26 implementation/doc tasks plus a final review fix wave (`b74bf95`) landed
+on `feat/fsrs-only`. The following deviations from this design were made
+during implementation and are recorded here for anyone reconciling the spec
+against the code.
+
+1. **Migration split.** §12 assumed one drop migration (`0028`). It shipped as
+   two: `0028_fsrs_curve_expand.sql` (additive — `decay`/`factor` columns,
+   `fsrs_retrievability`, an index swap) and `0029_fsrs_only_finalize.sql`
+   (the drops). Splitting kept the additive half revertible independently of
+   the destructive half.
+2. **Memory-health overview is 2 statements, not 1.** The §10 budget table
+   lists "memory health overview: 1 SQL statement"; `retention-overview.service.ts`
+   actually runs the aggregate (`retentionOverviewSql`) plus a second call to
+   `getCardLabels` for field labels — the label lookup was not worth folding
+   into the aggregate. `unavailable` is kept as a literal `0` in the response
+   shape for web compatibility (the field is a vestige of the old bucket
+   model; the web client still reads it).
+3. **Consumer SQL as exported `*Sql()` builders.** §11's "Postgres suite per
+   repository" became 13 exported `*Sql()` functions (`forecastSql`,
+   `heatmapSql`, `atRiskCardsSql` (forecast) and `atRiskCardsSql` (insights),
+   `reviewedThisWeekSql`, `libraryClassesSql`, `retentionOverviewSql`,
+   `deckStudySummarySql`, `queueRowsSql`, `reviewQueueSql`,
+   `dueDecksSummarySql`, `dueDecksSql`, `totalDueSql`) across
+   `study`/`experience` services, exercised through a `drizzle()`-wrapped
+   client in `__tests__/modules/study/fsrs-consumers.postgres.test.ts` with an
+   `EXPLAIN` gate that accepts either `idx_fsrs_card_states_card_user` or
+   `idx_fsrs_card_states_user_due` (the planner's choice is scale-dependent on
+   the dev DB; the gate only guards against a seq-scan regression).
+4. **`study.service.ts` factory shape.** §12 implied a single service surface;
+   the module keeps `createStudyDeckReadService` (deck reads) and separately
+   exports `fsrsLiveService` (review writes), rather than a single
+   `createStudyService({ deckReads, live })` factory. Two smaller,
+   independently-mockable exports proved simpler for the test suite than one
+   composed factory.
+5. **`getAtRiskCards` threshold semantics.** `getAtRiskCards(userId, threshold = null, limit = 20, asOf)`:
+   `threshold === null` means "use each revision's own `request_retention`"
+   (the FSRS-correct default); passing a number overrides it uniformly. The
+   forecast variant, `atRiskCardsSql`, wraps the underlying query in a
+   `capped` CTE so per-card field aggregation runs only over the page that
+   will actually be returned, not the full matching set; `limit`/pagination
+   bounds are `clampInt`-truncated and cast `::int` before binding.
+6. **`forecastSql.atRiskCount` scope.** This count is a decay forecast over
+   every card that has FSRS state — including learning-state and
+   already-overdue cards — and intentionally differs from the population the
+   `fsrsAtRisk` dashboard widget counts (review-state, not-yet-due only). This
+   is an intentional, documented split, not a bug. Forecast day labels are
+   computed as `asOf + N days` in UTC and do not read `x-timezone-offset` —
+   this is pre-existing behaviour carried forward, a deviation from §7's
+   general "load offset once per request" rule, not a regression introduced
+   by this branch.
+7. **Interleaved round-robin ordering.** `getTopDueDeckIds` orders decks by
+   the caller's input order via `deck_rank` (`unnest(...) WITH ORDINALITY`),
+   tie-broken by `created_at`, rather than any other implicit DB ordering —
+   needed for deterministic round-robin across repeated calls with the same
+   deck set.
+8. **`learningCount` unified.** Both `reviewQueueSql` (command center) and
+   `deckStudySummarySql` (deck workspace) now use the same predicate,
+   `FSRS_LEARNING AND s.next_review_at > asOf` ("learning and not yet due").
+   The deck-workspace count previously counted all learning-state cards
+   regardless of due-ness; see `docs/agents/experience-bff.md` and
+   `docs/agents/known-issues.md`, updated in the same commit as this note.
+9. **`reviewedThisWeekSql` bounded both sides.** The trailing-7-day window is
+   closed at both ends (`>= asOf - 7 days AND <= asOf`) so a clock-skewed or
+   future-dated client-supplied `reviewed_at` cannot inflate the count, and
+   the result stays reproducible for a pinned `asOf`.
+10. **`fsrs_retrievability` clamps negative elapsed time.** The SQL function
+    added in `0028_fsrs_curve_expand.sql` uses
+    `GREATEST(elapsed_seconds, 0)` before the decay-curve power expression, so
+    a card whose recorded review is momentarily "in the future" relative to
+    `asOf` (clock skew, replay ordering) still returns a valid retention
+    instead of a domain error or NaN.
+11. **Web cache-update strategy differs from §9.** §9 said a successful batch
+    would use `queryClient.setQueryData` to decrement due counts and
+    invalidate only `memoryHealthKeys.deck(id)`. In the shipped
+    `study-mode.tsx` / `interleaved-study.tsx`, neither page invalidates its
+    own in-session `studyData`/`interleavedStudy` query after a batch — the
+    in-session queue is trusted as authoritative for the remainder of the
+    session — while `['notifications']` and the dashboard key are still
+    updated/invalidated (the dashboard query key is `['experience-command-center', userId]`,
+    prefix-matched; `['dashboard']` from §9 never existed as a query key).
+    Failed prefetches (`pointerenter`/`focus` intent prefetch, §9) throw
+    rather than swallow, so the destination page shows the normal error
+    banner instead of silently falling back to a blocking fetch. A `409`
+    ("already used" `requestId`) response drops that batch rather than
+    re-queuing it, since the server has already applied it.
+12. **Replay executed once, then deleted.** Replay tooling (`fsrs-replay*`,
+    ~2.5k lines, plus its CLI and tests) was applied once against the dev DB
+    per §2/§12 (50 `fsrs_card_states` rows, 195 migration-backfilled
+    `fsrs_review_events`, 4 `fsrs_parameter_revisions`; 36 `truncatedHistories`
+    anomalies were informational, not blocking) and then deleted in the same
+    commit as the drop migration, exactly as planned. The tooling's history
+    remains in git (`git log fix/pgclient-codecs..feat/fsrs-only`) for anyone
+    who needs to re-run or audit the replay logic later.
+13. **Open product decision, not a bug.** The at-risk predicate
+    (`state = 'review' AND next_review_at > asOf AND R < request_retention`)
+    is near-empty by construction under FSRS — the scheduler already picks
+    due dates so retention lands at target, so almost nothing decays past
+    target before becoming due. This is documented as an explicit open
+    product decision for the owner (widen the band? show a rank instead of a
+    threshold?) in `docs/agents/performance.md` §5 and
+    `docs/agents/known-issues.md`, not something this branch should "fix" by
+    loosening the predicate.
+14. **Timezone clamp bounds corrected.** The `x-timezone-offset` clamp was
+    fixed from `[-720, 840]` to `[-840, 720]` — the real
+    `Date.prototype.getTimezoneOffset()` range (UTC+14 .. UTC-12) — in both
+    `getTimezoneOffsetMinutes` (`study.routes.ts`) and the re-clamp in
+    `retention-details.service.ts`, so the two stay in step. See
+    `docs/agents/known-issues.md` for the full history (there was never a
+    "reversed sign convention" between the two; both sides take the JS sign
+    and subtract it).
