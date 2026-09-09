@@ -84,7 +84,7 @@ Violating any of these breaks the build, the types, the database, reactivity, or
 17. **Never destructure or alias props.** Type as `Component<Props>` and read `props.x`, or peel keys with `splitProps` when spreading. Zero files in `apps/web` destructure props today.
 18. No React idioms: no `useState`/`useEffect`/`useMemo`/`useRef`, no `className`, no `htmlFor`, no `onChange` for text input (use `onInput`), no `key` prop, no early `return` to change rendering. Use `class`, `for`, `<Show>`/`<For>` (`<Index>` only for focus-stable inputs), and pair every listener/timer/observer with `onCleanup`.
 19. Any reactive primitive created at **module scope** must be wrapped in `createRoot` (see `theme.store.ts:43`). A bare `createSignal` is fine; `createEffect`/`createQuery` is not.
-20. Build new shell surfaces in `apps/web/src/components/app-shell/` — `app.tsx:69` renders it via `protect()`. `components/layout/{header,sidebar,mobile-nav}.tsx` and `layout/sidebar/*` have **zero importers**, own 5 of the 22 tsc errors, and must not gain features. Only `layout/page-shell.tsx` is live.
+20. Build new shell surfaces in `apps/web/src/components/app-shell/` — `app.tsx:69` renders it via `protect()`. `components/layout/{header,sidebar,mobile-nav}.tsx` and `layout/sidebar/*` have **zero importers** and must not gain features. Only `layout/page-shell.tsx` is live.
 21. Style with Tailwind utilities and the semantic tokens in `apps/web/src/app.css` `@theme`. Never hardcode hex in a component; add a token plus its `.dark` override. There is no `tailwind.config.*` — `app.css` is the entire config and the only source of truth for design tokens (`docs/ui/design.md` is superseded).
 
 **Cross-boundary coupling**

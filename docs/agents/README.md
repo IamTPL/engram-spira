@@ -4,7 +4,9 @@ On-demand reference for coding agents working on **engram-spira**. The always-lo
 
 ## Verify, do not trust
 
-Every file here was written against the code at commit `73d1efd` and carries file:line citations so you can check it. **When a doc disagrees with the code, the code wins** — fix the doc in the same change that discovers the drift.
+Every file here carries `file:line` citations so you can check it. **When a doc disagrees with the code, the code wins** — fix the doc in the same change that discovers the drift.
+
+The base commit varies per file now: `performance.md`, `srs-study.md`, `database.md`, `endpoints.md`, `known-issues.md`, `testing.md` and `experience-bff.md` were revised against the FSRS-only branch head (2026-09-09); the rest still date from `73d1efd`. `orientation.md`, `api-conventions.md`, `ai-search.md`, `frontend.md` and `tooling-ci.md` have **not** been re-verified since SM-2 was removed — treat any scheduling, `study_progress` or `review_logs` claim in them as stale and check [srs-study.md](srs-study.md) instead.
 
 Never re-derive a count from prose. `AGENTS.md` §1 lists the shell command that proves each one.
 
@@ -12,11 +14,12 @@ Never re-derive a count from prose. `AGENTS.md` §1 lists the shell command that
 
 | File | Read it when |
 |---|---|
+| [performance.md](performance.md) | **Read before any change that touches a query, a list or a page load.** Latency rules, per-surface statement budgets, the `EXPLAIN` gate, and the semantics a rewrite must not silently change |
 | [orientation.md](orientation.md) | You are new to the repo: monorepo map, request lifecycle end to end, verified inventory |
 | [api-conventions.md](api-conventions.md) | Adding or changing an API module — the module recipe, error contract, auth, rate limits, logging |
 | [endpoints.md](endpoints.md) | You need an endpoint's exact method, path, auth, validation and response shape |
 | [database.md](database.md) | Touching the schema, writing a migration, or working with pgvector |
-| [srs-study.md](srs-study.md) | Anything about scheduling: SM-2, FSRS, reviews, streaks, forecast, retention |
+| [srs-study.md](srs-study.md) | Anything about scheduling: the FSRS-only model, the review write path, reviews, resets, streaks, forecast, retention |
 | [ai-search.md](ai-search.md) | Gemini card generation, the job queue, embeddings, semantic search, duplicate detection, knowledge graph |
 | [experience-bff.md](experience-bff.md) | The `experience` aggregate layer behind the command center |
 | [frontend.md](frontend.md) | Any `apps/web` work: SolidJS rules, app shell, stores, query keys, design tokens |
@@ -36,7 +39,7 @@ Kept for history, and because the in-app `/docs` page serves some of them. **Nev
 | `docs/dev_prompt/*` (12 files) | HISTORICAL | Superseded plans and audits. Contains **paste-ready code with the wrong embedding model** (`text-embedding-004`; the code uses `gemini-embedding-001`), and prose putting the vector column on the wrong table (`feature_roadmap_plan.md:264` says `card_concepts` — it actually lives on `card_field_values`). Never copy from here |
 | `docs/ui/design.md` | STALE | Entire palette, radius and shadow tables predate the June 2026 shadcn/zinc rewrite. `apps/web/src/app.css` is the only source of truth |
 | `docs/c4/workspace.dsl` | STALE | "15 feature modules", "16 table schemas", no `experience`, invents `/analytics` and `/search` routes that do not exist |
-| `docs/erd/erd.mmd` + `erd.svg` | STALE | 17 entities (schema has 18 — `dismissed_suggestions` missing); `study_daily_logs` columns are wrong |
+| `docs/erd/erd.mmd` + `erd.svg` | STALE | 17 entities against a 26-table schema, and it still draws `study_progress` / `review_logs`, both dropped by migration `0029`; `study_daily_logs` columns are wrong |
 | `docs/superpowers/**` | HISTORICAL | Design spec and plan for the shipped command center. Several documented limits were **not** implemented as written — see [experience-bff.md](experience-bff.md). Every checkbox is still unchecked even for work that shipped; use `git log` for progress |
 
 Regenerating the diagrams (`bun run docs:export`, `bun run docs:erd`) requires Docker and network respectively — see [tooling-ci.md](tooling-ci.md).

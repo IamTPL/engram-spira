@@ -1,6 +1,6 @@
 # The `experience` module — backend-for-frontend
 
-`apps/api/src/modules/experience/` — 12 files, ~3 230 LOC, added 2026-06-28 (commits `f81a7f3` → `93552f5`) so the redesigned command-center UI can render a screen with **one** request instead of orchestrating many CRUD calls. Mounted **last** at `index.ts:202`.
+`apps/api/src/modules/experience/` — 11 files, added 2026-06-28 (commits `f81a7f3` → `93552f5`) so the redesigned command-center UI can render a screen with **one** request instead of orchestrating many CRUD calls. Mounted **last** at `index.ts:212`. (`retention-sql.ts` was the twelfth; it is gone.)
 
 It reads *across* the other modules — composing their services and issuing its own raw SQL. **Nothing in a CRUD module may import from `experience/`**; the dependency arrow points one way.
 
@@ -15,7 +15,7 @@ It reads *across* the other modules — composing their services and issuing its
 | Testability | db-mock helpers | every service takes an injectable `*Loaders` record |
 | Response | resource object | `AggregateResponse` envelope (4 of 8 endpoints) |
 
-> **The untyped handlers are not a free style choice.** They collapse the exported Eden `App` type to an index signature, which is why `bun run typecheck` is red. Verified: commenting out `.use(experienceRoutes)` drops web errors **22 → 2**. The fix is `t` schemas + typed handler contexts here — **not** more `as any` in `apps/web`.
+> **The untyped handlers used to break the build.** They collapsed the exported Eden `App` type to an index signature, which produced 22 web typecheck errors. `experience.routes.ts` has since been refactored to an injectable-services pattern and **typecheck is green**. The remaining `any` handler contexts are still a liability, not a licence: add `t` schemas and typed contexts here rather than more `as any` in `apps/web`.
 
 ## The aggregate envelope
 
@@ -45,7 +45,7 @@ Semantics the UI depends on: `{status:'empty'}` + `[]`/`0` means **computed and 
 | `GET /dashboard/command-center` | envelope | 8 sections. `reviewQueue`, `streak`, `dueDecks` are **required** — a streak or due-decks query failure 500s the whole dashboard. `recent`, `weakAreas`, `forecast`, `pendingSuggestions`, `notifications` optional. All 8 resolve **sequentially** (~10 serialised SQL round-trips), not with `Promise.all` |
 | `GET /study/queue` | bare | 7 modes; `limit` clamped 1..200 (default 50) |
 | `GET /library/explorer` | envelope | `classes` required, `recentDecks` optional (8 deck ids) |
-| `GET /decks/:id/workspace` | envelope | `deck`+`cards` required (404 on missing deck), `study`/`analytics`/`counters` optional; page ≥ 1, pageSize 1..100 (50) |
+| `GET /decks/:id/workspace` | envelope | `deck`+`cards` required (404 on missing deck), `study`/`analytics`/`counters` optional; page ≥ 1, pageSize 1..100 (50). `study` and `analytics` are now filled by **one** loader, `loadStudySummary` (`deck-workspace.service.ts:203`), replacing the former separate `loadStudy`/`loadAnalytics` pair |
 | `GET /insights/overview` | envelope | all 5 optional: 14-day forecast, 8 smart groups, top-20 at-risk (CTE), 91-day heatmap, weekly review count |
 | `GET /command/search` | bare | `q` required; 8/group, **20 default / 30 max**, shared descending budget |
 | `POST /create/preview` | bare | manual/ai-paste/csv/json; 413 oversize; 15-min in-memory preview |
@@ -60,24 +60,43 @@ Routes are built by `createExperienceRoutes(services, authPlugin)` — a factory
 1. Put every new **cross-resource read** here, never in a CRUD module.
 2. Wrap multi-widget payloads with `aggregateResponse` + `resolveSection`. Never hand-assemble a `{ data, meta }` literal.
 3. Every service takes an injectable loaders/services record as its **last** parameter, defaulting to the exported `default*Loaders`. Adding a data dependency means adding it to that record, **not** importing `db` inside the business function. This is why the whole module needs no DB mock in tests.
-4. Scope every SQL read to the caller: `decks.user_id = ${userId}`, `classes.user_id = ${userId}`, `sp.user_id = ${userId}`.
-5. Reuse `retentionEstimateSelectSql()`, `atRiskRetentionFilterSql()` and `AT_RISK_RETENTION_THRESHOLD` from `retention-sql.ts`. Do not re-inline the decay formula or the literal `0.8`.
-6. **Keep the table-alias contract**: those fragments reference `sp.*` unqualified and only compile inside a query that aliases `study_progress` as `sp`. When aggregating, `GROUP BY sp.stability, sp.interval_days, sp.ease_factor, sp.last_reviewed_at` or Postgres rejects the statement.
+4. Scope every SQL read to the caller: `d.user_id = ${userId}`, `cl.user_id = ${userId}`, and `s.user_id` via `fsrsStateJoin(userId)` — the join itself carries the scope, so never join `fsrs_card_states` by hand.
+5. Compose the FSRS fragments from `../study/fsrs-sql.ts` — `fsrsStateJoin`, `fsrsDue`, `fsrsDueLater`, `FSRS_NEW`/`FSRS_LEARNING`/`FSRS_REVIEW`, `fsrsTargetRetention`, `fsrsRetrievability`, `fsrsAtRisk`, `fsrsAsOf`. **`retention-sql.ts` is gone** (deleted in `955a4e5`): there is no `retentionEstimateSelectSql`, no `atRiskRetentionFilterSql` and no `AT_RISK_RETENTION_THRESHOLD`. Never re-inline a decay formula or a literal `0.8`.
+6. **Keep the table-alias contract**: those fragments reference `c` (cards), `s` (`fsrs_card_states`) and `r` (`fsrs_parameter_revisions`) unqualified, so they only compile inside a query using exactly those aliases. When aggregating, `GROUP BY` every state/revision column the fragments read — `s.id, s.next_review_at, s.last_reviewed_at, s.state, s.stability, r.decay, r.factor, r.parameters` — or Postgres rejects the statement (see `queueRowsSql`, `study-queue.service.ts:317-318`).
+6a. Take `asOf: Date` as a defaulted trailing parameter and bind it once via `fsrsAsOf`. **Never** write `now()` into a read fragment: it makes results unrepeatable and lets two counters in one response disagree about "now".
+6b. Export the statement as a `*Sql()` builder returning `SQL`, so `fsrs-consumers.postgres.test.ts` can execute and `EXPLAIN` it. A statement inlined into a service body cannot be gated — see [performance.md](performance.md).
 7. Validate query strings and bodies with explicit hand-written parsers in `experience.routes.ts` (`parseOptionalNumber` / `stringOrUndefined` pattern) **and** re-validate in the service, because these routes carry no `t` schema.
 8. Convert every timestamp to an ISO string at the service boundary with the local `toIso` helper. The wire contract is `string | null`, never `Date`.
 9. Cap every list-shaped payload with a literal SQL `LIMIT` and clamp caller limits with `Math.min(Math.max(...))` before they reach SQL.
 10. Escape `%`/`_` before any LIKE/ILIKE (`likePattern()`, `command-search.service.ts:514`).
 11. Update `__tests__/modules/experience/*.test.ts` in the same commit as any contract change — the routes test asserts the **exact set and order** of `meta.sections` keys.
 
-## Retention SQL
+## Retention comes from `fsrs_retrievability()`
 
-`retention-sql.ts` is the shared definition of "at risk": `AT_RISK_RETENTION_THRESHOLD = 0.8`, and an estimate of
+`retention-sql.ts` **no longer exists**. Predicted recall is a single SQL function installed by migration
+`0028`:
 
+```sql
+fsrs_retrievability(stability, elapsed_seconds, decay, factor)  -- IMMUTABLE PARALLEL SAFE STRICT
 ```
-exp(-days_since_review / GREATEST(COALESCE(stability, interval_days * ease/2.5, 1), 1))
-```
 
-Note the denominator is a **`COALESCE` fallback chain**, not a max over three terms: when `stability` is non-null the interval/ease term is never consulted, so `stability = 0.5` yields a denominator of 1, not `interval*ease/2.5`. Clamped to ≤ 1 with a −50 exponent floor, and **NULL when `last_reviewed_at` is NULL**. `atRiskRetentionFilterSql()` adds "progress exists AND not yet due AND previously reviewed AND estimate < 0.8" — cards the scheduler thinks are fine but the model thinks are forgotten.
+`fsrsRetrievability(asOf)` (`../study/fsrs-sql.ts:37`) is the only wrapper; it yields `NULL` for a card with
+no state row and otherwise passes `s.stability`, the elapsed seconds since `s.last_reviewed_at`, and the
+card's own revision's `r.decay` / `r.factor`. Every `retentionEstimate`, `avgRetention` and at-risk predicate
+in this module goes through it.
+
+What changed in substance, not just in spelling:
+
+- The old estimate was a **`COALESCE` fallback chain** (`stability`, else `interval_days * ease / 2.5`, else 1)
+  with a hardcoded `0.8` threshold and a −50 exponent floor. None of that exists. There is no SM-2 fallback
+  because there are no SM-2 columns.
+- The threshold is now **per card**: `fsrsTargetRetention()` reads that card's revision's
+  `request_retention`, defaulting to `0.9` only when no revision row is joined. Do not reintroduce a literal.
+- `NULL` still means "never reviewed" — a card with no `fsrs_card_states` row — so `AVG` ignores it, and a
+  comparison against it is `NULL`, not `false`. Keep that in mind when writing a `FILTER (WHERE …)`.
+- "At risk" is `fsrsAtRisk` = `state='review' AND next_review_at > asOf AND R < target`. Under FSRS this
+  population is **small by construction** and near-zero counts are correct; see
+  [known-issues.md](known-issues.md) and [performance.md](performance.md) §5.
 
 ## Study queue
 
@@ -85,9 +104,11 @@ Note the denominator is a **`COALESCE` fallback chain**, not a max over three te
 
 `StudyQueueQuery` is a discriminated union with `never`-typed scope exclusions, so `{mode:'due', deckId}` is a compile error; the route parser drops non-matching scope ids per mode. Scope ownership is validated by `ensureDeck`/`ensureFolder`/`ensureClass`/`ensureSmartGroup`, each throwing `NotFoundError` (404); a **missing** scope id throws `ValidationError` (422). Non-UUID ids short-circuit to 404 via a local regex.
 
-Ordering is two-stage: SQL orders by `COALESCE(next_review_at, NOW())`, `sort_order`, `id`; then JS re-sorts by reason rank (`due` 0, `new` 1, `learning` 2, `at-risk` 3, `interleaved` 4, `manual` 5), then `sortOrder`, then `id`, then slices to `limit`.
+Ordering is two-stage: SQL orders by `COALESCE(s.next_review_at, asOf)`, `c.sort_order`, `c.id` (`queueRowsSql`, `study-queue.service.ts:319`); then JS re-sorts by reason rank (`due` 0, `new` 1, `learning` 2, `at-risk` 3, `interleaved` 4, `manual` 5), then `sortOrder`, then `id`, then slices to `limit`.
 
-Caveats: in modes `due`/`deck`/`folder`/`class` the SQL already filters to due-or-new, so `reason` can only ever be `'due'` or `'new'` — the `learning` and `manual` reasons are **unreachable** through those modes. Only `smart-group` can reach them: `interleaved` also has no due filter, but it forces every reason to `'interleaved'`, so `summary.due/new/learning/atRisk` are all 0 while `total > 0`.
+**`reason` derives from the card's FSRS `state`**, not from a box level (`reasonForRow`, `:157-175`), in this order: `interleaved`/`at-risk` modes force their own reason → `dueAt === null` → `'new'` → due at `asOf` → `'due'` → `state` is `'learning'` or `'relearning'` → `'learning'` → `retentionEstimate < targetRetention` → `'at-risk'` → else `'manual'`. `queueRowsSql` selects `s.state` and a per-card `targetRetention` (`:303-304`) precisely so this derivation needs no second query.
+
+Caveats: in modes `due`/`deck`/`folder`/`class` the SQL already filters with `fsrsDue`, so `reason` can only ever be `'due'` or `'new'` — `learning`, `at-risk` and `manual` are **unreachable** through those modes. Only `smart-group` can reach them: `interleaved` also has no due filter, but it forces every reason to `'interleaved'`, so `summary.due/new/learning/atRisk` are all 0 while `total > 0`.
 
 ## `dueCount` means different things in different endpoints
 
@@ -95,10 +116,11 @@ Do not assume the numbers add up across widgets:
 
 | Place | Definition |
 |---|---|
-| command-center `reviewQueue.dueCount` | `sp.id IS NOT NULL AND next_review_at <= NOW()` — **excludes new cards** |
-| command-center `dueDecks`, library-explorer | `sp.id IS NULL OR next_review_at <= NOW()` — **includes new** |
-| deck-workspace `study.dueCount` | excludes new; its `learningCount` **omits** the `next_review_at > NOW()` guard that command center applies |
-| command-center `learningCount` | `box_level = 0 AND next_review_at > NOW()` |
+| command-center `reviewQueue.dueCount` | `s.id IS NOT NULL AND s.next_review_at <= asOf` — **excludes New** (`command-center.service.ts:122`) |
+| command-center `dueDecks`, library-explorer | `fsrsDue` = `s.id IS NULL OR s.next_review_at <= asOf` — **includes New** (`:173`) |
+| deck-workspace `study.dueCount` | excludes New, same as `reviewQueue` (`deck-workspace.service.ts:191`) |
+| command-center `learningCount` | `FSRS_LEARNING AND s.next_review_at > asOf` — learning **and not due** (`:124-126`) |
+| deck-workspace `learningCount` | `FSRS_LEARNING` — **all** learning (`:193`). Known asymmetry, pending unification; see [known-issues.md](known-issues.md) |
 
 `reviewQueue.nextAction` is hard-coded to `{ id: 'study.queue', label: 'Study queue' }` when any work exists, else null.
 
@@ -192,4 +214,15 @@ Where the shipped code **deviates from its own design spec** (`docs/superpowers/
 
 ## Tests
 
-4 files / 76 tests (`command-search` 10, `create-preview` 24, `experience.routes` 17, `experience.service` 25) — currently **75 pass / 1 fail**. The failure is a fixture time bomb, not a service regression: `__tests__/helpers/fixtures.ts:110-113` hard-codes `past=2026-06-27` / `future=2026-06-29`, both now in the past, so `isDue()` reclassifies the "future" rows as due and the queue order comes back `[card-due, card-learning, card-risk, card-new]` instead of `[card-due, card-new, card-learning, card-risk]`. Fix by deriving fixture dates from `Date.now()`.
+`__tests__/modules/experience/` — `command-search` 10, `create-preview` 26, `experience.routes` 17,
+`experience.service` 25. All pass; the fixture time bomb that used to fail one queue-ordering case is fixed
+(`helpers/fixtures.ts:98-100` derives `now/past/future` from `Date.now()`).
+
+These suites use **no DB mock** — every service takes injectable loaders. The exported `*Sql()` builders they
+delegate to are separately executed and `EXPLAIN`-gated against real Postgres in
+`__tests__/modules/study/fsrs-consumers.postgres.test.ts`, which is where a change to
+`reviewQueueSql` / `dueDecksSummarySql` / `deckStudySummarySql` / `libraryClassesSql` / `queueRowsSql` /
+`atRiskCardsSql` / `reviewedThisWeekSql` must also be reflected. See [testing.md](testing.md).
+
+The routes test asserts the **exact set and order** of `meta.sections` keys — update it in the same commit as
+any contract change.

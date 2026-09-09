@@ -27,7 +27,11 @@ No Drizzle `logger` is configured, so **there is no SQL logging** in dev. `prepa
 
 One file per subject area in `apps/api/src/db/schema/`, all re-exported from `schema/index.ts` — **the only file `drizzle.config.ts` reads.** A table not exported there is invisible to drizzle-kit and will be dropped by `push`.
 
-Totals: **30 tables** across 28 files as of migration `0027` (`0027_fsrs_only_hardening` adds constraints and indexes only — composite FKs, `chk_fsrs_parameter_revisions_timestamps`, FK-covering indexes — no new tables) (was 18 tables / 16 files when this doc's per-table rows below were written). The 18 original rows are still accurate. 12 tables were added since, in two unrelated batches this doc does not yet catalogue in full: 8 from a knowledge-graph/lexical-graph + email-verification-outbox pass (migrations `0024`–`0025` — `card_senses`, `lexical_senses`, `lexemes`, `sense_relations`, `kg_runs`, `kg_relation_suggestions`, `card_embedding_metadata`, `email_verification_outbox`; see [ai-search.md](ai-search.md) if that doc covers them, otherwise re-derive), and 4 from an **FSRS-only persistence model** (migration `0026`), which **are** catalogued below since they're the newest addition. Re-run the schema conventions checks (`pgTable(`, `relations(`, etc. counts) before trusting an aggregate FK/index/unique/check total — the numbers in this paragraph are the only ones re-verified for this revision.
+Totals: **26 tables** across 24 files as of migration `0029`, re-measured 2026-09-09 (`grep -rho 'pgTable(' apps/api/src/db/schema/ | wc -l`).
+
+The table count moves in **both** directions. It reached 30 at `0027`, then migration `0029_fsrs_only_finalize` **dropped four**: `study_progress`, `review_logs`, `fsrs_user_params` and `fsrs_migration_runs`, plus the `users.srs_algorithm` column. Their schema files are deleted; do not go looking for them, and do not reintroduce a scheduling column on `study_progress` — the canonical model is `fsrs_card_states` + `fsrs_review_events` + `fsrs_parameter_revisions`. See [srs-study.md](srs-study.md).
+
+Of the 26, 18 are the original rows below (still accurate, minus the four dropped) and 8 came from a knowledge-graph/lexical-graph + email-verification-outbox pass (migrations `0024`–`0025` — `card_senses`, `lexical_senses`, `lexemes`, `sense_relations`, `kg_runs`, `kg_relation_suggestions`, `card_embedding_metadata`, `email_verification_outbox`) which this doc does not catalogue in full; re-derive from `schema/` or see [ai-search.md](ai-search.md). Re-run the schema-conventions checks (`pgTable(`, `relations(` counts) before trusting an aggregate FK/index/unique/check total — the table count is the only number re-verified for this revision.
 
 - PKs are `uuid('id').primaryKey().defaultRandom()`. The **only** text PK is `sessions.id` (it holds the hashed session token). Never introduce `serial`/`bigserial`.
 - Column names are snake_case inside `pgTable`, camelCase as the TS property: `sourceCardId: uuid('source_card_id')`. No casing option is configured.
@@ -44,7 +48,7 @@ Totals: **30 tables** across 28 files as of migration `0027` (`0027_fsrs_only_ha
 
 | Table | PK | Notable columns | Constraints / indexes |
 |---|---|---|---|
-| `users` | uuid | `email` uq, `password_hash`, `display_name` varchar(50), `avatar_url`, `srs_algorithm` varchar(10) d`'sm2'`, `email_verified` d`false`, `email_verification_token` varchar(64), `email_token_expires_at` | `users_email_unique`; DB-only partial `idx_users_verification_token` |
+| `users` | uuid | `email` uq, `password_hash`, `display_name` varchar(50), `avatar_url`, `email_verified` d`false`, `email_verification_token` varchar(64), `email_token_expires_at`, `email_verification_version` int d`0`. **`srs_algorithm` is gone** (dropped by `0029`) | `users_email_unique`; DB-only partial `idx_users_verification_token` |
 | `sessions` | **text** | `user_id`⌫, `expires_at` | `idx_sessions_user_id` |
 | `classes` | uuid | `user_id`⌫, `name`, `description`, `sort_order` d`0` | `idx_classes_user_id` |
 | `folders` | uuid | `class_id`⌫, `name`, `sort_order` d`0` | `idx_folders_class_id` |
@@ -53,27 +57,39 @@ Totals: **30 tables** across 28 files as of migration `0027` (`0027_fsrs_only_ha
 | `template_fields` | uuid | `template_id`⌫, `name` varchar(100), `field_type` varchar(50), `side` varchar(10), `sort_order`, `is_required` d`false`, `config` jsonb | uq `uq_template_field_name(template_id,name)`; `idx_template_fields_template_id` |
 | `cards` | uuid | `deck_id`⌫, `sort_order` d`0` | `idx_cards_deck_id`, `idx_cards_deck_sort_order(deck_id,sort_order)` |
 | `card_field_values` | uuid | `card_id`⌫, `template_field_id`⌫, `value` jsonb NOT NULL, **`embedding vector(768)` — DB-only** | uq `uq_card_field_value(card_id,template_field_id)`; `idx_cfv_card_id`; DB-only HNSW `idx_cfv_embedding` |
-| `study_progress` | uuid | SM-2: `box_level` d`0`, `ease_factor` float8 d`2.5`, `interval_days` d`1`; shared: `next_review_at` **NOT NULL, no default**, `last_reviewed_at`; FSRS: `stability` real, `difficulty` real, `fsrs_state` varchar(15) d`'new'`, `last_elapsed_days` real d`0`, `fsrs_learning_steps` d`0` | uq `uq_user_card_progress(user_id,card_id)`; `idx_sp_user_next_review(user_id,next_review_at)` |
 | `study_daily_logs` | uuid | `user_id`⌫, `study_date` **date**, `cards_reviewed` d`0` | uq `uq_user_study_date` — no other index (the redundant one was dropped in `0018`) |
 | `password_reset_tokens` | uuid | `user_id`⌫, `token_hash` uq, `expires_at` | `idx_prt_user_id`; DB-only `idx_prt_token_hash` |
-| `review_logs` | uuid | append-only: `rating` varchar(10), `state` varchar(15) d`'new'`, `elapsed_days` d`0`, `scheduled_days` d`0`, `review_duration_ms` (**never written**), `reviewed_at` | `idx_rl_user_card`, `idx_rl_user_reviewed_at` |
 | `ai_generation_jobs` | uuid | `status` varchar(20) d`'processing'`, `error_message`, `source_text`, `card_count`, `generated_cards` jsonb, `model` varchar(50) | `idx_ai_jobs_user_id`, `idx_ai_jobs_status_created`; DB-only partial `idx_ai_jobs_active` |
 | `card_links` | uuid | `source_card_id`⌫, `target_card_id`⌫, `link_type` varchar(20) d`'related'` | uq `uq_card_link`; **CHECK `chk_no_self_link`**; `idx_card_links_source`, `idx_card_links_target` |
 | `card_concepts` | uuid | `card_id`⌫, `concept` varchar(255) | `idx_card_concepts_card_id`, `idx_card_concepts_concept` |
-| `fsrs_user_params` | uuid | `user_id`⌫, `params` jsonb d`'{}'`, `updated_at` | uq `uq_fsrs_user_params_user` |
 | `dismissed_suggestions` | uuid | `user_id`⌫, `source_card_id`⌫, `target_card_id`⌫, `dismissed_at` | uq `uq_dismissed_user_pair`; `idx_dismissed_suggestions_user` |
 | `fsrs_parameter_revisions` | uuid | `user_id`⌫, `revision` int, `engine_version`/`algorithm_version`/`policy_version` varchar(100), `parameters` jsonb, `params_hash` char(64), `source` varchar(20), `decay`/`factor` double precision NOT NULL (ts-fsrs forgetting-curve constants, backfilled by `0028`), `retired_at` nullable | uq `(user_id,revision)`; uq `(user_id,engine_version,policy_version,params_hash)`; partial unique index on `user_id` **WHERE `retired_at` IS NULL** (at most one active revision per user); CHECKs on `revision>0`, hash length, `source IN ('default','manual','optimized','migration')`, `chk_fsrs_parameter_revisions_curve` (`decay<0 AND factor>0`) |
-| `fsrs_card_states` | uuid | `user_id`⌫, `card_id`⌫, `next_review_at` NOT NULL, `stability`/`difficulty` double precision, `state` varchar(20), `elapsed_days`/`scheduled_days`/`learning_steps`/`reps`/`lapses` int, `parameter_revision_id` → `fsrs_parameter_revisions` **NO ACTION**, `state_version` bigint | uq `(user_id,card_id)`; `idx_fsrs_card_states_user_due(user_id,next_review_at)` INCLUDE `(card_id,state,stability,last_reviewed_at,parameter_revision_id)` (migration `0028` replaced `0026`'s `idx_fsrs_card_states_due`/`_card`); `idx_..._card_user(card_id,user_id)`; `idx_..._parameter_revision`; 6 CHECKs incl. `state IN ('learning','review','relearning')` (**no `'new'`** — unlike `study_progress.fsrs_state`), `reps>=1 AND lapses<=reps`, `stability>0`, `difficulty BETWEEN 1 AND 10` |
+| `fsrs_card_states` | uuid | `user_id`⌫, `card_id`⌫, `next_review_at` NOT NULL, `stability`/`difficulty` double precision, `state` varchar(20), `elapsed_days`/`scheduled_days`/`learning_steps`/`reps`/`lapses` int, `parameter_revision_id` → `fsrs_parameter_revisions` **NO ACTION**, `state_version` bigint | uq `(user_id,card_id)`; `idx_fsrs_card_states_user_due(user_id,next_review_at)` INCLUDE `(card_id,state,stability,last_reviewed_at,parameter_revision_id)` (migration `0028` replaced `0026`'s `idx_fsrs_card_states_due`/`_card`); `idx_..._card_user(card_id,user_id)`; `idx_..._parameter_revision`; 6 CHECKs incl. `state IN ('learning','review','relearning')` (there is **no `'new'`** — a card with no row is New), `reps>=1 AND lapses<=reps`, `stability>0`, `difficulty BETWEEN 1 AND 10` |
 | `fsrs_review_events` | uuid | append-only: `request_id`, `user_id`⌫, `card_id`⌫, `sequence` int, `rating` varchar(10), `reviewed_at`/`received_at`, `duration_ms` nullable, `parameter_revision_id` → `fsrs_parameter_revisions` **NO ACTION**, `origin` varchar(10), full `before_*`/`after_*` state snapshot pairs | uq `(user_id,request_id)` (idempotency key); uq `(user_id,card_id,sequence)`; `idx_..._user_reviewed(user_id,reviewed_at DESC)`; `idx_..._card`; `idx_..._parameter_revision`; 12 CHECKs incl. all-or-nothing on the 6 `before_*` columns, `origin IN ('live','migration')`, `after_lapses<=after_reps` |
-| `fsrs_migration_runs` | uuid | `status` varchar(20), `engine_version`/`algorithm_version`/`policy_version`, `started_at`/`finished_at`, `source_counts`/`result_counts`/`anomalies` jsonb, `source_checksum`/`result_checksum` char(64) nullable, `error_message` | `idx_..._status_started(status,started_at DESC)`; CHECKs on `status IN ('running','completed','failed')` and checksum length |
 
-**The 4 `fsrs_*` tables above are schema-and-migration-only.** `grep -rl 'fsrsCardStates\|fsrsReviewEvents\|fsrsParameterRevisions\|fsrsMigrationRuns' apps/api/src --include=*.ts` outside `db/schema/` and the two `fsrs-only.*.test.ts` files returns nothing — no route, service or job reads or writes them yet. They are a **shadow persistence model** (migration `0026`'s own leading comment: "so replay can be deployed without changing or deleting any legacy scheduling data") sitting alongside the live `study_progress`/`review_logs` tables described below, not a replacement for them. `study.service.ts` was **not** touched by the commit that added these tables. Two new pure functions in `fsrs.engine.ts` — `scheduleFsrsReview()` and `normalizeFsrsParameters()` — exist to eventually populate them; see [srs-study.md](srs-study.md#fsrs-engine).
+**The 3 `fsrs_*` tables above are the live scheduling model** — the only one. `fsrs-live.postgres.ts` is the sole writer (one serializable transaction per call); every read composes the shared fragment vocabulary in `apps/api/src/modules/study/fsrs-sql.ts` (`fsrsStateJoin`, `fsrsDue`, `fsrsDueLater`, `FSRS_NEW`/`FSRS_LEARNING`/`FSRS_REVIEW`, `fsrsTargetRetention`, `fsrsRetrievability`, `fsrsAtRisk`, `fsrsAsOf`) rather than re-spelling the join. Do not write these tables through Drizzle or from a service body — see [srs-study.md](srs-study.md) and AGENTS.md §3 rule 12.
 
-`rating`, `state`, `fsrs_state`, `status`, `link_type`, `field_type`, `side`, `srs_algorithm` are all `varchar` with **no DB constraint** — validation is application-only.
+Migration `0028_fsrs_curve_expand.sql` added three things every canonical read depends on:
+
+- **`fsrs_parameter_revisions.decay` / `.factor`** (`:6-21`) — `double precision NOT NULL`, backfilled from `parameters->'w'->>20` as `decay = -w20` and `factor = round(exp(ln 0.9 / -w20) - 1, 8)`, guarded by `chk_fsrs_parameter_revisions_curve` (`decay < 0 AND factor > 0`). They exist so the SQL curve needs no jsonb parsing per row.
+- **`fsrs_retrievability(stability, elapsed_seconds, decay, factor)`** (`:30-41`) — `LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT`, returning `round(power(1 + factor * (GREATEST(elapsed_seconds,0)/86400.0) / stability, decay), 8)`. `IMMUTABLE PARALLEL SAFE` is what lets the planner hoist and parallelise it. It is a **DB-only object** (see below) — nothing in Drizzle models it. Its agreement with `ts-fsrs` is pinned by a 5 000-sample oracle test (`__tests__/modules/study/fsrs-sql.postgres.test.ts:55`).
+- **Two covering indexes** (`:45-52`), replacing `0026`'s `idx_fsrs_card_states_due` / `_card`:
+
+  ```sql
+  CREATE INDEX IF NOT EXISTS "idx_fsrs_card_states_user_due"
+    ON "fsrs_card_states" ("user_id", "next_review_at")
+    INCLUDE ("card_id", "state", "stability", "last_reviewed_at", "parameter_revision_id");
+  CREATE INDEX IF NOT EXISTS "idx_fsrs_card_states_card_user"
+    ON "fsrs_card_states" ("card_id", "user_id");
+  ```
+
+  Every canonical statement is expected to reach `fsrs_card_states` through one of these, and an `EXPLAIN` gate test asserts it (`fsrs-consumers.postgres.test.ts:275`; see [performance.md](performance.md) §7).
+
+`status`, `link_type`, `field_type`, `side` are `varchar` with **no DB constraint** — validation is application-only. The `fsrs_*` tables are the exception: `state`, `rating`, `origin` and `source` are all CHECK-constrained in the database as well as in code.
 
 ### Objects that exist in Postgres but not in Drizzle
 
-`card_field_values.embedding vector(768)` · `idx_cfv_embedding` (HNSW) · `idx_card_templates_is_system`, `idx_ai_jobs_active`, `idx_users_verification_token` (partial) · `idx_prt_token_hash` · extension `vector` · schema `drizzle` + table `__drizzle_migrations`
+`card_field_values.embedding vector(768)` · `idx_cfv_embedding` (HNSW) · `idx_card_templates_is_system`, `idx_ai_jobs_active`, `idx_users_verification_token` (partial) · `idx_prt_token_hash` · **the `fsrs_retrievability()` function** (migration `0028`) · extension `vector` · schema `drizzle` + table `__drizzle_migrations`
 
 This is why `db:push` is dangerous — see below.
 
@@ -81,7 +97,8 @@ This is why `db:push` is dangerous — see below.
 
 - **`decks.user_id` is denormalized** from `classes.user_id`. `decks.move` only updates `folderId` and validates the target folder belongs to the same user, so the invariant holds by convention. Any new code that reparents a deck must preserve `decks.user_id == folders → classes.user_id`.
 - **`card_templates.user_id` is nullable** and system templates use NULL. A query filtering by `user_id` silently excludes them — use `isNull(cardTemplates.userId)` or `isSystem` explicitly.
-- `study_progress.next_review_at` is NOT NULL **with no default** — an insert that omits it fails.
+- `fsrs_card_states.next_review_at` is NOT NULL **with no default** — an insert that omits it fails. The whole row is written only by `upsertState` (`fsrs-live.postgres.ts:1108`).
+- **At most one active `fsrs_parameter_revisions` row per user** is enforced by a partial unique index, but *which* revision is active is application logic: only `rotateParametersTransaction` and `createOrReactivateDefaultRevision` may set or clear `retired_at`.
 - `card_field_values.template_field_id` has no standalone index (only `idx_cfv_card_id` and the composite unique starting with `card_id`), so deleting a `template_fields` row scans `card_field_values`. Same for the `dismissed_suggestions` card columns.
 
 ## pgvector
@@ -104,15 +121,17 @@ No IVFFlat index exists anywhere in the repo.
 
 ## Migrations
 
-27 files, `0000` → `0026`, all listed in `meta/_journal.json`. **Still only 12 snapshots exist** (`0000, 0005, 0006, 0007, 0008, 0009, 0010, 0012, 0013, 0014, 0016, 0017`) — none of `0024`–`0026` added one — so **drizzle-kit's baseline is still `0017_snapshot.json`: 16 tables, pre-FSRS, pre-email-verification, no `embedding`.** The generated-migration hazards below (duplicate `CREATE TABLE`s, the unguarded `DROP INDEX`) are unchanged and now also apply to all 12 tables added after `0017`, not just the ones already listed.
+30 files, `0000` → `0029`, all listed in `meta/_journal.json`. **Still only 12 snapshots exist** (`0000, 0005, 0006, 0007, 0008, 0009, 0010, 0012, 0013, 0014, 0016, 0017`) — none of `0024`–`0029` added one — so **drizzle-kit's baseline is still `0017_snapshot.json`: 16 tables, pre-FSRS, pre-email-verification, no `embedding`.**
+
+That baseline is now stale in **both** directions, which makes generated SQL worse than before: it predates the 12 tables added after `0017`, *and* it predates the four `0029` dropped. Snapshot `0017` still contains `study_progress`, `review_logs` and `fsrs_user_params`, so **drizzle-kit will happily propose re-creating tables that were deliberately dropped** — `db:push`, which diffs the live database against `schema/*.ts`, is the one that would actually do it. Read and prune every generated statement by hand (AGENTS.md §3 rule 8).
 
 ### Commands
 
 | Command | When |
 |---|---|
 | `bun run db:migrate` | **Default.** Applies pending files inside a single transaction; records them in `drizzle.__drizzle_migrations` |
-| `bun run db:generate` | After editing `schema/*.ts`. **Always read the emitted SQL.** Against the stale 0017 baseline it re-emits `CREATE TABLE dismissed_suggestions` / `fsrs_user_params`, the five `study_progress` FSRS `ADD COLUMN`s, `users.srs_algorithm` + the four `email_*` columns, and a redundant `DROP INDEX "idx_sdl_user_date"` (already dropped by `0018`, and emitted **without `IF EXISTS`**, so it errors on a migrated DB). It does **not** touch `embedding` — no snapshot ever contained that column, so generate is blind to it. Prune by hand |
-| `bun run db:push` | Throwaway DBs only. Force-syncs DB→schema: drops `embedding`, `idx_cfv_embedding`, all 3 partial indexes and `idx_prt_token_hash`, and never creates the `vector` extension |
+| `bun run db:generate` | After editing `schema/*.ts`. **Always read the emitted SQL.** Against the stale 0017 baseline it re-emits `CREATE TABLE dismissed_suggestions` / `fsrs_user_params` (a table `0029` **dropped**), the five `study_progress` FSRS `ADD COLUMN`s (on a table that no longer exists), `users.srs_algorithm` (also dropped) + the four `email_*` columns, and a redundant `DROP INDEX "idx_sdl_user_date"` (already dropped by `0018`, and emitted **without `IF EXISTS`**, so it errors on a migrated DB). It does **not** touch `embedding` — no snapshot ever contained that column, so generate is blind to it. Prune by hand |
+| `bun run db:push` | Throwaway DBs only. Force-syncs DB→schema: drops `embedding`, `idx_cfv_embedding`, all 3 partial indexes and `idx_prt_token_hash`, drops the `fsrs_retrievability()` function's dependants without recreating it, and never creates the `vector` extension. Because the 0017 baseline predates them, it can also **re-create `study_progress` / `review_logs` / `fsrs_user_params`** |
 | `bun run db:drop` | Interactive "select migration to drop" — deletes a migration `.sql`, its snapshot and its journal entry. **Touches no data** |
 | `bun run db:reset` | Misnamed: `db:drop && db:push`. Deletes the newest migration *file*, then force-pushes. Avoid |
 | `bun run db:seed` | Idempotent — safe to re-run |
@@ -160,9 +179,12 @@ Editing an already-applied migration changes its hash, but Drizzle compares only
 | `0023` | *hand* `dismissed_suggestions` |
 | `0024` | *hand* `email_verification_outbox` (durable retry queue for verification email delivery) + `users.email_verification_version` |
 | `0025` | *hand* lexical/knowledge-graph tables (`card_senses`, `lexical_senses`, `lexemes`, `sense_relations`, `kg_runs`, `kg_relation_suggestions`, `card_embedding_metadata`) — also canonicalizes existing `card_links` rows (dedupes + reorders `source`/`target` by `LEAST`/`GREATEST`) before reinstalling `uq_card_link`. Not further catalogued in this doc; re-derive from `schema/` and migration `0025` directly, or see [ai-search.md](ai-search.md) if it has been updated to cover the knowledge-graph subsystem |
-| `0026` | *hand* the 4 `fsrs_*` shadow tables (`fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs`) — see the Tables section above. `when` in `_journal.json` is `0025`'s `when` **+ 1 ms**, which is technically "strictly greater" (rule holds) but leaves near-zero margin; a future hand-migration inserted between these two by editing timestamps carelessly could violate the ordering invariant that sank `0015` |
+| `0026` | *hand* the 4 original `fsrs_*` tables (`fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs`). `when` in `_journal.json` is `0025`'s `when` **+ 1 ms** — technically "strictly greater" (rule holds) but near-zero margin; a future hand-migration inserted between these two by editing timestamps carelessly could violate the ordering invariant that sank `0015` |
+| `0027` | *hand* FSRS-only hardening: composite FKs, `chk_fsrs_parameter_revisions_timestamps`, FK-covering indexes. No new tables. Issues a bare `LOCK TABLE`, so it must be applied inside a transaction block (which `db:migrate` and the Postgres-backed tests both do) |
+| `0028` | *hand* forgetting-curve expansion: `fsrs_parameter_revisions.decay`/`.factor` + backfill + CHECK, the `fsrs_retrievability()` function, and the two covering `fsrs_card_states` indexes (replacing `0026`'s narrower pair). See the Tables section above |
+| `0029` | *hand* **FSRS-only finalize** — `DROP TABLE … CASCADE` on `study_progress`, `review_logs`, `fsrs_user_params`, `fsrs_migration_runs`, and `ALTER TABLE users DROP COLUMN IF EXISTS srs_algorithm`. The legacy history had already been replayed into `fsrs_review_events`/`fsrs_card_states`. Idempotent and safe against a fresh database |
 
-Two different `fsrs_user_params` shapes have existed (`0009` → dropped by `0013` → recreated by `0019`). Only the `0019` shape matches `schema/fsrs-user-params.ts`. Long-lived databases that survived `0009→0013→0019` have `real` FSRS columns — do not assume float8.
+`fsrs_user_params` had a chequered life — created by `0009`, dropped by `0013`, recreated by `0019`, finally dropped by `0029`. Nothing ever wrote it; there was no optimizer feature. Per-user parameters now live in `fsrs_parameter_revisions` as versioned rows.
 
 ## Seeding
 
@@ -176,6 +198,8 @@ Two different `fsrs_user_params` shapes have existed (`0009` → dropped by `001
 
 Add to seed only through the existing idempotent helpers (`onConflictDoNothing`, `ensureSystemTemplate`). `db:seed` must stay safe to re-run.
 
-## Tests never touch Postgres
+## Tests: mocked by default, real Postgres for repositories
 
-`apps/api/bunfig.toml` preloads `__tests__/preload.ts` (env + logger mocks) and `__tests__/helpers/db-mock.ts` mocks `src/db/index.ts`. Do not add code that opens its own connection outside `db/index.ts`. See [testing.md](testing.md).
+`apps/api/bunfig.toml` preloads `__tests__/preload.ts` (env + logger mocks); `__tests__/helpers/db-mock.ts` mocks `src/db/index.ts` for service tests. Do not add production code that opens its own connection outside `db/index.ts`.
+
+**16 test files do talk to a real database** (`grep -rln TEST_POSTGRES_ADMIN_URL apps/api/__tests__`): the five `modules/study/fsrs-*.postgres.test.ts`, the four `db/*.migration.test.ts` / `*.schema.test.ts`, and the knowledge-graph / embedding `*.integration.test.ts` suites. Each creates a **disposable** database via `TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`), applies every `*.sql` migration in order inside a transaction, and drops it in `afterAll`. They need `docker compose up -d`; without it they fail with connection errors that are **not** a regression. See [testing.md](testing.md).

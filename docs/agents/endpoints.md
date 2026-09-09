@@ -1,12 +1,17 @@
-# Endpoint reference — 91 routes
+# Endpoint reference — 101 routes
 
-90 routes across 16 module files + `GET /health` in `index.ts:170`. Re-derive the count with:
+100 routes across 16 module files + `GET /health` in `index.ts:180`. Re-derive the count with:
 
 ```bash
 grep -rhE '^\s*\.(get|post|put|patch|delete)\(' apps/api/src/modules/*/*.routes.ts | wc -l
 ```
 
 **Auth** column: `PUBLIC` means the route is declared *before* `.use(requireAuth)` in its file. Every error body is `{ error: string }`.
+
+> **Two sections below undercount, and are not fixed by this revision.** `grep -c` per file gives folders **8** (this doc lists 7) and knowledge-graph **17** (this doc lists 7) — the knowledge-graph module grew a whole lexical/graph surface that nobody has catalogued here. Re-derive per module before trusting a section heading:
+> ```bash
+> for f in apps/api/src/modules/*/*.routes.ts; do echo -n "$f: "; grep -cE '^\s*\.(get|post|put|patch|delete)\(' "$f"; done
+> ```
 
 ## Hardening at a glance
 
@@ -102,30 +107,31 @@ A non-numeric `cursor` becomes `NaN` — `import-export.routes.ts` is the module
 
 System templates are cached in-process on first `listAvailable` and only cleared by `invalidateSystemTemplatesCache()`, which has **no production caller** (only the test suite calls it) — altering them at runtime needs a restart.
 
-## study (18)
+## study (17)
+
+FSRS-only. There is no `POST /study/review` and no `GET`/`PATCH /study/algorithm` — see [srs-study.md](srs-study.md#removed-surfaces--do-not-reintroduce-and-where-the-history-lives).
 
 | Method | Path | Query / body | Response |
 |---|---|---|---|
-| GET | `/study/deck/:deckId` | `mode=all` bypasses the due filter | `{cards:[{…, fields, progress}], total, due}` |
-| GET | `/study/deck/:deckId/schedule` | — | `{totalCards, learnedCards, upcoming[], dueSoon, nextReviewDate}` — **`dueSoon` omitted when `totalCards === 0`** |
+| GET | `/study/deck/:deckId` | `mode=all` bypasses the due filter; `cardIds` = up to 12 comma-separated uuids (selected-cluster study) | `{cards:[{…, fields, progress}], total, due}`; `progress` is `null` for a New card, else `{state, stability, difficulty, retrievability, nextReviewAt, lastReviewedAt, scheduledDays, reps, lapses, learningCycle}` |
+| GET | `/study/deck/:deckId/schedule` | — | `{totalCards, learnedCards, upcoming[], dueSoon, nextReviewDate}`; `learnedCards` counts `state='review'`. Both the empty and non-empty paths return `dueSoon` |
 | GET | `/study/streak` | tz-aware | `{currentStreak, longestStreak, totalStudyDays, studiedToday}` |
 | GET | `/study/activity` | `days` 1..365 (default 90), tz-aware | `{activity:[{studyDate, cardsReviewed}], days}` |
 | GET | `/study/stats` | — | `{totalCardsReviewed, totalStudyDays}` |
 | GET | `/study/dashboard-snapshot` | tz-aware | `{streak, activity (91 d hardcoded), stats, dueDecks[]}` — no web consumer since the command center shipped |
-| POST | `/study/review` | `{cardId: uuid, action}` | **SM-2 ONLY** — ignores `users.srs_algorithm` |
-| POST | `/study/review-batch` | `{items:[{cardId, action}] 1..100}` | `{reviewed:n}` — the only algorithm-aware path |
-| POST | `/study/deck/:deckId/reset-progress` | — | `{reset:n}` |
-| POST | `/study/card/:cardId/reset-progress` | — | `{reset:true}` |
-| POST | `/study/interleaved` | `{deckIds: uuid[1..20], limit?: 1..200 default 50}` | `{cards, total, due}` — `total` is capped at `limit*2`, not the true due count |
+| POST | `/study/review-batch` | `{items:[{requestId: uuid, cardId: uuid, rating, reviewedAt: date-time, durationMs?: 0..3_600_000}] 1..100}`, tz-aware | `{applied, duplicates, results:[{requestId, cardId, status:'applied'\|'duplicate', learningCycle, sequence, state, nextReviewAt, stability, difficulty, scheduledDays}]}` — one result per item, in request order. **409** for a reused `requestId` with a different payload; **422** for a duplicate `requestId` inside one batch, a `reviewedAt` > 5 min in the future, or a `reviewedAt` earlier than the card's `last_reviewed_at`; **404** for a card the caller does not own |
+| POST | `/study/deck/:deckId/reset-progress` | — | `{reset:n}` — `fsrs_card_states` rows deleted. Events are immutable; the next review opens a new `learning_cycle`. **409** `Deck membership changed during reset` |
+| POST | `/study/card/:cardId/reset-progress` | — | `{reset:n}` — `0` or `1` |
+| POST | `/study/interleaved` | `{deckIds: uuid[1..20], limit?: 1..200 default 50}` | `{cards, total, due}`; `total` is `COUNT(*) OVER ()`, the true pre-limit due count |
 | GET | `/study/interleaved/auto` | `topN` 1..20 (5), `limit` 1..200 (50) | `{cards, total, due, deckIds}` |
-| GET | `/study/forecast` | `days` 1..90 (default 14) | `{forecast:[{date, atRiskCount, avgRetention}]}` |
-| GET | `/study/retention-heatmap` | `deckId` required | `{cards:[…]}` sorted retention ASC; returns `{cards:[]}` (not 404) for a foreign deck |
-| GET | `/study/at-risk-cards` | `threshold` 0.1..1.0 (0.8), `limit` 1..100 (20) | `{atRisk[], total}` |
+| GET | `/study/forecast` | `days` 1..90 (default 14) | `{forecast:[{date, atRiskCount, avgRetention}]}`; at-risk uses each card's own revision target, not a literal 0.8 |
+| GET | `/study/retention-heatmap` | `deckId` required | `{cards:[…]}` sorted predicted recall ASC; returns `{cards:[]}` (not 404) for a foreign deck |
+| GET | `/study/retention-overview` | `deckId` required | memory health: `{asOf, metric:{kind:'predicted_recall', average, target}, summary, distribution, attentionTotal, attention[], reviewCardIds}`. `unavailable` is the literal `0` in both count blocks; there is **no `algorithm` field**. 404 for a foreign deck |
+| GET | `/study/retention-details` | `deckId` required, `days` 7..90 (default 30), tz-aware | `{outcomes, workload, recentReviews, …}` from `fsrs_review_events` + `fsrs_card_states` |
+| GET | `/study/at-risk-cards` | `threshold` 0.1..1.0 (**omit** = each card's own revision target), `limit` 1..100 (20) | `{atRisk[], total}`; `total` is the pre-`LIMIT` `COUNT(*) OVER ()` |
 | GET | `/study/recommendations/:cardId` | `limit` 1..20 (5) | `{related:[{…, source:'link'\|'semantic'}]}` |
-| GET | `/study/algorithm` | — | `{algorithm:'sm2'\|'fsrs'}` |
-| PATCH | `/study/algorithm` | `{algorithm:'sm2'\|'fsrs'}` | `{algorithm}` |
 
-`action` is `'again' | 'hard' | 'good' | 'easy'`. Only `/streak`, `/activity`, `/dashboard-snapshot`, `/review` and `/review-batch` read `x-timezone-offset`.
+`rating` is `'again' | 'hard' | 'good' | 'easy'`. Five handlers read `x-timezone-offset`: `/streak`, `/activity`, `/dashboard-snapshot`, `/review-batch` and `/retention-details`.
 
 There is **no `GET /study/smart-groups`**, yet `apps/web/src/components/dashboard/smart-groups-widget.tsx:20` calls it — that component is itself never mounted. `getSmartGroups` is reachable only through the `experience` module.
 
@@ -150,7 +156,9 @@ There is **no `GET /study/smart-groups`**, yet `apps/web/src/components/dashboar
 
 ## knowledge-graph (7)
 
-`POST /knowledge-graph/links` `{sourceCardId, targetCardId, linkType?: 'related'}` → idempotent (`onConflictDoNothing` + re-select) · `DELETE /knowledge-graph/links/:id` → **verifies only the source card's owner** · `GET /knowledge-graph/cards/:id/links` · `GET /knowledge-graph/decks/:id/graph` (nodes/edges + retention overlay) · `GET /knowledge-graph/search` (escapes `%`/`_`) · `POST /knowledge-graph/ai/detect` `{deckId: uuid, threshold?: 0.5..1.0 default 0.75}` · `POST /knowledge-graph/ai/dismiss` — **one of only three module routes that query the DB inline in the handler** (the others are `GET`/`PATCH /study/algorithm`; `GET /health` in `index.ts` also does)
+`POST /knowledge-graph/links` `{sourceCardId, targetCardId, linkType?: 'related'}` → idempotent (`onConflictDoNothing` + re-select) · `DELETE /knowledge-graph/links/:id` → **verifies only the source card's owner** · `GET /knowledge-graph/cards/:id/links` · `GET /knowledge-graph/decks/:id/graph` (nodes/edges + retention overlay) · `GET /knowledge-graph/search` (escapes `%`/`_`) · `POST /knowledge-graph/ai/detect` `{deckId: uuid, threshold?: 0.5..1.0 default 0.75}` · `POST /knowledge-graph/ai/dismiss`
+
+**No module route queries the DB inline any more.** `grep -ln '\bdb\b' apps/api/src/modules/*/*.routes.ts` returns nothing: the `/study/algorithm` handlers are gone and `kg.routes.ts` now delegates to its service. The only handler that touches the database directly is `GET /health` in `index.ts`. Keep it that way.
 
 ## import-export (2) — no prefix
 
@@ -162,7 +170,7 @@ There is **no `GET /study/smart-groups`**, yet `apps/web/src/components/dashboar
 
 `GET /notifications/due-decks` (cap `NOTIFICATIONS.MAX_DUE_DECKS` = 50) · `GET /notifications/due-count`
 
-Derived live from `cards` + `decks` + `study_progress`; a missing progress row counts as due. **No notifications table exists.**
+Derived live from `cards` + `decks` + `fsrs_card_states` in one statement each (`dueDecksSql` / `totalDueSql`, `notifications.service.ts:13,25`); a card with no state row counts as due. **No notifications table exists.**
 
 ## feedback (1)
 

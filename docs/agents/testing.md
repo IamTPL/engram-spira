@@ -1,21 +1,32 @@
 # Testing
 
-Everything runs on Bun's built-in runner (`bun:test`, Bun 1.3.10). **There is no Vitest, Jest, jsdom, Playwright, testcontainers or Solid testing-library anywhere**, and no test database — all I/O is mocked. Do not add integration/E2E tooling without an explicit decision.
+Everything runs on Bun's built-in runner (`bun:test`, Bun 1.3.10). **There is no Vitest, Jest, jsdom, Playwright, testcontainers or Solid testing-library anywhere.** Do not add integration/E2E tooling without an explicit decision.
+
+There are two strategies, and which one you use is decided by *what* you are testing:
+
+| Subject | Strategy |
+|---|---|
+| Pure function, domain helper, statement **builder** | no mocks at all |
+| Service | injectable loaders (preferred) or `helpers/db-mock` |
+| Route | in-process Elysia + injected services |
+| **Repository (`*.postgres.ts`), migration, or executed SQL** | a **real, disposable Postgres database** — see [Postgres-backed suites](#postgres-backed-suites) |
+
+The claim "no test database — all I/O is mocked" was true until the FSRS-only work; **16 files now talk to real Postgres** (`grep -rln TEST_POSTGRES_ADMIN_URL apps/api/__tests__`).
 
 ## Commands
 
 | What | Exact command | Current result |
 |---|---|---|
-| API tests | `cd apps/api && bun test` | 271 pass, **3 fail**, 576 assertions, 274 tests / 24 files, ~435 ms |
-| API + coverage | `cd apps/api && bun run test:coverage` | same counts + `All files 60.08% funcs / 66.25% lines`; **exits 1** because of the 3 failures |
+| API tests | `cd apps/api && bun test` | **691 pass / 0 fail**, 2 321 assertions, 77 files, ~32 s (dominated by the Postgres suites) |
+| API + coverage | `cd apps/api && bun run test:coverage` | same counts, exit 0. Re-measure the percentages yourself — the ones this doc used to quote predate ~50 files |
 | API watch | `cd apps/api && bun run test:watch` | — |
 | One API file | `cd apps/api && bun test __tests__/modules/cards/cards.service.test.ts` | — |
-| **Web tests** | `cd apps/web && bun test` | 16 pass, 33 assertions, 16 tests / 4 files, ~57 ms |
-| Typecheck (all CI runs) | `bun run typecheck` (root) | **FAILS** — api clean, web 22 errors, exit 2 |
+| **Web tests** | `cd apps/web && bun test` | **91 pass / 0 fail**, 257 assertions, 17 files, ~83 ms |
+| Typecheck (all CI runs) | `bun run typecheck` (root) | **exit 0** — both workspaces clean |
 
 `apps/web/package.json` has **no `test` script**; the bare runner is the only way. `bun run test` at the repo root is not a thing either — it prints `a package.json script "test" was not found` and shells out to `/usr/bin/test`, reporting a confusing exit 1.
 
-> **Never run `bun test` from the repo root.** `apps/api/bunfig.toml` is CWD-relative, so the preload never loads and `apps/api/src/config/env.ts:33` throws `Missing required environment variable: DATABASE_URL`. All 15 tests in `__tests__/shared/embedding-utils.test.ts` silently vanish, a pino WARN leaks (the logger mock is also absent), and you get 276 tests / 272 pass / 4 fail / 1 error instead of 274 + 16. `bun test apps/api` from the root is equally broken (260 tests). It does *not* sweep `node_modules/`, `skills/`, `.agents/` or `docs/` — it finds exactly the 24 api + 4 web files.
+> **Never run `bun test` from the repo root.** `apps/api/bunfig.toml` is CWD-relative, so the preload never loads and `apps/api/src/config/env.ts:33` throws `Missing required environment variable: DATABASE_URL`. The 15 tests in `__tests__/shared/embedding-utils.test.ts` silently vanish, a pino WARN leaks (the logger mock is also absent), and the totals no longer match either workspace's real count. `bun test apps/api` from the root is equally broken. It does *not* sweep `node_modules/`, `skills/`, `.agents/` or `docs/` — it finds the api and web files, just with a broken environment.
 
 `embedding-utils.test.ts` is the one file that breaks at root because it is the only api test that transitively imports the real `src/db/index.ts` (via `shared/embedding-utils.ts:2`) without importing the db mock.
 
@@ -26,6 +37,7 @@ Everything runs on Bun's built-in runner (`bun:test`, Bun 1.3.10). **There is no
 | `apps/api/__tests__/` | Mirrors `src/`: `__tests__/modules/<module>/<name>.test.ts`, `__tests__/shared/<name>.test.ts` |
 | `apps/api/__tests__/helpers/` | `db-mock.ts`, `external-mocks.ts`, `fixtures.ts` |
 | `apps/api/__tests__/preload.ts` | Registered by `apps/api/bunfig.toml` |
+| `apps/api/__tests__/**/*.postgres.test.ts`, `*.integration.test.ts`, `__tests__/db/*` | Real disposable Postgres. Self-contained: each file creates, migrates and drops its own database |
 | `apps/web/src/**/` | **Colocated** `<name>.test.ts` beside the source |
 | `packages/*` | No tests |
 
@@ -109,9 +121,11 @@ mock.module('../../../src/modules/embedding/embedding.service', () => ({
 
 ## Fixtures
 
-`helpers/fixtures.ts` — 10 plain `(overrides = {}) => ({ ...defaults, ...overrides })` factories: `createUser`, `createSession`, `createClass`, `createFolder`, `createDeck`, `createCard`, `createStudyProgress`, `createTemplateField`, `createCardFieldValue`, and `createExperienceFixtureRows()` (a whole two-user graph plus 4 `queueRows` covering due / new / learning / at-risk).
+`helpers/fixtures.ts` — 9 plain `(overrides = {}) => ({ ...defaults, ...overrides })` factories: `createUser`, `createSession`, `createClass`, `createFolder`, `createDeck`, `createCard`, `createTemplateField`, `createCardFieldValue`, and `createExperienceFixtureRows()` (a whole two-user graph plus `queueRows` covering due / new / learning / at-risk). `createStudyProgress` is **gone** — `study_progress` no longer exists.
 
 IDs are stable strings (`user-1`, `class-1`, `folder-1`, `deck-1`, `template-1`, `card-1`, `field-1`); `createdAt` defaults to `new Date('2026-01-01')`. Build entities from the factories and override only the field under test — do not inline entity literals.
+
+`createExperienceFixtureRows()` derives `now` / `past` / `future` from `Date.now()` (`fixtures.ts:98-100`) precisely because the queue classifies rows against the real clock. **Never bake an absolute date into a fixture whose past/future-ness matters** (AGENTS.md §3 rule 26) — an absolute date is only safe when *every* instant it is compared against is also fixed by the test. The moment one side is the real clock or a column default, derive it.
 
 ## Preferred pattern for new code: injectable loaders
 
@@ -123,6 +137,106 @@ export async function getStudyQueue(userId, query, loaders = defaultStudyQueueLo
 ```
 
 Tests build the object with a spread-override helper and pass pure async functions. `create-preview.service.ts` goes further and exports `createInMemoryPreviewStore` for the same reason. **Write new services this way.**
+
+## Postgres-backed suites
+
+16 test files run against a **real** database. Each is self-contained: `beforeAll` connects to the admin
+database from `TEST_POSTGRES_ADMIN_URL` (default
+`postgresql://postgres:postgrespassword@localhost:5435/postgres`), `CREATE DATABASE`s a uniquely-named
+disposable database, applies **every** `src/db/migrations/*.sql` in order, and `afterAll` drops it
+`WITH (FORCE)`. They need `docker compose up -d`; without the container they fail with connection errors that
+are **not** a regression.
+
+| File | What it pins |
+|---|---|
+| `modules/study/fsrs-live.postgres.test.ts` | the write path: locks, per-`requestId` idempotency, 409/422 paths, revision creation, daily-log roll-up |
+| `modules/study/fsrs-read.postgres.test.ts` | the canonical loader, order preservation, row validation |
+| `modules/study/fsrs-deck-reads.postgres.test.ts` | queue / schedule / enrichment / interleaving, plus a pinned `EXPLAIN (ANALYZE, BUFFERS)` plan over 300 seeded cards (`:508`) |
+| `modules/study/fsrs-consumers.postgres.test.ts` | **every exported `*Sql()` builder**, executed and `EXPLAIN`-gated |
+| `modules/study/fsrs-sql.postgres.test.ts` | the SQL ↔ `ts-fsrs` retrievability oracle |
+| `db/fsrs-only.migration.test.ts`, `db/language-knowledge-graph.migration.test.ts` | migrations are idempotent; every FK has a covering index; CHECK constraints reject what they should |
+| `db/*.schema.test.ts` | the Drizzle schema matches what the migrations built |
+| `modules/knowledge-graph/*.integration.test.ts`, `modules/embedding/card-embedding-storage.integration.test.ts` | the KG and embedding repositories |
+
+Re-derive the list with `grep -rln TEST_POSTGRES_ADMIN_URL apps/api/__tests__`.
+
+**Migrations must be applied inside a transaction block.** `0027` issues a bare `LOCK TABLE`, which Postgres
+only allows in one, so the loop wraps each file's statements in `database.begin(...)` after splitting on
+`--> statement-breakpoint` (`fsrs-consumers.postgres.test.ts:85-103`). Copy that shape.
+
+### Rule: run the repository through a `drizzle()`-wrapped client
+
+This is not optional, and it is the reason a 500 on `GET /study/deck/:id` once shipped with a green suite.
+`drizzle(client)` **mutates** the client it is handed: timestamp/date parsers *and* serializers, plus the
+`json`/`jsonb` serializers, become identity functions. So in production, through `pgClient`, a bound `Date`
+throws and a `timestamptz` column comes back as **text** — while a test that opens its own pristine
+`postgres(url)` happily binds `Date`s and reads `Date`s back.
+
+Every `*.postgres.test.ts` therefore wraps the client it uses:
+
+```ts
+// fsrs-consumers.postgres.test.ts:295-298 — one client, wrapped, used for both seeding and assertions
+raw = postgres(url.toString(), { max: 4, onnotice: () => {} });
+await applyMigrations(raw);
+// Production shape: the SAME client is wrapped by drizzle.
+db = drizzle(raw);
+```
+
+`fsrs-deck-reads.postgres.test.ts` / `fsrs-live.postgres.test.ts` keep a named `drizzleWrappedSql` alongside a
+plain client and run at least one end-to-end case through it. Either shape is fine; what is not fine is a
+repository test that only ever sees a pristine client. Seeds must bind through `src/db/pg-codecs.ts`:
+`bindTimestamp(date)` for `$n::timestamptz`, `bindJson(value)` with the placeholder cast **`$n::text::jsonb`**.
+Full rationale: AGENTS.md §3 rule 27 and [database.md](database.md#client-appsapisrcdbindexts).
+
+## SQL is tested by executing the builder, not by reading the service
+
+Every consumer statement is an **exported builder** — `export function <name>Sql(userId, …, asOf): SQL` — and
+the service around it does nothing but `db.execute` and map rows. There are 13 of them
+(`grep -rn 'export function .*Sql(' apps/api/src`). The export exists *for the test*: a statement inlined into
+a service body cannot be executed against real Postgres, and cannot be `EXPLAIN`ed. Do not add one.
+
+`fsrs-consumers.postgres.test.ts` renders each builder with `PgDialect().sqlToQuery`, executes it against a
+seeded disposable database, asserts the returned rows, and then puts it through the `EXPLAIN` gate.
+
+### The `EXPLAIN` gate helper
+
+```ts
+// fsrs-consumers.postgres.test.ts:275
+async function explainUsesStateIndex(statement: SQL) {
+  const { sql: text, params } = dialect.sqlToQuery(statement);
+  await raw.begin(async (transaction) => {
+    await transaction.unsafe('SET LOCAL enable_seqscan = off');
+    const rows = await transaction.unsafe<Record<string, string>[]>(
+      `EXPLAIN (FORMAT TEXT) ${text}`,
+      params as never[],
+    );
+    const plan = rows.map((row) => Object.values(row)[0]).join('\n');
+    expect(plan).toMatch(STATE_INDEXES);
+    expect(plan).not.toContain('Seq Scan on fsrs_card_states');
+  });
+}
+```
+
+`STATE_INDEXES` is `/idx_fsrs_card_states_(card_user|user_due)/u` (`:56`) — either composite is accepted
+because the chosen path depends on the statement's shape. **Know its limits:** it is scale-dependent (at a few
+hundred analysed rows the planner may pick the narrower `idx_fsrs_card_states_parameter_revision` for the same
+predicate — still index access) and `SET LOCAL enable_seqscan = off` only *discourages* sequential scans. The
+gate proves "no seq-scan regression on `fsrs_card_states`", not "this exact plan forever". For a stronger
+claim, seed real volume and pin the plan the way `fsrs-deck-reads.postgres.test.ts:508` does: 300 cards with
+state rows, `enable_seqscan/hashjoin/mergejoin/bitmapscan/material` all off, `EXPLAIN (ANALYZE, BUFFERS)`, then
+assert both `idx_cards_deck_sort_order` and `idx_fsrs_card_states_card_user` appear.
+
+A change that adds or rewrites a statement adds its gate test **in the same commit**
+([performance.md](performance.md) §6).
+
+### The oracle test
+
+`fsrs-sql.postgres.test.ts:55` is the pattern for "SQL must agree with TypeScript": it generates 5 000
+`(w20, stability, elapsed)` triples from a **deterministic LCG** (`seeded(20260908)`, `:45`) so any failure is
+reproducible, evaluates `fsrs_retrievability()` in Postgres over `unnest($1::float8[], …)` in one statement,
+computes the same values with `ts-fsrs`'s own `forgetting_curve`, and asserts agreement to 8 decimals while
+tracking the worst offender for the failure message. Reach for this shape whenever a formula exists in both
+languages.
 
 ## Recipes
 
@@ -145,7 +259,7 @@ describe('myFn', () => {
 });
 ```
 
-Group by behaviour with nested `describe` — `srs.engine.test.ts` uses one per review action plus an `Edge cases` block. For time-based assertions use a ±200 ms window against `Date.now()`. For outputs you cannot hand-compute (FSRS), assert invariants — ranges, membership in a valid set, monotonicity — as `fsrs.engine.test.ts` does.
+Group by behaviour with nested `describe` — `fsrs-live.domain.test.ts` uses one per validation concern. For time-based assertions use a ±200 ms window against `Date.now()`. For outputs you cannot hand-compute, prefer an **oracle** (compare against the reference implementation, as `fsrs-sql.postgres.test.ts` does) over loose range assertions; fall back to invariants — ranges, membership in a valid set, monotonicity — only when no oracle exists.
 
 ### (b) A service with DB access
 
@@ -230,21 +344,39 @@ Route factories must accept their service layer as a parameter (`createExperienc
 ## Traps
 
 - **Cross-file `mock.module` leakage.** Bun runs every discovered test file in **one process** and the mock registry is process-global. `kg.service.test.ts:4` stubs `checkAiRateLimit` as a no-op, and Bun loads that file before `config-ai.test.ts` (discovery order is filesystem order, **not** alphabetical — alphabetically `ai/` would come first), so its two rate-limit tests see a function that never throws. The leak is not really about order: it reproduces with either file listed first on the command line. `bun test __tests__/modules/ai/config-ai.test.ts` alone passes 4/4. **Whenever a test fails only in the full suite, re-run it in isolation before debugging the implementation** — and never stub a shared app module with a behaviour-neutering mock. (`ai.service.test.ts` registers a byte-similar stub but is *not* the culprit: pairing it with `config-ai.test.ts` passes 6/6.)
-- **Fixture time bombs (two defused 2026-09-08 — do not plant new ones).** `fixtures.ts` `createExperienceFixtureRows()` used to hard-code `now/past/future` calendar dates; real time overtook them and `experience.service.test.ts` failed. It now derives all three from `Date.now()`. Likewise `fsrs-live.postgres.test.ts` seeded revisions retired at a fixed `RECEIVED_AT` while `created_at` defaulted to the real `now()`, tripping a CHECK constraint once the clock passed the fixed date — seeded rows now pin `created_at`/`activated_at` to `SEEDED_REVISION_AT`. Rule: an absolute date is fine only when *every* instant it is compared against is also fixed by the test; the moment one side is the real clock or a column default, derive from `Date.now()`.
-- **A pristine `postgres()` test client hides `pgClient` bugs.** Production's `pgClient` is mutated by `drizzle()` (identity timestamp parsers/serializers, identity `json`/`jsonb` serializers — see [database.md](database.md#client-appsapisrcdbindexts)). A repository test that talks to its own `postgres(url)` will happily bind a `Date` or an object and read `Date` columns back, then fail in production with a 500. Every `*.postgres.test.ts` keeps a second client wrapped with `drizzle()` (`drizzleWrappedSql`) and runs at least one end-to-end case through it; new repositories must do the same, and must use `src/db/pg-codecs.ts` for timestamps and jsonb.
+- **Fixture time bombs.** An absolute date is safe only when *every* instant it is compared against is also fixed by the test. The moment one side is the real clock **or a column default**, derive from `Date.now()`. Both known bombs are defused: `createExperienceFixtureRows()` derives `now/past/future` (`fixtures.ts:98-100`), and `fsrs-live.postgres.test.ts` pins `created_at`/`activated_at` to `SEEDED_REVISION_AT` on seeded revisions instead of letting them default to the real `now()` while `retired_at` was baked (which tripped `chk_fsrs_parameter_revisions_timestamps` once the clock passed the baked date). That second one is the instructive case: the test baked only *one* side.
+- **A pristine `postgres()` test client hides `pgClient` bugs** — the single most expensive trap in this repo. See [Postgres-backed suites](#rule-run-the-repository-through-a-drizzle-wrapped-client).
 - `setMockReturnSequence`'s cursor (`returnQueue`, `callIndex`) is module-level and **not** cleared by `resetMocks()` — only a fresh `setMockReturnSequence()` resets it. A test calling `setMockReturn` after a previous test's sequence can inherit a stale `limit`/`then` implementation.
 - `resetMocks()` rebinds `mockDbChain` to a **new object**, so a locally cached reference goes stale. Assert against the live import.
 - `db.transaction` hands the **same** chain in as `tx`, so transaction-body queries consume the outer cursor — count them. There is no rollback simulation, so **transaction correctness is not covered by any test**: the mock cannot detect a missing `FOR UPDATE` or wrong `tx` usage.
 - `relationship-verifier.test.ts` is a lone `expect(typeof verifyRelationships).toBe('function')` smoke test — its presence in the file list is not coverage (0.00% funcs).
-- Mocked suites use only `beforeEach(() => resetMocks())` plus explicit `.mockClear()` calls in `auth.service.test.ts`. The `*.postgres.test.ts` suites are the exception: they use `beforeAll`/`afterAll` to create and drop a disposable database (`TEST_POSTGRES_ADMIN_URL`, default `postgresql://postgres:postgrespassword@localhost:5435/postgres`) and apply every `*.sql` migration to it, so they need the dev Postgres container running.
+- **`beforeAll`/`afterAll` are in normal use** — 16 files have them, all of them the Postgres-backed suites creating and dropping their disposable database. (This doc used to claim no file used them; that stopped being true in July 2026.) Mocked suites still use only `beforeEach(() => resetMocks())`, plus explicit `.mockClear()` calls in `auth.service.test.ts`.
 - `experience.service.test.ts` also contains compile-time type assertions (`Equal`/`Expect` + `@ts-expect-error`) that only `tsc` validates, not the runner.
 
 ## Coverage shape
 
-166 of the 274 api tests are in the 11 files that use **no** DB mock (pure functions, injected loaders, in-process routes); 108 are in the 13 db-mocked service tests. The heaviest files: `srs.engine` 26, `experience.service` 25, `create-preview` 24, `auth.service` 22, `constants` 19, `experience.routes` 17, `embedding-utils` 15, `fsrs.engine` 15.
+**691 tests across 77 api files** (2026-09-09). The distribution has changed shape since this section was
+first written: the bulk is no longer db-mocked service tests but **pure-function and real-Postgres** suites.
 
-**Zero tests** exist for `embedding.service.ts`, `search.service.ts`, `duplicate-detection.service.ts`, `recommendations.service.ts`, `review-logs-cleanup.ts` or any `*.routes.ts` outside `experience`.
+Re-derive the per-file counts rather than trusting a list:
+
+```bash
+cd apps/api && for f in $(find __tests__ -name '*.test.ts'); do \
+  echo "$(grep -cE '^\s*(test|it)\(' "$f") $f"; done | sort -rn | head -12
+```
+
+Heaviest files today: `fsrs-live.domain` 31, `auth.service` 30, `fsrs-live.postgres` 28, `create-preview` 26,
+`experience.service` 25, `fsrs.engine` 23, `vocabulary-artifact` 18, `experience.routes` 17,
+`forecast.service` 16, `gemini-provider` 16, `study.service` 15, `kg-indexing.service` 15. `srs.engine` (26)
+was the heaviest file until SM-2 was deleted.
+
+Four route files have tests — `experience.routes`, `kg.routes`, `retention.routes`, `study-write.routes` —
+so "no `*.routes.ts` outside `experience` is tested" is no longer true.
+
+**Zero tests** exist for `search.service.ts`, `duplicate-detection.service.ts`, or the remaining
+`*.routes.ts` files (auth, cards, decks, classes, folders, card-templates, ai, embedding, import-export,
+notifications, feedback, users). `review-logs-cleanup.ts` is no longer on that list because the file is gone.
 
 ## CI
 
-`.github/workflows/ci.yml` has exactly one job, `typecheck`: checkout → setup-bun (`latest`, unpinned) → `bun install --frozen-lockfile` → `bun run typecheck`. **There is no test job**, so test regressions never block a PR — catching them locally is your responsibility. CI is also currently red on the typecheck itself; see [known-issues.md](known-issues.md).
+`.github/workflows/ci.yml` has exactly one job, `typecheck`: checkout → setup-bun (`latest`, unpinned) → `bun install --frozen-lockfile` → `bun run typecheck`. **There is no test job**, so test regressions never block a PR — catching them locally is your responsibility. That matters more now that 16 suites need a Postgres container: CI could not run them as written even if a test job existed. Typecheck is currently green; see [known-issues.md](known-issues.md).

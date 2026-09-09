@@ -12,7 +12,9 @@ Each entry is tagged:
 
 ## The red baseline
 
-**As of 2026-09-08 the baseline is green: `bun run typecheck` exits 0 and `cd apps/api && bun test` is 748 pass / 0 fail across 77 files (`apps/web`: 87 pass / 16 files).** The section is kept because the baseline has flipped red → green → red before. **Always re-run `bun run typecheck` and both `bun test` commands yourself** before trusting any number on this page.
+**As of 2026-09-09 the baseline is green: `bun run typecheck` exits 0, `cd apps/api && bun test` is 691 pass / 0 fail across 77 files, and `cd apps/web && bun test` is 91 pass / 17 files.** The section is kept because the baseline has flipped red → green → red before. **Always re-run `bun run typecheck` and both `bun test` commands yourself** before trusting any number on this page.
+
+The API count went *down* (748 → 691) because the FSRS-only migration deleted the SM-2 engine, the legacy retention estimators and the replay tooling along with their tests. A smaller number is not a dropped suite — check `git log` before assuming tests vanished.
 
 ### `bun run typecheck` — passes clean, CI is green
 
@@ -26,7 +28,7 @@ Each entry is tagged:
 | `PostgreSQL canonical FSRS live writer > reactivates a matching arbitrary-ID manual revision…` and `> uses active parameters for New…` (`fsrs-live.postgres.test.ts`) | tests seeded `fsrs_parameter_revisions` rows retired at the fixed `RECEIVED_AT` (2026-07-29) while `created_at`/`activated_at` took the column default `now()`; once the real clock passed 2026-07-29 the row violated `chk_fsrs_parameter_revisions_timestamps` | seeded revisions pin `created_at = activated_at = SEEDED_REVISION_AT` (one hour before `RECEIVED_AT`) |
 | `0026 FSRS-only expansion migration > provides a supporting index for every foreign key` (`fsrs-only.migration.test.ts`) | ambiguous `table_name` in the test's own `information_schema` join | introspection rewritten against `pg_catalog` (`pg_constraint` / `pg_index`) |
 
-**Postgres-backed suites.** `fsrs-deck-reads`, `fsrs-live`, `fsrs-read`, `fsrs-replay` `.postgres.test.ts` create a disposable database through `TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`) and drop it in `afterAll`. If the dev container is down they fail with connection errors — start it, do not "fix" the tests.
+**Postgres-backed suites need the dev container up** (`docker compose up -d`). 16 test files create a disposable database through `TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`), apply every migration and drop it in `afterAll`: the five `modules/study/fsrs-*.postgres.test.ts` (`deck-reads`, `live`, `read`, `consumers`, `sql`), the four `__tests__/db/*` migration/schema suites, and the knowledge-graph + embedding `*.integration.test.ts` files. Re-derive the list with `grep -rln TEST_POSTGRES_ADMIN_URL apps/api/__tests__`. If the container is down they fail with connection errors — start it, do not "fix" the tests. (`fsrs-replay.postgres.test.ts` no longer exists; the replay tooling was deleted in `fa50447`.)
 
 **The previously-documented mock leak is gone.** `__tests__/modules/knowledge-graph/kg.service.test.ts` no longer stubs `checkAiRateLimit` via `mock.module`. Do not go looking for it.
 
@@ -36,21 +38,17 @@ Each entry is tagged:
 
 ### Study / SRS
 
+The FSRS-only migration removed nine entries that used to live here: the SM-2-only `POST /study/review`, "stability never grows", "state lost on zero stability", the EASY ease-factor clamp, the HARD-graduates-a-new-card quirk, the SM-2-derived `review_logs.state` label, `getDeckSchedule`'s missing `dueSoon`, `getInterleavedDueCards`'s capped `total`, and unvalidated `fsrs_user_params`. **The code they described is gone** (`3dea1fd`, `fa50447`) — do not re-file them from an older copy of this page. See [srs-study.md](srs-study.md#removed-surfaces--do-not-reintroduce-and-where-the-history-lives).
+
 | Issue | Where | Verdict |
 |---|---|---|
-| **Fixed 2026-09-08 — kept for context.** `GET /study/deck/:deckId` (due mode) returned 500 for every deck: `fsrs-deck-reads.postgres.ts` bound a JS `Date` into `$3::timestamptz` through the shared `pgClient`, whose timestamp serializer `drizzle()` had replaced with an identity function. A second latent defect in the same family (timestamp columns read back as text and rejected by `validDate`) would have surfaced as soon as any `fsrs_card_states` row existed. Both fixed via `src/db/pg-codecs.ts`; see AGENTS.md §3 rule 27 | `fsrs-deck-reads.postgres.ts`, `fsrs-read.postgres.ts`, `fsrs-live.postgres.ts`, `fsrs-replay.postgres.ts` | resolved |
-| **`POST /study/review` is SM-2-only.** Calls `calculateNextReview` directly, never reads `users.srs_algorithm` or `fsrs_user_params`, writes no FSRS columns. An FSRS user silently gets SM-2 scheduling. Masked because the web client only calls `/review-batch` | `study.service.ts:256` | `own-task` |
-| **FSRS stability never grows for review-state cards.** `last_review` is hardcoded to `new Date()`, so ts-fsrs computes `elapsed_days = 0` every time. Measured: S=10 / 30 d elapsed / Good → stays 10.0, interval 11 d; correct continuation gives 53.56 / 54 d. `last_elapsed_days` therefore always persists as 0 | `fsrs.engine.ts:377` (was `:74` before ~280 lines were inserted above it — still the live `calculateFsrsReview` path; see [srs-study.md](srs-study.md#fsrs-engine) for a dormant, unwired second engine surface, `scheduleFsrsReview`, that structurally avoids this) | `own-task` |
-| **FSRS state lost on zero stability.** The restore is gated on `current?.stability` being *truthy*, so `stability = 0` or `NULL` rebuilds a brand-new card, discarding difficulty, state and learning steps | `fsrs.engine.ts:366` (was `:63`) | `own-task` |
-| **EASY has no upper ease-factor clamp** while AGAIN/HARD clamp to 1.3. Repeated Easy grades grow `ease_factor` without bound | `srs.engine.ts:122` | `safe-to-fix` |
-| **HARD graduates a never-reviewed card** (`box_level` 0 → 1 via `Math.max(1, reps)`), contradicting the intuitive reading | `srs.engine.ts:86` | `do-not-fix-drive-by` |
-| `review_logs.state` is derived from SM-2 columns with a hardcoded 21-day cutoff **even for FSRS users**, so the FSRS-native `fsrs_state` is never logged. A future optimizer trained on this column trains on SM-2 labels | `study.service.ts:252,389` | `own-task` |
-| `getDeckSchedule`'s zero-card early return **omits `dueSoon`** while the non-empty path includes it; the web type declares it as `number`, so it is `undefined` at runtime for empty decks | `study.service.ts:513-518` | `safe-to-fix` |
-| `getInterleavedDueCards` returns `total: dueRows.length`, capped at `limit * 2` — **not the real due count** | `study.service.ts:767,807` | `safe-to-fix` |
-| The `x-timezone-offset` clamp `[-720, 840]` silently clips UTC+13/+14 users (Kiritimati, Samoa DST, Chatham) to UTC+12 | `study.routes.ts:20` | `safe-to-fix` |
-| Streak math mixes UTC and server-local (`setDate` on a shifted instant), so it is **only correct under `TZ=UTC`** — and nothing sets `TZ` | `study.service.ts:584-700` | `own-task` |
-| `fsrs_user_params.params` is passed into `generatorParameters()` **completely unvalidated**; malformed jsonb reaches ts-fsrs inside the review transaction | `srs.engine.ts:16` | `safe-to-fix` — a validated equivalent, `normalizeFsrsParameters()`, now exists in `fsrs.engine.ts` but nothing calls it yet |
-| `getRetentionHeatmap` returns `{cards: []}` instead of throwing for a foreign deck, unlike every other deck-scoped read | `forecast.service.ts:116-122` | `do-not-fix-drive-by` |
+| **Fixed 2026-09-08 — kept for context.** `GET /study/deck/:deckId` (due mode) returned 500 for every deck: `fsrs-deck-reads.postgres.ts` bound a JS `Date` into `$3::timestamptz` through the shared `pgClient`, whose timestamp serializer `drizzle()` had replaced with an identity function. A second latent defect in the same family (timestamp columns read back as text) would have surfaced as soon as any `fsrs_card_states` row existed. Both fixed via `src/db/pg-codecs.ts`; see AGENTS.md §3 rule 27 | `fsrs-deck-reads.postgres.ts`, `fsrs-read.postgres.ts`, `fsrs-live.postgres.ts` | resolved |
+| **"At risk" is near-empty by construction under FSRS.** `fsrsAtRisk` (`fsrs-sql.ts:48`) is `state='review' AND next_review_at > asOf AND R < that card's own request_retention`. FSRS picks the due date so recall lands *at* target, so almost nothing decays past target before becoming due — every at-risk widget therefore reads ~0 on a healthy deck. That is **correct behaviour, not a bug**. Whether the widget should instead show "approaching target" (a wider band, or a rank rather than a threshold) is an open **product** decision; do not loosen the predicate to make the number bigger | `fsrs-sql.ts:48`, consumed by `command-center.service.ts:127`, `deck-workspace.service.ts:196`, `insights-overview.service.ts:126`, `study-queue.service.ts:288`, `retention-overview.service.ts:161` (and inlined equivalently in `forecast.service.ts:211`) | `own-task` (product decision first) |
+| **`learningCount` is spelled two different ways.** `reviewQueueSql` counts learning **and not due** (`command-center.service.ts:124-126`); `deckStudySummarySql` counts **all** learning (`deck-workspace.service.ts:193`). The agreed resolution is "learning AND not due" everywhere. It is pending the final unification wave, and **both spellings are currently asserted by tests**, so changing one without the other turns the suite red | `command-center.service.ts:124`, `deck-workspace.service.ts:193` | `safe-to-fix` (pending final wave — fix both call sites and both tests in one commit) |
+| `kg-embedding.service.ts:106` binds a JS array into `unnest(${cardIds}::uuid[])` through drizzle's `sql`, which serialises it as a **row constructor** `($1, $2, …)` — Postgres rejects that with `42846 cannot cast type record to uuid[]` as soon as `loadCardEmbeddingStates` is called with a non-empty list. Same latent bug Task 14 hit and worked around in `recommendations.service.ts:193-196` by expanding into `ANY(ARRAY[…]::text[])`; apply the identical fix here | `kg-embedding.service.ts:106` | `safe-to-fix` |
+| The `x-timezone-offset` clamp `[-720, 840]` silently clips UTC+13/+14 users (Kiritimati, Samoa DST, Chatham) to UTC+12. Note the write path's own validator uses the **reversed** convention `[-840, 720]` (`fsrs-live.domain.ts:493`), which is correct for its subtraction — do not "align" the two without working out the sign | `study.routes.ts:33` | `safe-to-fix` |
+| Streak math mixes UTC and server-local (`setDate` on an offset-shifted instant), so it is **only correct under `TZ=UTC`** — and nothing sets `TZ` | `study.service.ts:109-181` | `own-task` |
+| `getRetentionHeatmap` returns `{cards: []}` instead of throwing for a foreign deck, unlike every other deck-scoped read. Ownership is folded into the join, so there is no cheap 404 to add without a second statement | `forecast.service.ts:147-160` | `do-not-fix-drive-by` |
 
 ### Timezone divergence between `/study/streak` and the command center
 
@@ -97,7 +95,7 @@ Each entry is tagged:
 |---|---|---|
 | **`GET /card-templates/:id` has no ownership check** — any authenticated user can read any other user's template and its fields | `card-templates.routes.ts:10` | `own-task` |
 | **`kgService.deleteLink` verifies only the source card** — a user owning the source can delete a link whose target belongs to someone else | `kg.service.ts:104` | `safe-to-fix` |
-| `POST /knowledge-graph/ai/dismiss` writes to the DB **directly in the route handler** — one of only two places in the API that does (the other is `GET`/`PATCH /study/algorithm` at `study.routes.ts:215-231`). `kg.routes.ts` and `study.routes.ts` are the only route files that import `db` at all. Do not copy them | `kg.routes.ts:85`, `study.routes.ts:216,226` | `safe-to-fix` |
+| **Fixed — kept as a rule.** Two route handlers used to query the DB inline (`POST /knowledge-graph/ai/dismiss` and the `/study/algorithm` pair). Both are gone: the algorithm endpoints were deleted with SM-2, and `kg.routes.ts` now delegates to its service. `grep -ln '\bdb\b' apps/api/src/modules/*/*.routes.ts` returns **nothing** — keep it that way; the only handler that touches Postgres directly is `GET /health` | all `*.routes.ts` | resolved |
 | **No CSRF protection anywhere.** Safety rests entirely on `SameSite=Lax` + the CORS allowlist. Splitting SPA and API across registrable domains would stop the cookie being sent | `auth.routes.ts:14-18` | `own-task` |
 | The four security headers are set in `onAfterHandle`, which Elysia **skips when a handler throws** — every 4xx/5xx response is unhardened. No CSP, no HSTS anywhere | `index.ts:138-144` | `own-task` |
 | `sendFeedbackEmail` escapes only the message body; `subject` and `contactEmail` are interpolated into HTML **unescaped**, and `subject` is `t.String()` with no length bound | `shared/email.ts:62-99` | `safe-to-fix` |
@@ -114,11 +112,11 @@ Each entry is tagged:
 | Issue | Where | Verdict |
 |---|---|---|
 | **Migration `0015` is permanently skipped** — its journal `when` (1741564800000) is lower than `0014`'s (1772769352081), and Drizzle applies a migration only when `lastDbMigration.created_at < folderMillis`. Harmless only because `0022` re-adds the column with `IF NOT EXISTS` | `meta/_journal.json:110-121` | `do-not-fix-drive-by` |
-| drizzle-kit's snapshot baseline is **`0017`** (6 migrations stale), so `db:generate` emits duplicate DDL — re-`CREATE TABLE`s for `dismissed_suggestions` and `fsrs_user_params`, re-`ADD COLUMN`s for the five FSRS and four email-verification columns, and a redundant `DROP INDEX "idx_sdl_user_date"` with no `IF EXISTS`. It emits **nothing** for `card_field_values.embedding` — that column is absent from both the snapshot and the TS schema, so generate is blind to it; only `db:push`, which diffs the live DB, proposes dropping it. `0013` dropping `fsrs_user_params` + 4 columns is the precedent for what generate *can* destroy | `meta/` | `own-task` |
+| drizzle-kit's snapshot baseline is **`0017`** (now **12** migrations stale), so `db:generate` emits duplicate DDL — re-`CREATE TABLE`s for `dismissed_suggestions` and `fsrs_user_params`, re-`ADD COLUMN`s for the five FSRS and four email-verification columns, and a redundant `DROP INDEX "idx_sdl_user_date"` with no `IF EXISTS`. **It is now stale in both directions:** snapshot `0017` predates the 12 tables added after it *and* still contains `study_progress`, `review_logs` and `fsrs_user_params`, which migration `0029` deliberately **dropped** — so drizzle-kit will propose re-creating them, and `db:push` (which diffs the live DB) would actually do it. It emits **nothing** for `card_field_values.embedding` — absent from both the snapshot and the TS schema, so generate is blind to it; only `db:push` proposes dropping it. It also knows nothing about the `fsrs_retrievability()` function. `0013` dropping `fsrs_user_params` + 4 columns is the precedent for what generate *can* destroy | `meta/` | `own-task` |
 | `card_field_values.template_field_id` has no standalone index, so deleting a `template_fields` row scans the table. Same for the `dismissed_suggestions` card columns | `schema/cards.ts` | `safe-to-fix` |
 | `prepare: true` on the postgres.js client means named prepared statements — **incompatible with PgBouncer / transaction-mode poolers** | `db/index.ts:6-11` | `own-task` |
 | No Drizzle `logger` is configured, so there is **no SQL logging** in dev | `db/index.ts:13` | `safe-to-fix` |
-| Long-lived DBs that survived `0009 → 0013 → 0019` have `real` FSRS columns; `0009` used `double precision`. Do not assume float8 | migrations | `do-not-fix-drive-by` |
+| **Obsolete since `0029`.** The `real`-vs-`double precision` drift on `study_progress`'s FSRS columns across `0009 → 0013 → 0019` no longer matters — the table is dropped. `fsrs_card_states.stability`/`.difficulty` and `fsrs_parameter_revisions.decay`/`.factor` are `double precision` from birth, on every database | migrations | resolved |
 
 ### Frontend
 
@@ -142,7 +140,7 @@ Verified as having **zero importers** or being otherwise unreachable. Deleting a
 
 | What | Note |
 |---|---|
-| `apps/web/src/components/layout/header.tsx`, `mobile-nav.tsx`, `sidebar.tsx` + the 6 files in `layout/sidebar/` | Zero importers. Own **5 of the 22 tsc errors**. Only `layout/page-shell.tsx` is live |
+| `apps/web/src/components/layout/header.tsx`, `mobile-nav.tsx`, `sidebar.tsx` + the 6 files in `layout/sidebar/` | Zero importers. They used to own 5 of the 22 tsc errors; typecheck is green now, so they are dead but not red. Only `layout/page-shell.tsx` is live |
 | `apps/web/src/stores/sidebar.store.ts` | Imported only by the dead layout files |
 | `apps/web/src/lib/use-focus-trap.ts` | No callers — Kobalte overlays already trap focus |
 | `apps/web/src/components/dashboard/smart-groups-widget.tsx` | Calls `GET /study/smart-groups`, **which does not exist** — and the component is never mounted |
@@ -152,22 +150,19 @@ Verified as having **zero importers** or being otherwise unreachable. Deleting a
 | root dependency `web@^0.0.2` | Unrelated 2012 Node HTTP library, zero imports |
 | `skills-lock.json` phantom entries | `scripts/skills-update.ts` (`bun run skills:update`) only ever *adds or updates* a lock entry for a skill directory it finds on disk — it never deletes one. 7 entries (`enhance-prompt`, `design-md`, `supabase-postgres-best-practices`, `brainstorming`, `systematic-debugging`, `writing-plans`, `executing-plans`) reference `.agents/skills/<name>/` directories that no longer exist; running the script does not clean them up. Don't trust a lock entry as proof a skill exists — check the directory. See [tooling-ci.md](tooling-ci.md) |
 | `scripts/tsconfig.json` | Orphaned — nothing references it, nothing typechecks `scripts/` |
-| `recommendations.service.ts` `getCardRetentions()`, plus its unused `getCardLabels` / `cardConcepts` imports | Never called |
+| `recommendations.service.ts:305` `getCardRetentions()` | Zero callers — `grep -rn getCardRetentions apps/api` finds only the definition. It is a module-private `async function`, so nothing (not even tsc) complains. Deleting it is `safe-to-fix` |
 | `duplicate-detection.service.ts` imports of `getCardLabels`, `cosineSimilarity` | Never called |
 | `external-mocks.ts` `mockNodemailer`, `mockGeminiAI`, `mockEnv` | Zero call sites; `mockGeminiAI` is also broken |
 | `ENV.SESSION_MAX_AGE_DAYS`, `ENV.SESSION_REFRESH_THRESHOLD_DAYS` | Read nowhere — live values are in `shared/constants.ts` |
-| `SM2.GOOD_EF_DELTA` | Never read by production code — `srs.engine.ts`'s `good` branch leaves `easeFactor` unchanged. Its only reference is an assertion in `constants.test.ts:39`, so deleting it breaks a passing test |
 | `apps/web/vite.config.ts` `/api` proxy (both `server` and `preview`) | Dead config — the Eden client uses an absolute URL |
 | `apps/api/tsconfig.json` `@/*` path alias | Zero files use it |
 | `requiredParams` on all 14 command-action definitions | Declared everywhere, read nowhere |
-| `review_logs.review_duration_ms` | No endpoint ever writes it |
 | `card_concepts` inserts | Nothing ever inserts — smart groups and study-queue concept modes return empty on a fresh DB |
-| `fsrs_user_params` writes | Nothing ever writes — there is no optimizer feature |
-| `fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs` (migration `0026`) | Fully defined tables + CHECK constraints, and two pure functions in `fsrs.engine.ts` (`scheduleFsrsReview`, `normalizeFsrsParameters`) meant to populate them — but zero routes/services/jobs reference any of it. A shadow FSRS-only persistence model with no wiring yet, not a smaller version of an existing feature. See [database.md](database.md#tables) |
+| `fsrsLiveService.rotateParameters` | Fully implemented and tested, but **no HTTP route reaches it** — there is no parameter-optimizer feature and no per-user parameter endpoint. Not dead in the deletable sense: it is the only sanctioned way to write `fsrs_parameter_revisions`, so leave it |
 
 ## Features documented but not implemented
 
 - **Prerequisite chains.** `docs/project_report.md:116` and `docs/c4/workspace.dsl:45` describe "BFS traversal, max depth 10". The string `prerequisite` appears nowhere in `apps/api/src` or `apps/web/src` — only as an unused constant in the inert `packages/shared`.
 - **`/analytics` and `/search` routes.** `docs/c4/workspace.dsl:23-24,114-115` declares both. Neither exists; analytics live inside deck-view and dashboard widgets, and search is a command-palette modal.
-- **FSRS parameter optimization.** Mentioned only in a schema comment (`review-logs.ts:19`). No endpoint, service or job writes `fsrs_user_params`.
+- **FSRS parameter optimization.** `fsrsLiveService.rotateParameters` exists and works, but nothing calls it: no endpoint, no job, no UI. `fsrs_parameter_revisions.source` already allows `'optimized'`, so the data model is ready and the feature is not.
 - **Experience plan Chunk 4 Tasks 10–14 and Chunk 5 Tasks 15–16** — no `/study` queue, `/library`, `/create` or `/insights` routes exist. See [experience-bff.md](experience-bff.md).
