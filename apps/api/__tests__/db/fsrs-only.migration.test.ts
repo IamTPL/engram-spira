@@ -2241,3 +2241,30 @@ describe('0028 FSRS curve expansion migration', () => {
     30_000,
   );
 });
+
+describe('0029 FSRS-only finalize migration', () => {
+  integrationTest(
+    'drops the legacy scheduling tables and users.srs_algorithm',
+    async () => {
+      const { databaseName, sql } = await createDisposableDatabase();
+      try {
+        await applyMigrationsThrough(sql, 29);
+        const tables = await sql<{ table_name: string }[]>`
+          SELECT table_name FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name IN ('study_progress', 'review_logs', 'fsrs_user_params', 'fsrs_migration_runs')
+        `;
+        expect([...tables]).toEqual([]);
+        const [column] = await sql<{ n: number }[]>`
+          SELECT COUNT(*)::int AS n FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'srs_algorithm'
+        `;
+        expect(column!.n).toBe(0);
+      } finally {
+        await sql.end();
+        await dropDisposableDatabase(databaseName);
+      }
+    },
+    30_000,
+  );
+});
