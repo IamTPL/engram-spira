@@ -1,193 +1,388 @@
-# SRS and study subsystem
+# SRS and study subsystem — FSRS only
 
-`apps/api/src/modules/study/` — 7 files, ~2 070 LOC, mounted at prefix `/study` (`index.ts:193`) behind `requireAuth` and a 180 req/60 s per-IP rate limit. 18 endpoints; see [endpoints.md](endpoints.md).
+`apps/api/src/modules/study/` — 17 files, ~5 675 LOC, mounted at prefix `/study` (`index.ts:203`) behind
+`requireAuth` and a 180 req/60 s per-IP rate limit. 17 endpoints; see [endpoints.md](endpoints.md).
+
+**There is exactly one scheduler.** SM-2, the per-user algorithm switch, `study_progress`, `review_logs`,
+`fsrs_user_params` and the replay tooling are all gone (migration `0029`, commit `3dea1fd`; code removal
+`fa50447`). Every review goes through `fsrsLiveService.reviewBatch`; every count, forecast and retention
+figure is derived in SQL from `fsrs_card_states` + `fsrs_parameter_revisions`. Performance rules, per-surface
+budgets and the `EXPLAIN` gate live in [performance.md](performance.md) — this file describes the model.
 
 | File | Role |
 |---|---|
-| `srs.engine.ts` | Pure SM-2 (`calculateNextReview`) + `dispatchReview()` router |
-| `fsrs.engine.ts` | `ts-fsrs` adapter (`calculateFsrsReview`) |
-| `study.service.ts` | All persistence: queue, reviews, daily logs, streak, schedule, interleaved, reset |
-| `forecast.service.ts` | `getForecast`, `getRetentionHeatmap`, `getAtRiskCards` |
+| `fsrs.engine.ts` | Pure `ts-fsrs` adapter: `scheduleFsrsReview` (`:136`), `normalizeFsrsParameters` (`:56`). No `db` import |
+| `fsrs-live.domain.ts` | Pure write-path domain: request normalisation, idempotency comparison, `learning_cycle`/`sequence` derivation, study-date grouping |
+| `fsrs-live.service.ts` | Thin service over the repository interface — `reviewBatch`, `reviewCard`, `resetCard`, `resetDeck`, `rotateParameters` |
+| `fsrs-live.postgres.ts` | The only writer of `fsrs_card_states` / `fsrs_review_events`. One serializable transaction per call |
+| `fsrs-read.postgres.ts` | Canonical read loader (`loadByCardIds`) — state + its parameter revision, order-preserving |
+| `fsrs-deck-reads.postgres.ts` | Study-queue reads: `getDueCards`, `getDeckSchedule`, `enrichCards`, `getInterleavedDueCards`, `getTopDueDeckIds` |
+| `fsrs-sql.ts` | Shared SQL fragment vocabulary every aggregate composes (54 lines; see below) |
+| `fsrs-retention.ts` | Single-card retrievability in JS, for decorating an already-loaded queue card only |
+| `fsrs-revision.ts` | Deterministic revision ids, canonical parameter hashing, forgetting-curve constants |
+| `fsrs-canonical.ts` | Canonical JSON, SHA-256, UUIDv5 — the hashing primitives revisions are keyed on |
+| `study.service.ts` | Streaks, activity, stats, dashboard snapshot; thin delegation for deck reads; exports `fsrsLiveService` |
+| `forecast.service.ts` | `getForecast`, `getRetentionHeatmap`, `getAtRiskCards` — one statement each |
+| `retention-overview.service.ts` | Memory-health overview: one aggregate statement |
+| `retention-details.service.ts` | Memory-health details: outcome buckets + workload from `fsrs_review_events` |
 | `recommendations.service.ts` | `getRelatedCards`, `getSmartGroups` |
-| `review-logs-cleanup.ts` | 730-day pruner |
-| `study.routes.ts` | Router, TypeBox schemas, `x-timezone-offset` parsing |
+| `study-cluster.ts` | `MAX_STUDY_CLUSTER_CARDS = 12` + the `?cardIds=` query parser |
+| `study.routes.ts` | Router, TypeBox schemas, `x-timezone-offset` parsing, injectable `StudyRouteServices` |
 
-Keep both engines **pure** — no `db` import, no I/O. They take a partial state object and return a plain result. All DB access belongs in `study.service.ts`.
-
-## Algorithm selection
-
-| Concern | Where |
-|---|---|
-| Stored preference | `users.srs_algorithm varchar(10) NOT NULL DEFAULT 'sm2'` |
-| Read/write | `GET` / `PATCH /study/algorithm` |
-| Dispatch | `dispatchReview()` (`srs.engine.ts:11-28`) — called **only** from `reviewCardBatch` (`study.service.ts:393`) |
-| Per-user FSRS overrides | `fsrs_user_params.params` jsonb, selected at `study.service.ts:319-323`, merged at `fsrs.engine.ts:56` |
-
-`dispatchReview` returns a discriminated union `{type:'sm2', result}` | `{type:'fsrs', result}`. Anything not exactly `'fsrs'` falls through to SM-2.
-
-> **`POST /study/review` ignores the preference.** It calls `calculateNextReview` directly (`study.service.ts:256`) and writes no FSRS columns, so an FSRS user gets SM-2 scheduling. Only `/study/review-batch` is algorithm-aware. The web client only ever calls review-batch (`study-mode.tsx:118`), which masks the bug.
-
-> **`fsrs_user_params` is never written** by any endpoint, service or job — the only reference is that one SELECT. There is no optimizer feature; rows can appear only via manual SQL. The jsonb is passed into `generatorParameters()` **unvalidated**, so malformed params make ts-fsrs throw — but before the review transaction opens (`dispatchReview` runs in the item loop at `study.service.ts:393`; the transaction only starts at `:470`), so the request fails with nothing written.
-
-## SM-2 engine
-
-Constants in `shared/constants.ts:13-26`. Defaults: `ef` 2.5, `interval` 1, `reps` (`boxLevel`) 0.
-
-| Rating | boxLevel | easeFactor | intervalDays | nextReviewAt |
-|---|---|---|---|---|
-| `again` (L69-79) | → 0 | `max(1.3, ef − 0.20)`, 2 dp | → 0 | `now + 10 min` |
-| `hard` (L82-98) | `max(1, reps)` — **a new card graduates** | `max(1.3, ef − 0.15)`, 2 dp | `newReps ≤ 1 ? 1 : max(interval+1, round(interval × 1.2))` | `now + interval d` |
-| `good` (L101-117) | `reps + 1` | **unchanged** | `1` at rep 1, `6` at rep 2, else `round(interval × ef)` | `now + interval d` |
-| `easy` (L120-138) | `reps + 1` | `ef + 0.15` — **no upper clamp**, 2 dp | `4` at rep 1, `round(6 × 1.3) = 8` at rep 2, else `round(interval × newEf × 1.3)` | `now + interval d` |
-
-Worked example, all Good at ef 2.5: 1 d → 6 d → 15 d → 38 d.
-
-Constant inventory: `DEFAULT_EASE_FACTOR` 2.5 · `MIN_EASE_FACTOR` 1.3 · deltas −0.2 / −0.15 / 0 / +0.15 · `EASY_INTERVAL_BONUS` 1.3 · `FIRST_INTERVAL_DAYS` 1 · `SECOND_INTERVAL_DAYS` 6 · `AGAIN_RELEARN_MINUTES` 10.
-
-Two literals are **not** in the constants object — the `1.2` HARD growth factor (`srs.engine.ts:90`) and the `4`-day first-EASY interval (`srs.engine.ts:126`). They are pre-existing violations, not a precedent: put new tuning numbers in `SM2`. `SM2.GOOD_EF_DELTA` (0) is never read by the engine — the `good` branch just returns `easeFactor: ef` unchanged — and its only reference anywhere is an assertion in `__tests__/shared/constants.test.ts:39`. An unknown action throws a plain `Error`, not an `AppError`.
-
-## FSRS engine
-
-Wraps `ts-fsrs@5.4.1` (bumped from `5.2.3`; `f.repeat(card, now)[rating]` became `f.next(card, now, rating)` — same semantics, new call shape), which self-identifies as FSRS generation **FSRS-6** — despite the `FSRS v5` comments in the code and tests. Ratings map to `Rating.Again|Hard|Good|Easy` = 1|2|3|4. Three version-tag constants now live at the top of the file: `FSRS_ALGORITHM_VERSION = 'FSRS-6'`, `FSRS_LIBRARY_VERSION = 'ts-fsrs@5.4.1'`, `FSRS_POLICY_VERSION = 'engram-fsrs-v1'` — currently read only by the dormant code below, not by `calculateFsrsReview`.
-
-### A second, unwired engine surface: `scheduleFsrsReview` / `normalizeFsrsParameters`
-
-`fsrs.engine.ts` gained ~280 lines of a second, stricter adapter alongside the original `calculateFsrsReview` (below) — **not a replacement for it; nothing calls the new functions outside their own test file.** `grep -rl 'scheduleFsrsReview\|normalizeFsrsParameters' apps/api/src` outside `fsrs.engine.ts` itself returns nothing; `study.service.ts` was not touched by the commit that added this. It exists to eventually feed the shadow `fsrs_*` tables — see [database.md](database.md#tables).
-
-- `normalizeFsrsParameters(value?: unknown): FSRSParameters` — allowlists exactly 7 keys, range-checks `request_retention`/`maximum_interval`, validates step-string format (`/^[1-9]\d*[mhd]$/`), and **migrates FSRS weight vectors between generations**: 17 weights (pre-4.5) → pads short-term + decay and re-derives 3 of the original weights via the documented FSRS-4.5→5 formula; 19 weights (5-without-short-term) → appends 2; 21 weights (current) → passed through. Clamps every weight to `CLAMP_PARAMETERS(W17_W18_Ceiling, ...)`'s per-index range from `ts-fsrs`. Throws `ValidationError` (not a plain `Error`) on any violation — unlike `calculateFsrsReview`, whose `params` argument is spread into `generatorParameters()` completely unvalidated.
-- `scheduleFsrsReview({current, rating, reviewedAt, parameters}): {before, after, log}` — takes a full `ts-fsrs` `Card` (not the app's partial `FsrsState`), validates it (`due`/`last_review` are real Dates, `last_review <= reviewedAt`, state is one of Learning/Review/Relearning, stability/difficulty/counters are in-range) via `validateAndCloneCard`, then calls `fsrs(...).next(...)` and returns cloned before/after cards plus the library's own `ReviewLog`.
-
-**If this ever gets wired up, it structurally avoids both defects below** — worth knowing before "fixing" the live path by copying from here. `scheduleFsrsReview` gates on `input.current === null` (not truthy `stability`), and a real `fsrs_card_states` row can never carry `stability = 0` (the table's own CHECK constraint forbids it), so defect 1 cannot occur through this path. It also threads the caller-supplied `Card.last_review` straight into `ts-fsrs`'s own elapsed-time computation instead of hardcoding `new Date()`, so stability would grow correctly for review-state cards — *provided* whatever eventually calls this reconstructs `last_review` from real persisted history rather than the current moment. Neither claim has been exercised end-to-end; there is no caller yet.
-
-Module defaults (`fsrs.engine.ts:50-53`): `learning_steps: ['1m','15m']`, `relearning_steps: ['10m']`. Everything else is inherited from the library: `request_retention` 0.9, `maximum_interval` 36500, `enable_fuzz` false, `enable_short_term` true. (The library's own default `learning_steps` would be `['1m','10m']`.) Per-user params are shallow-merged **over** these defaults, so a user key wins.
-
-State strings ↔ ts-fsrs `State`: `new`=0, `learning`=1, `review`=2, `relearning`=3; unknown → 0.
-
-Card reconstruction (`L63-76`) restores `stability`, `difficulty`, `state` and — critically — `learning_steps`, without which Good can never graduate a Learning card (that is what migration `0020` fixed).
-
-`intervalDays` on the FSRS path is `Math.ceil(scheduled_days)` and is **display-only**; always schedule from `nextReviewAt`.
-
-### Two confirmed engine defects (in the live path, `calculateFsrsReview` — unchanged by the `ts-fsrs` 5.4.1 bump or the new dormant surface above; only the line numbers moved, from the ~280 lines inserted above this function)
-
-1. **State loss on zero stability.** The restore is gated on `current?.stability` being *truthy* (`fsrs.engine.ts:366`), so a persisted `stability` of `0` or `NULL` silently rebuilds a brand-new card via `createEmptyCard()`, discarding difficulty, state and learning steps.
-2. **Elapsed time is always zero.** `last_review` is hardcoded to `new Date()` (`fsrs.engine.ts:377`), so ts-fsrs computes `elapsed_days = 0` on every review and **stability never grows for review-state cards**. Measured with S=10, D=5, 30 days elapsed, Good: this code returns stability 10.0 / interval 11 d; a correctly-carried card returns stability 53.56 / interval 54 d. `last_elapsed_days` therefore always persists as 0, and the `current.lastElapsedDays` passed at `L371` is discarded by the library.
+Keep `fsrs.engine.ts`, `fsrs-live.domain.ts`, `fsrs-retention.ts`, `fsrs-revision.ts` and `fsrs-canonical.ts`
+**pure** — no `db` import, no I/O. All persistence belongs in a `*.postgres.ts` repository.
 
 ## Tables owned
 
-**`study_progress`** — one row per (user, card).
+Four tables, all created by migration `0026` and hardened by `0027`/`0028`. Full column and constraint lists
+in [database.md](database.md#tables).
 
-| Column | Owner |
-|---|---|
-| `box_level` int d`0` | SM-2 (repetition count) |
-| `ease_factor` float8 d`2.5` | SM-2 |
-| `interval_days` int d`1` | SM-2 (FSRS writes it as display metadata) |
-| `next_review_at` timestamptz NOT NULL | **shared — the scheduling source of truth** |
-| `last_reviewed_at` timestamptz | shared |
-| `stability` real / `difficulty` real | FSRS |
-| `fsrs_state` varchar(15) d`'new'` | FSRS |
-| `last_elapsed_days` real d`0` | FSRS (always 0 in practice) |
-| `fsrs_learning_steps` int d`0` | FSRS |
+**`fsrs_parameter_revisions`** — the parameter set a review was scheduled under, versioned. `(user_id, revision)`
+is unique, and a partial unique index on `user_id WHERE retired_at IS NULL` enforces **at most one active
+revision per user**. `parameters` is the validated `ts-fsrs` parameter object; `params_hash` is
+`sha256Canonical(parameters)` (`fsrs-canonical.ts:108`) so an identical set is never duplicated. `decay` and
+`factor` (added by `0028`) are the forgetting-curve constants derived from `w[20]`
+(`decay = -w20`, `factor = exp(ln 0.9 / -w20) - 1`, rounded to 8 dp) — they exist so the SQL retrievability
+function needs no jsonb parsing per row, and `chk_fsrs_parameter_revisions_curve` holds `decay < 0 AND factor > 0`.
 
-On an FSRS review, `box_level` and `ease_factor` are **carried over unchanged** (`study.service.ts:418-419`), freezing at whatever the last SM-2 review left. The `ON CONFLICT` set includes FSRS columns only when `algorithm === 'fsrs'`.
+**`fsrs_card_states`** — one row per `(user_id, card_id)`, the current schedule. **A card with no row is New**;
+there is no `'new'` state value (`state IN ('learning','review','relearning')` is a CHECK). `stability > 0`
+and `difficulty BETWEEN 1 AND 10` are enforced by the table, so the "state lost on zero stability" class of
+bug is structurally impossible here. `state_version` is the per-card monotonic counter the write path uses as
+the next event `sequence`; `learning_cycle` groups a card's events between resets.
 
-**`review_logs`** — append-only. `state` is derived from **SM-2 columns only**, with a hardcoded 21-day cutoff (`study.service.ts:247-254, 384-391`), even for FSRS users: no progress → `new`; `box_level = 0` → `relearning`; previous `interval_days < 21` → `learning`; else `review`. The FSRS-native `fsrs_state` is never logged, so a future optimizer trained on `review_logs.state` would train on SM-2-derived labels. `scheduled_days` is the **previous** `interval_days`; `elapsed_days` is `round((now − last_reviewed_at)/86400000)` clamped ≥ 0. `review_duration_ms` exists but **no endpoint ever writes it** — treat it as always NULL.
+**`fsrs_review_events`** — append-only, one row per applied review, with the full `before_*`/`after_*` state
+snapshot pair. `uq (user_id, request_id)` is the **idempotency key**; `uq (user_id, card_id, sequence)` makes
+the per-card history a total order. `origin IN ('live','migration')` — `'migration'` rows are what the
+one-time replay of the legacy SM-2 history wrote before `0029` dropped the source tables.
 
-**`study_daily_logs`** — `(user_id, study_date date, cards_reviewed)` with `uq_user_study_date`. Always go through `upsertDailyLog()`; never read-then-write. It increments with the raw SQL `study_daily_logs.cards_reviewed + ${count}` on conflict, so concurrent batches cannot lose counts.
+**`study_daily_logs`** — `(user_id, study_date date, cards_reviewed)` with `uq_user_study_date`. The only
+source for streaks and the activity heatmap. Always upsert with `cards_reviewed + EXCLUDED.cards_reviewed`
+(`fsrs-live.postgres.ts:447-454`); never read-then-write, so concurrent batches cannot lose counts.
 
-**`fsrs_user_params`** — read-only in app code (see above).
+## The write path
 
-**Partly wired since 2026-09**: `fsrs_parameter_revisions`, `fsrs_card_states`, `fsrs_review_events`, `fsrs_migration_runs` (migrations `0026`–`0027`) are now the **read** side of `GET /study/deck/:deckId` and `/schedule` — `study.service.ts` delegates `getDueCards`/`getDeckSchedule`/`enrichCards` to `createPostgresFsrsDeckReadRepository(pgClient)` in `fsrs-deck-reads.postgres.ts`, which treats a card with no `fsrs_card_states` row as New/due. The **write** side (`fsrs-live.postgres.ts`, `fsrs-live.service.ts`) and the legacy → canonical replay (`fsrs-replay.postgres.ts`, `scripts/fsrs-replay.ts`) exist and are tested but are not yet called by any route; `review-batch` still writes `study_progress`. All four repositories go through `src/db/pg-codecs.ts` because `pgClient` is drizzle-wrapped (AGENTS.md §3 rule 27). Full definitions in [database.md](database.md#tables).
+`POST /study/review-batch` → `services.reviewBatch` (`study.routes.ts:129`) → `fsrsLiveService.reviewBatch`
+→ `applyReviewBatch` (`fsrs-live.postgres.ts:167-198`). The service is constructed once at module scope:
 
-## Review path
-
-Both `reviewCard` and `reviewCardBatch` wrap progress upsert + daily log + review log in **one** `db.transaction`. Progress is upserted with `.onConflictDoUpdate({ target: [studyProgress.userId, studyProgress.cardId] })` — the unique constraint is `uq_user_card_progress`.
-
-`reviewCardBatch` loads `srsAlgorithm` and FSRS params in parallel with the card rows (falling back to `'sm2'` when the user row is missing), skips any `cardId` not returned by the ownership-joined query, and returns `{reviewed}` counting only accepted items.
-
-**When you add an FSRS field**, add it to *both* `calculateFsrsReview`'s restore block *and* the `algorithm === 'fsrs'` conflict set — otherwise batch upserts silently drop it.
-
-## Queue building
-
-Due filter is pure SQL, never JavaScript: `LEFT JOIN study_progress ON (card_id, user_id)` then `WHERE study_progress.id IS NULL OR next_review_at <= now`, ordered by `cards.sort_order` (`study.service.ts:172-193`). `?mode=all` skips the filter.
-
-`enrichCards()` fans out three parallel queries (cards, field values joined to template_fields, progress) and attaches `fields` (sorted by `sortOrder`) plus `progress`.
-
-**Interleaved** (`study.service.ts:733-809`): over-fetches `limit * 2` rows ordered by `COALESCE(next_review_at, NOW() + interval '1 hour') ASC` (so new cards sort after overdue), buckets by deck, round-robins to `limit`, then re-sorts the enriched result back into interleaved order. `total` is the over-fetch count, **not** the true due total. `GET /study/interleaved/auto` first picks the top-N decks (default 5) by due count.
-
-**`getDeckSchedule`**: `learnedCards` = `box_level > 0 OR fsrs_state = 'review'`; cards due within 1 hour go to `dueSoon` rather than a day bucket; day offsets use `max(1, round(diffMs / 86400000))`, so 23 h 59 m reads as "Tomorrow". The `totalCards === 0` early return **omits `dueSoon`** while the non-empty path includes it — the web type declares it as `number`, so it is `undefined` at runtime for empty decks.
-
-## Timezone handling
-
-The only mechanism is the **`x-timezone-offset`** request header, sent on every request by the web client from `new Date().getTimezoneOffset()` and allow-listed in CORS (`index.ts:135`).
-
-`getTimezoneOffsetMinutes()` (`study.routes.ts:15-21`) parses it with `parseInt`, defaults to `0` on missing/NaN, and clamps to **`[-720, 840]`**. Since `getTimezoneOffset()` returns −840 for UTC+14, users in UTC+13/+14 (Kiritimati, Samoa DST, Chatham) are silently clipped to UTC+12.
-
-Services take a trailing `tzOffset = 0` parameter and compute the local day as `new Date(Date.now() - tzOffset * 60000).toISOString().slice(0, 10)`.
-
-> Because streak/activity code then calls `Date.prototype.setDate` on that shifted instant, **correctness depends on the API process running with `TZ=UTC`** — and nothing sets it. Never call a bare `new Date()` in a service expecting server-local day semantics.
-
-Only 5 handlers consume the offset: `/streak`, `/activity`, `/dashboard-snapshot`, `/review`, `/review-batch`. **The `experience` layer ignores it entirely** — `command-center.service.ts:151` calls `getUserStreak(userId)` with no offset, so `GET /study/streak` and the command center's streak section can report different values for the same user on the same day. Fix that rather than copying it.
-
-## Streaks
-
-`getUserStreak` (`study.service.ts:584-656`) scans `study_daily_logs` back `STREAK.ACTIVITY_MAX_DAYS = 365` days, walks backwards from today — **or from yesterday if today has no log**, so missing today does not immediately break the streak — then does a second ascending pass requiring `diffDays === 1` exactly for `longestStreak`. `getUserActivity` clamps `days` to 365 (endpoint default `ACTIVITY_DEFAULT_DAYS` = 90); `getDashboardSnapshot` hardcodes **91** days.
-
-## Retention analytics
-
-Shared formula — `computeRetention()` in `shared/embedding-utils.ts:114-125`. Do not re-derive it inline:
-
-```
-S = stability > 0 ? stability : max(1, intervalDays × easeFactor / 2.5)
-R = exp(-daysSinceReview / S)
+```ts
+// study.service.ts:16-18
+export const fsrsLiveService = createFsrsLiveService(
+  createPostgresFsrsLiveRepository(pgClient),
+);
 ```
 
-Note it is **not** pure FSRS stability: SM-2 users with no stability get the approximation.
+`fsrs-live.service.ts:44-56` stamps `receivedAt` from its injectable `clock`, runs
+`normalizeLiveReviewCommands` and hands the normalized commands to the repository. Nothing else may write
+`fsrs_card_states` or `fsrs_review_events` (AGENTS.md §3 rule 12).
 
-- **`getForecast`** — clamps `days` to `[1,90]`, loops day × card in memory over *all* the user's progress rows, skips never-reviewed cards, counts at-risk when `R < 0.8` (hardcoded), rounds `avgRetention` to 3 dp, returns `1` when nothing has been reviewed.
-- **`getRetentionHeatmap`** — per-deck, sorted retention ascending. Returns `{cards: []}` instead of throwing for a deck the user does not own (unlike the rest of the module).
-- **`getAtRiskCards`** — default threshold 0.8, limit 20. Considers only rows with `next_review_at > NOW()` **and** a non-null `last_reviewed_at` — i.e. "silently decaying" cards the scheduler thinks are fine. `total` is counted before slicing.
-- **`getSmartGroups`** (`recommendations.service.ts:168-259`) — groups `card_concepts` with raw SQL, `LIMIT topN` (default 5), keeps ≤ 5 samples per concept, and **duplicates the retention formula inline** (fold it into `computeRetention`, do not copy it). It has **no HTTP route**; only the `experience` module calls it. Because nothing ever inserts into `card_concepts`, it returns empty on a fresh database.
-- **`getRelatedCards`** — explicit `card_links` neighbours first (either direction), then tops up with `searchByEmbedding` at similarity 0.5, inside a bare `try/catch` that swallows **all** embedding failures.
+**Request contract.** Body is `{ items: [{ requestId, cardId, rating, reviewedAt, durationMs? }] }`,
+1–100 items (`study.routes.ts:133`, and `MAX_BATCH_SIZE = 100` in `fsrs-live.domain.ts:4`). `requestId` and
+`cardId` are UUIDs, lower-cased on the way in; `rating` is `again|hard|good|easy`; `reviewedAt` is an
+ISO-8601 instant; `durationMs` is an integer 0…3 600 000.
 
-`recommendations.service.ts` also contains dead code that looks live: `getCardRetentions()` (line 306) is never called, and `getCardLabels` / `cardConcepts` are imported but unused.
+**Response.** `{ applied, duplicates, results }` with one result per item, in request order:
+`{ requestId, cardId, status: 'applied' | 'duplicate', learningCycle, sequence, state, nextReviewAt, stability, difficulty, scheduledDays }`.
 
-## Retention window for `review_logs`
+**Validation, and which status you get:**
 
-`cleanupOldReviewLogs()` deletes rows older than `RETENTION_DAYS = 730` in batches of `BATCH_SIZE = 5000` using a CTE with `FOR UPDATE SKIP LOCKED`, yielding `100 ms` between batches. Runs once at startup and every 24 h on an `unref()`'d interval.
+| Condition | Where | Result |
+|---|---|---|
+| Same `requestId`, byte-identical payload | `assertMatchingLiveReviewRequest` (`fsrs-live.domain.ts:162`) | `status: 'duplicate'`, the stored event replayed, nothing written |
+| Same `requestId`, **different** payload | same | `ConflictError` → **409** |
+| `reviewedAt` > 5 min in the future | `fsrs-live.domain.ts:135` (`MAX_FUTURE_SKEW_MS`) | `ValidationError` → **422** |
+| `reviewedAt` earlier than the card's `last_reviewed_at` | `assertReviewChronology` (`:239`) | `ValidationError` → **422** |
+| Duplicate `requestId` **within one batch** | `:145` | `ValidationError` → **422** |
+| Card not owned by the caller | `requireOwnedCardsAfterLocks` (`fsrs-live.postgres.ts:711`) | `NotFoundError('Card')` → **404** |
+
+**Transaction shape** (`applyReviewBatchTransaction`, `fsrs-live.postgres.ts:236-463`), all inside one
+`isolation level serializable` block with `retrySerializable` (5 attempts on `40001`/`40P01`, `:1358`):
+
+1. `lockUser` → `lockCards` → `lockDecks` → `requireOwnedCardsAfterLocks` — ownership is re-checked *after*
+   the locks, so a concurrent deck move cannot slip a foreign card through.
+2. `lockRequestEvents` resolves the whole batch's duplicates in **one** `request_id = ANY($2::uuid[]) … FOR UPDATE`.
+3. `lockStates`, `loadMaximumLearningCycles`, `lockParameterRevisions` — one statement each for the whole batch.
+4. Per new command: derive the position, pick the revision (the card's own for an existing state, the active
+   one for a New card — created on demand by `createOrReactivateDefaultRevision`, `:890`), call the scheduler,
+   `validateScheduledProjection`, then `insertEvent` + `upsertState`.
+5. One `study_daily_logs` upsert per distinct local study date (`groupReviewsByStudyDate`, offset from the
+   request header).
+
+The per-event `insertEvent`/`upsertState` pair is the one deliberate loop in the codebase: bounded at 100 and
+inside a single transaction, so it costs one round trip's latency. **Reads may not do this** — see
+[performance.md](performance.md) §2.2.
+
+**Position derivation** (`deriveNextReviewPosition`, `fsrs-live.domain.ts:283`): with a state row,
+`learningCycle` is carried and `sequence = state_version + 1`. With no state row, `learningCycle` is
+`max(prior learning_cycle) + 1` (1 if the card has no history at all) and `sequence = 1`. That is what makes a
+reset open a fresh cycle without touching the immutable event log.
+
+**Scheduling itself** is `scheduleFsrsReview` (`fsrs.engine.ts:136`), injected as
+`options.schedule` so tests can substitute it (`fsrs-live.postgres.ts:163`). It wraps `ts-fsrs@5.4.1`, which
+self-identifies as generation **FSRS-6**; the three version tags (`FSRS_ALGORITHM_VERSION`,
+`FSRS_LIBRARY_VERSION`, `FSRS_POLICY_VERSION`, `:19-21`) are persisted on each revision. `input.current === null`
+means New; otherwise the caller passes a full `ts-fsrs` `Card` reconstructed from the persisted row
+(`cardFromState`, `fsrs-live.postgres.ts:1243`), so `last_review` is the **real** persisted instant and
+`ts-fsrs` computes elapsed time itself — stability grows for review-state cards, and the scheduler's
+`log.elapsed_days` is cross-checked against `after.elapsed_days` (`:395`).
+
+`normalizeFsrsParameters` (`:56`) allow-lists exactly 7 keys, range-checks `request_retention` (0, 1] and
+`maximum_interval` [1, 36500], validates step strings against `/^[1-9]\d*[mhd]$/`, migrates 17- and 19-weight
+vectors to the current 21, clamps every weight to the `ts-fsrs` `CLAMP_PARAMETERS` range, and throws
+`ValidationError` on any violation. Nothing reaches `generatorParameters()` unvalidated. Policy defaults
+(`:43-44`, `:172-182`): `learning_steps ['1m','15m']`, `relearning_steps ['10m']`, `enable_fuzz` **forced
+false**.
+
+**Parameter rotation** is `fsrsLiveService.rotateParameters` → `rotateParametersTransaction` (`:494`): it
+retires the active revision and creates (or reactivates) the one matching the new canonical hash. **It has no
+HTTP route** — there is no optimizer feature and no per-user parameter endpoint.
+
+## The read path
+
+Two layers, and every consumer statement is an exported builder.
+
+**`fsrs-sql.ts` — the fragment vocabulary.** Aliases are fixed: `c` cards, `s` fsrs_card_states,
+`r` fsrs_parameter_revisions. Compose these instead of re-spelling the join; a new spelling is a new
+semantics bug.
+
+| Fragment | Line | Meaning |
+|---|---|---|
+| `fsrsAsOf(asOf)` | `:9` | binds the instant as ISO text with an explicit `::timestamptz` cast |
+| `fsrsStateJoin(userId)` | `:13` | `LEFT JOIN fsrs_card_states s` + `LEFT JOIN fsrs_parameter_revisions r` |
+| `FSRS_NEW` | `:21` | `s.id IS NULL` |
+| `FSRS_LEARNING` | `:22` | `s.state IN ('learning','relearning')` |
+| `FSRS_REVIEW` | `:23` | `s.state = 'review'` |
+| `fsrsDue(asOf)` | `:25` | `s.id IS NULL OR s.next_review_at <= asOf` |
+| `fsrsDueLater(asOf)` | `:29` | `s.id IS NOT NULL AND s.next_review_at > asOf` |
+| `fsrsTargetRetention()` | `:33` | `COALESCE((r.parameters->>'request_retention')::float8, 0.9)` |
+| `fsrsRetrievability(asOf)` | `:37` | `NULL` for New, else `fsrs_retrievability(s.stability, EXTRACT(EPOCH FROM (asOf - s.last_reviewed_at)), r.decay, r.factor)` |
+| `fsrsAtRisk(asOf)` | `:48` | `FSRS_REVIEW AND fsrsDueLater AND R < target` |
+
+`fsrs_retrievability(stability, elapsed_seconds, decay, factor)` is a `LANGUAGE sql IMMUTABLE PARALLEL SAFE
+STRICT` function installed by migration `0028_fsrs_curve_expand.sql:30`. `IMMUTABLE PARALLEL SAFE` is what
+lets the planner hoist and parallelise it. Its agreement with `ts-fsrs` is pinned by an oracle test over
+5 000 seeded random triples to 8 decimals (`__tests__/modules/study/fsrs-sql.postgres.test.ts:55`).
+
+`asOf` is always a parameter, never `now()` inside a fragment — otherwise two counters in one response can
+disagree about "now" and tests become time-dependent.
+
+**Study-queue reads** (`fsrs-deck-reads.postgres.ts`):
+
+- `getDueCards` (`:146`) — `requireOwnedDeck`, then a `Promise.all` of the deck's total count and
+  `DUE_CARD_IDS_SQL` (`:126`, `LEFT JOIN fsrs_card_states … WHERE state.id IS NULL OR state.next_review_at <= $3`,
+  ordered `cards.sort_order, cards.id`), then `enrichCards`. `?mode=all` swaps the due filter for a plain
+  card list; `?cardIds=` takes the selected-cluster path (≤ 12 ids, `study-cluster.ts:3`).
+- `enrichCards` (`:314`) — **exactly two statements for N cards**, issued in parallel (`:327`): one
+  `cards.id = ANY($1::uuid[])` field join, one canonical FSRS read. Joined in memory by a `Map`. Fields are
+  sorted by `sortOrder` then `templateFieldId`.
+- `getInterleavedDueCards` (`:246`) — round-robin across N decks **in SQL**:
+  `unnest($2::uuid[]) WITH ORDINALITY` preserves the caller's deck order as `deck_rank`,
+  `ROW_NUMBER() OVER (PARTITION BY c.deck_id ORDER BY s.next_review_at NULLS LAST, c.sort_order, c.id)` gives
+  the per-deck position, and `ORDER BY rn, deck_rank, id LIMIT $4` interleaves. `total` is
+  `COUNT(*) OVER ()` — the **true** pre-limit due count. `limit` is clamped to `[1, 200]` (`:252`).
+- `getTopDueDeckIds` (`:290`) — decks by due count, tie-broken by `d.created_at` then `c.deck_id`, `topN`
+  clamped to `[1, 50]`. Feeds `GET /study/interleaved/auto`.
+- `getDeckSchedule` (`:216`) — loads every card's canonical read, then buckets in JS
+  (`scheduleFromReads`, `:436`): `learnedCards` counts `state = 'review'`; anything due within 1 hour goes to
+  `dueSoon`; day offsets are `max(1, round(diffMs / 86_400_000))`, so 23 h 59 m reads as "Tomorrow". Both the
+  zero-card and non-empty paths return `dueSoon` (`:234` / `:477`).
+
+**Canonical loader** (`fsrs-read.postgres.ts:65`): `loadByCardIds(userId, cardIds)` reads N states plus their
+revisions in one statement with `unnest($2::uuid[]) WITH ORDINALITY`, preserving caller order, and validates
+each row into a `CanonicalFsrsRead`.
+
+**Aggregate consumers.** 13 exported `*Sql()` builders — `grep -rn 'export function .*Sql(' apps/api/src` —
+each executed by a service that does nothing but `db.execute` and map rows: `notifications` (`dueDecksSql`,
+`totalDueSql`), `experience` (`reviewQueueSql`, `dueDecksSummarySql`, `deckStudySummarySql`, `atRiskCardsSql`,
+`reviewedThisWeekSql`, `libraryClassesSql`, `queueRowsSql`), `study` (`forecastSql`, `heatmapSql`,
+`atRiskCardsSql`, `retentionOverviewSql`). The export is the contract: tests execute and `EXPLAIN` it
+(`__tests__/modules/study/fsrs-consumers.postgres.test.ts`). A statement inlined into a service body cannot be
+gated — do not add one.
+
+Every raw statement goes through `src/db/pg-codecs.ts` because `pgClient` is drizzle-wrapped
+(AGENTS.md §3 rule 27): `bindTimestamp` in, `timestampFromRow` out.
+
+## Status vocabulary
+
+There are five statuses, and every widget must spell them the same way. The SQL is the definition.
+
+| Status | SQL | Notes |
+|---|---|---|
+| **New** | `s.id IS NULL` (`FSRS_NEW`) | No state row at all. There is no `'new'` value in `fsrs_card_states.state` |
+| **Due** | `s.id IS NULL OR s.next_review_at <= asOf` (`fsrsDue`) | **Includes New.** A counter that means "due excluding new" must say `s.id IS NOT NULL AND s.next_review_at <= asOf` explicitly |
+| **Learning** | `s.state IN ('learning','relearning')` (`FSRS_LEARNING`) | Relearning is folded in deliberately |
+| **Review** | `s.state = 'review'` (`FSRS_REVIEW`) | Graduated |
+| **At risk** | `FSRS_REVIEW AND fsrsDueLater AND R < target` (`fsrsAtRisk`) | Not yet due, but predicted recall has already fallen below **that card's own revision's** `request_retention` |
+
+Three asymmetries that are **intentional or pending**, not bugs to tidy up in passing:
+
+- **At risk is near-empty by construction.** FSRS picks the due date so recall lands *at* target, so almost
+  nothing decays past target before becoming due. A zero at-risk count is correct behaviour. Whether the
+  widget should instead show "approaching target" is an **open product decision** — do not loosen the
+  predicate to make the number bigger. See [performance.md](performance.md) §5.
+- **`forecastSql.atRiskCount` is a different quantity on purpose** (`forecast.service.ts:80`): a decay
+  forecast over *every* card that has a state row — learning and already-due included — evaluated at each
+  horizon day. It will not match the at-risk widgets.
+- **`learningCount` is not yet uniform.** `reviewQueueSql` counts learning **and not due**
+  (`command-center.service.ts:124-126`); `deckStudySummarySql` counts all learning
+  (`deck-workspace.service.ts:193`). The agreed resolution is "learning AND not due" everywhere; it is
+  **pending** and both spellings are currently asserted by tests. Unify them in one deliberate change.
+
+`GET /study/queue`'s `reason` is derived from the same vocabulary in JS (`study-queue.service.ts:157-175`):
+`interleaved`/`at-risk` modes force their own reason, else `new` (no due date) → `due` → `learning`
+(`state` is learning/relearning) → `at-risk` (`retentionEstimate < targetRetention`) → `manual`.
 
 ## Progress reset
 
-`resetDeckProgress` (raw CTE `DELETE … RETURNING 1` → `{reset: n}`) and `resetCardProgress` (`{reset: true}`) delete **only** `study_progress`. `review_logs` and `study_daily_logs` survive, so streaks, lifetime totals and analytics are unaffected — and cards reappear as "new" while their history still trains analytics.
+`POST /study/deck/:deckId/reset-progress` and `POST /study/card/:cardId/reset-progress` both return
+`{ reset: n }` — the number of `fsrs_card_states` rows deleted (`study.routes.ts:140-150`).
 
-## Switching algorithms mid-history
+`resetCardsTransaction` (`fsrs-live.postgres.ts:465`) and `resetDeckTransaction` (`:607`) take the same locks
+as a review, call `lockResetDependencies`, and then `DELETE FROM fsrs_card_states … RETURNING card_id`.
+**`fsrs_review_events` is never deleted** — the history is immutable. The deck variant additionally re-reads
+the deck's card list after locking and throws `ConflictError('Deck membership changed during reset')` if it
+moved, so a concurrent card insert cannot leave a half-reset deck.
 
-Everything a batch writes is keyed on `algorithm` at the top of `reviewCardBatch`. A user who flips sm2 → fsrs keeps stale `box_level`/`ease_factor`; a user who flips fsrs → sm2 keeps stale `stability`/`difficulty` that `forecast.service` will still prefer, because `computeRetention` uses `stability` whenever it is > 0.
+Consequences to keep in mind: the card immediately reads as **New** (no state row), `study_daily_logs` and
+lifetime totals are untouched (so streaks and the activity heatmap are unaffected), and the card's next review
+opens a **new `learning_cycle`** — `max(learning_cycle) + 1` over the surviving events — so the old cycle's
+events stay queryable and distinguishable.
+
+## Timezone handling
+
+The only mechanism is the **`x-timezone-offset`** header, sent on every request by the web client from
+`new Date().getTimezoneOffset()` and allow-listed in CORS (`index.ts:135`).
+
+`getTimezoneOffsetMinutes` (`study.routes.ts:26-34`) requires `/^[+-]?\d+$/`, defaults to `0`, and clamps to
+**`[-720, 840]`**. Since `getTimezoneOffset()` returns −840 for UTC+14, users in UTC+13/+14 (Kiritimati, Samoa
+DST, Chatham) are silently clipped to UTC+12. Five handlers read it: `/streak`, `/activity`,
+`/dashboard-snapshot`, `/review-batch` and `/retention-details`.
+
+On the write path the offset only decides which `study_daily_logs.study_date` a review lands on
+(`studyDateForReviewedAt`, `fsrs-live.domain.ts:252`), and the domain layer independently validates it as an
+integer in `[-840, 720]` (`:493`) — note the **reversed sign convention** relative to the route clamp: the
+route takes the JS `getTimezoneOffset()` sign, and `studyDateForReviewedAt` subtracts it.
+
+Streak/activity code calls `Date.prototype.setDate` on an offset-shifted instant, so **correctness depends on
+the API process running with `TZ=UTC`** — and nothing sets it. Never call a bare `new Date()` in a service
+expecting server-local day semantics (AGENTS.md §3 rule 13).
+
+`command-center.service.ts:159` still calls `getUserStreak(userId)` with **no offset**, so `GET /study/streak`
+and the command center's streak section can disagree for the same user on the same day. Fix that rather than
+copying it.
+
+## Streaks
+
+`getUserStreak` (`study.service.ts:109-181`) scans `study_daily_logs` back `STREAK.ACTIVITY_MAX_DAYS = 365`
+days, walks backwards from today — **or from yesterday if today has no log**, so missing today does not
+immediately break the streak — then does a second ascending pass requiring `diffDays === 1` exactly for
+`longestStreak`. `getUserActivity` (`:187`) clamps `days` to 365 (endpoint default
+`ACTIVITY_DEFAULT_DAYS = 90`); `getDashboardSnapshot` (`:234`) hardcodes **91** days and resolves streak,
+activity, stats and due decks in one `Promise.all`.
+
+## Retention analytics
+
+All of it is SQL over `fsrs_retrievability()`. There is no shared JS retention helper any more —
+`computeRetention`, `retention-estimator.ts` and `experience/retention-sql.ts` were deleted (`8983764`,
+`955a4e5`, `fa50447`). The single-card JS path `calculateCanonicalFsrsRetrievability`
+(`fsrs-retention.ts:68`) exists **only** to decorate a card already loaded for the study queue; never loop it
+over a deck or a user's population.
+
+- **`getForecast`** (`forecast.service.ts:113`) — `days` clamped `[1,90]` and truncated to an integer, then
+  one statement: `generate_series(0, days-1)` × `LEFT JOIN LATERAL` over a `states` CTE. At-risk uses the
+  per-revision `request_retention`, not a hardcoded 0.8. Missing rows render as `avgRetention: 1`.
+- **`getRetentionHeatmap`** (`heatmapSql`, `:147`) — per-card predicted recall for one deck, recall ascending.
+  Ownership is folded into the join, so an unowned deck yields `{cards: []}` rather than a 404 — unlike every
+  other deck-scoped read in the module.
+- **`getAtRiskCards`** (`atRiskCardsSql`, `:193`) — `threshold` is optional; `null` means "use each card's own
+  revision target". `scored` carries `COUNT(*) OVER ()` for the pre-`LIMIT` total, `capped` applies the
+  `LIMIT` **before** the `card_field_values` join, so returning 20 rows never costs a full field aggregation.
+- **`getRetentionOverview`** (memory health, `retention-overview.service.ts:87`) — two statements:
+  `retentionOverviewSql` (`:148`) plus `getCardLabels`. The `scored` CTE derives per-card status
+  (`new`/`due`/`at_risk`/`on_track`) and retrievability; `attention` ranks and caps at
+  `MAX_STUDY_CLUSTER_CARDS = 12` with an ordering spelled **identically** in the CTE `LIMIT` and the
+  `json_agg`. Response notes: `metric.kind` is always `'predicted_recall'`, `summary.unavailable` and
+  `distribution.unavailable` are the literal `0`, and there is **no `algorithm` field** any more.
+- **`getRetentionDetails`** (`retention-details.service.ts:86`) — outcome buckets and recent reviews from
+  `fsrs_review_events`, workload from `fsrs_card_states`, all bucketed by the caller's local day.
+- **`getSmartGroups`** (`recommendations.service.ts`) — groups `card_concepts`, `LIMIT topN` (default 5),
+  ≤ 5 sample cards per concept, retention from `fsrsRetrievability`. Pairs are `DISTINCT`-ed because
+  `card_concepts` has no uniqueness on `(card_id, concept)`. It has **no HTTP route**; only `experience` calls
+  it. Nothing ever inserts into `card_concepts`, so it returns empty on a fresh database.
+- **`getRelatedCards`** — explicit `card_links` neighbours first (either direction), then tops up with
+  `searchByEmbedding` at similarity 0.5, inside a bare `try/catch` that swallows **all** embedding failures.
+
+`recommendations.service.ts:305` still defines `getCardRetentions()`, which has **zero callers** — see
+[known-issues.md](known-issues.md).
 
 ## Magic-number index
 
 | Where | Values |
 |---|---|
-| `constants.ts:14-25` | the 10 SM-2 constants above |
-| `srs.engine.ts:90,126` | `1.2` hard growth, `4` d first easy |
-| `study.service.ts:252,389` | 21-day learning/review cutoff |
-| `study.service.ts:258,398` | `2.5` hardcoded EF fallback |
-| `study.service.ts:534,549` | 1 h `dueSoon` window |
-| `study.service.ts:712` | 91-day dashboard activity |
-| `study.service.ts:767` | interleave over-fetch `limit * 2` |
-| `forecast.service.ts:89,171` | `0.8` at-risk cutoff |
-| `recommendations.service.ts:117,226` | `0.5` semantic threshold, 5 samples/concept |
-| `fsrs.engine.ts:51-52` | `['1m','15m']`, `['10m']` |
-| `review-logs-cleanup.ts:5-7` | 730 d, 5000 rows, 100 ms |
-| `study.routes.ts:20,27-28` | tz clamp `[-720,840]`, 180 req/60 s |
+| `study-cluster.ts:3` | `MAX_STUDY_CLUSTER_CARDS` = 12 (selected-card study, and the memory-health attention cap) |
+| `fsrs-live.domain.ts:4-9` | batch cap 100, future skew 5 min, duration cap 1 h, tz `[-840, 720]` |
+| `fsrs-live.postgres.ts:54-55` | 5 serializable attempts, retryable codes `40001`/`40P01` |
+| `fsrs.engine.ts:43-44` | `['1m','15m']` learning, `['10m']` relearning; `enable_fuzz` forced false at `:180` |
+| `fsrs-deck-reads.postgres.ts:22-23,252,293` | 1 h `dueSoon` window, interleave limit `[1,200]`, `topN` `[1,50]` |
+| `study.service.ts:237` | 91-day dashboard activity window |
+| `constants.ts:52-54` | `ACTIVITY_MAX_DAYS` 365, `ACTIVITY_DEFAULT_DAYS` 90 |
+| `study.routes.ts:33,60-61` | tz clamp `[-720,840]`, 180 req/60 s |
+| `forecast.service.ts:118` | forecast `days` clamped `[1,90]` |
+| migration `0028:38` | the retrievability curve itself, rounded to 8 dp |
+
+## Removed surfaces — do not reintroduce, and where the history lives
+
+| Gone | Replaced by | History |
+|---|---|---|
+| `POST /study/review` | `POST /study/review-batch` with one item | `5b18b51`, `fa50447` |
+| `GET` / `PATCH /study/algorithm`, `users.srs_algorithm` | nothing — there is one algorithm | `3dea1fd`, `df20988` (web Settings card) |
+| `srs.engine.ts` (SM-2 + `dispatchReview`), the `SM2` constant block | `fsrs.engine.ts` only | `fa50447` |
+| `calculateFsrsReview` (the legacy half of `fsrs.engine.ts`) | `scheduleFsrsReview` | `fa50447` |
+| `study_progress`, `review_logs`, `fsrs_user_params`, `fsrs_migration_runs` | `fsrs_card_states`, `fsrs_review_events`, `fsrs_parameter_revisions` | `3dea1fd` (migration `0029`) |
+| `retention-estimator.ts`, `experience/retention-sql.ts`, `shared/embedding-utils.computeRetention` | `fsrs_retrievability()` + `fsrs-sql.ts` | `955a4e5`, `8983764`, `fa50447` |
+| `review-logs-cleanup.ts` (the 730-day pruner) and its `index.ts` interval | nothing — events are kept | `fa50447` |
+| `fsrs-replay*.ts`, `scripts/fsrs-replay*.ts`, the `fsrs:replay` package script | one-time migration, already run | `912cd00` … `fa50447` |
+
+The legacy history was replayed into `fsrs_review_events` / `fsrs_card_states` on the dev database **before**
+`0029` dropped the source tables; the replay tooling was deleted in the same phase once it had served its
+purpose. Full sequence: `git log --oneline fix/pgclient-codecs..HEAD` (27 commits).
+
+The two engine defects this document used to describe — state loss on a falsy `stability`, and
+`elapsed_days` always 0 because `last_review` was `new Date()` — are structurally impossible on the live path:
+`scheduleFsrsReview` branches on `input.current === null` rather than a truthy `stability`, a
+`fsrs_card_states` row can never carry `stability = 0` (CHECK constraint), and the card handed to `ts-fsrs`
+carries the real persisted `last_review`.
 
 ## Tests
 
-`__tests__/modules/study/` now has **9 files, 100 tests, all passing** — more than this doc used to describe. The 4 files this doc covers: `srs.engine.test.ts` (26 — pins exact integer intervals), `fsrs.engine.test.ts` (22, up from 15 — the added cases exercise `scheduleFsrsReview`/`normalizeFsrsParameters` above; the original `calculateFsrsReview` cases are still **loose range assertions only, no interval is pinned**), `study.service.test.ts` (15, up from 12), `forecast.service.test.ts` (7, unchanged). No tests exist for `recommendations.service.ts`, `review-logs-cleanup.ts` or `study.routes.ts`.
+`__tests__/modules/study/` — 19 files. The five `*.postgres.test.ts` files create a disposable database from
+`TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`), apply
+every migration, and run through a `drizzle()`-wrapped client so the production codec shape is reproduced.
+They need `docker compose up -d`. See [testing.md](testing.md).
 
-The other 5 files — `retention-details.service.test.ts` (8), `retention-estimator.test.ts` (8), `retention-overview.service.test.ts` (6), `retention.routes.test.ts` (5), `study-cluster.test.ts` (3) — test a **retention/clustering subsystem this doc does not cover at all** (predates the changes described above; likely shipped with the memory-health-overview work). Do not assume the file list above is exhaustive for `modules/study/`; re-derive with `ls apps/api/__tests__/modules/study/`. Documenting that subsystem is its own task.
+| File | Covers |
+|---|---|
+| `fsrs.engine.test.ts` | `scheduleFsrsReview`, `normalizeFsrsParameters` (weight migration, clamping, step validation) |
+| `fsrs-live.domain.test.ts` | normalisation, idempotency comparison, position derivation, study-date grouping |
+| `fsrs-live.service.test.ts` | the service over a fake repository (injected clock) |
+| `fsrs-live.postgres.test.ts` | the real writer: locks, idempotency, 409/422 paths, revision creation, daily-log roll-up |
+| `fsrs-read.postgres.test.ts` | the canonical loader, order preservation, row validation |
+| `fsrs-deck-reads.postgres.test.ts` | queue, schedule, enrichment, interleaving; a pinned `EXPLAIN (ANALYZE, BUFFERS)` plan over 300 seeded cards (`:508`) |
+| `fsrs-consumers.postgres.test.ts` | **every** exported `*Sql()` builder, executed and `EXPLAIN`-gated (`explainUsesStateIndex`, `:275`) |
+| `fsrs-sql.postgres.test.ts` | the 5 000-sample SQL ↔ `ts-fsrs` retrievability oracle |
+| `fsrs-retention.test.ts`, `fsrs-revision.test.ts`, `fsrs-canonical.test.ts` | the pure helpers |
+| `study.service.test.ts`, `study-write.routes.test.ts`, `retention-*.test.ts`, `forecast.service.test.ts`, `recommendations.service.test.ts`, `study-cluster.test.ts` | services and routes with injected loaders |
 
-Test engine changes with exact expected integers (`expect(result.intervalDays).toBe(8)`); test services with the db-mock helpers. See [testing.md](testing.md).
+Schema and migration invariants live in `__tests__/db/fsrs-only.schema.test.ts` and
+`fsrs-only.migration.test.ts` (FK-index coverage, CHECK constraints, idempotent re-application).
+
+Test the engine and domain helpers with exact expected values; test repositories against real Postgres; test
+services through their injectable loaders. Never `mock.module` `src/db`.
 
 ## External readers of these tables
 
-`notifications.service.ts` (due decks + badge), `kg.service.ts:186-196` (graph retention overlay), and five `experience` services (`study-queue`, `command-center`, `deck-workspace`, `library-explorer`, `insights-overview`) which query `study_progress`, `study_daily_logs` and `review_logs` with **raw SQL rather than reusing study-module functions** — so semantics can and do diverge. See [experience-bff.md](experience-bff.md).
+`notifications.service.ts` (due decks + badge), `kg.service.ts:276-290` (graph retention overlay),
+`recommendations.service.ts` (smart groups), and five `experience` services (`study-queue`, `command-center`,
+`deck-workspace`, `library-explorer`, `insights-overview`). **All of them now compose `fsrs-sql.ts`** rather
+than re-spelling the join, which is what keeps their definitions of "due" and "at risk" aligned. Add a new
+reader the same way; see [experience-bff.md](experience-bff.md) for the BFF layer's own conventions.
