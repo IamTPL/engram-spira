@@ -13,9 +13,8 @@ export type MemoryHealthDate = string | Date;
 
 export interface MemoryHealthOverview {
   asOf: MemoryHealthDate;
-  algorithm: 'sm2' | 'fsrs';
   metric: {
-    kind: 'predicted_recall' | 'schedule_status';
+    kind: 'predicted_recall';
     average: number | null;
     target: number | null;
   };
@@ -223,22 +222,14 @@ export function getMemoryHealthPrimaryAction(
 export function getMemoryHealthPresentation(
   overview: MemoryHealthOverview,
 ): MemoryHealthPresentation {
-  const metric =
-    overview.metric.kind === 'predicted_recall'
-      ? {
-          label: 'Estimated recall',
-          value:
-            overview.metric.average === null
-              ? 'Not enough data'
-              : `${Math.round(overview.metric.average * 100)}%`,
-          description: 'Prediction, not a test score',
-        }
-      : {
-          label: 'Schedule status',
-          value: `${overview.summary.due} due`,
-          description:
-            'SM-2 uses due dates, not a predicted recall percentage',
-        };
+  const metric = {
+    label: 'Estimated recall',
+    value:
+      overview.metric.average === null
+        ? 'Not enough data'
+        : `${Math.round(overview.metric.average * 100)}%`,
+    description: 'Prediction, not a test score',
+  };
 
   const counts: MemoryHealthPresentation['counts'] = [
     {

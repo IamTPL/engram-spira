@@ -15,7 +15,6 @@ function overview(
 ): MemoryHealthOverview {
   return {
     asOf: '2026-07-28T00:00:00.000Z',
-    algorithm: 'fsrs',
     metric: {
       kind: 'predicted_recall',
       average: 0.91,
@@ -239,22 +238,21 @@ describe('memory health state', () => {
     expect(input.attention).toHaveLength(8);
   });
 
-  test('uses schedule language for SM-2 without a fake probability', () => {
+  test('shows "Not enough data" instead of a fake probability when average is null', () => {
     const result = getMemoryHealthPresentation(
       overview({
-        algorithm: 'sm2',
         metric: {
-          kind: 'schedule_status',
+          kind: 'predicted_recall',
           average: null,
-          target: null,
+          target: 0.9,
         },
       }),
     );
 
     expect(result.metric).toEqual({
-      label: 'Schedule status',
-      value: '2 due',
-      description: 'SM-2 uses due dates, not a predicted recall percentage',
+      label: 'Estimated recall',
+      value: 'Not enough data',
+      description: 'Prediction, not a test score',
     });
   });
 });

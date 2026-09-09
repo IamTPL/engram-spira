@@ -12,7 +12,6 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronUp,
-  Clock3,
   History,
   Play,
   RefreshCw,
@@ -234,21 +233,11 @@ const MemoryHealth: Component<MemoryHealthProps> = (props) => {
                       >
                         Memory health
                       </h3>
-                      <Badge
-                        variant={
-                          overviewAccessor().algorithm === 'fsrs'
-                            ? 'info'
-                            : 'muted'
-                        }
-                      >
-                        {overviewAccessor().algorithm === 'fsrs'
-                          ? 'FSRS prediction'
-                          : 'SM-2 schedule'}
-                      </Badge>
+                      <Badge variant="info">FSRS prediction</Badge>
                     </div>
                     <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      A practical next step based on your active study
-                      algorithm—not a second scheduler.
+                      A practical next step based on FSRS predicted
+                      recall—not a second scheduler.
                     </p>
                   </div>
                 </div>
@@ -293,26 +282,12 @@ const MemoryHealth: Component<MemoryHealthProps> = (props) => {
                   <p class="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
                     {presentation()!.headline.description}
                   </p>
-                  <Show
-                    when={
-                      overviewAccessor().metric.kind === 'predicted_recall' &&
-                      overviewAccessor().metric.target !== null
-                    }
-                  >
+                  <Show when={overviewAccessor().metric.target !== null}>
                     <p class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <ShieldCheck class="h-3.5 w-3.5 text-info" />
                       FSRS target:{' '}
                       {Math.round(overviewAccessor().metric.target! * 100)}%
                       predicted recall at review time.
-                    </p>
-                  </Show>
-                  <Show
-                    when={overviewAccessor().metric.kind === 'schedule_status'}
-                  >
-                    <p class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Clock3 class="h-3.5 w-3.5" />
-                      SM-2 uses due dates; this view intentionally does not
-                      invent a recall percentage.
                     </p>
                   </Show>
                 </div>
@@ -557,22 +532,10 @@ const MemoryHealth: Component<MemoryHealthProps> = (props) => {
                             </Show>
 
                             <p class="rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                              <Show
-                                when={overviewAccessor().algorithm === 'fsrs'}
-                                fallback={
-                                  <>
-                                    SM-2 determines when a card is due. The
-                                    history below shows your actual answers and
-                                    scheduled workload without estimating
-                                    memory strength.
-                                  </>
-                                }
-                              >
-                                FSRS estimates future recall from your review
-                                history. The outcomes below are your actual
-                                answers, so use them to check the prediction
-                                against real study results.
-                              </Show>
+                              FSRS estimates future recall from your review
+                              history. The outcomes below are your actual
+                              answers, so use them to check the prediction
+                              against real study results.
                             </p>
 
                             <div>

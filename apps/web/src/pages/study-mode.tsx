@@ -14,6 +14,7 @@ import { createQuery, createMutation } from '@tanstack/solid-query';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
 import type { ReviewAction } from '@/../../api/src/shared/constants';
+import type { FsrsProgress } from '@/../../api/src/modules/study/fsrs-deck-reads.postgres';
 import Flashcard from '@/components/flashcard/flashcard';
 import StudyControls from '@/components/flashcard/study-controls';
 import {
@@ -106,7 +107,7 @@ const StudyModePage: Component = () => {
             value: unknown;
             sortOrder: number;
           }[];
-          progress: unknown;
+          progress: FsrsProgress | null;
         }[];
         total: number;
         due: number;
@@ -234,7 +235,7 @@ const StudyModePage: Component = () => {
       ) {
         await flushPendingReviews(true);
         setCheckingMore(true);
-        // Brief delay for SM-2 learning cards to become due
+        // Brief delay for learning-step cards to become due
         await new Promise((r) => setTimeout(r, 1500));
         await queryClient.invalidateQueries({
           queryKey: ['studyData', params.deckId],
