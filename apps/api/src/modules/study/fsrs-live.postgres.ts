@@ -14,7 +14,7 @@ import {
 } from '../../db/pg-codecs';
 import {
   assertMatchingLiveReviewRequest,
-  assertReviewChronology,
+  clampReviewChronology,
   canonicalUuid,
   deriveNextReviewPosition,
   groupReviewsByStudyDate,
@@ -357,9 +357,15 @@ async function applyReviewBatchTransaction(
     }
 
     const current = stateByCardId.get(command.cardId) ?? null;
-    if (current) {
-      assertReviewChronology(command.reviewedAt, current.lastReviewedAt);
-    }
+    const effective: NormalizedLiveReviewCommand = current
+      ? {
+          ...command,
+          reviewedAt: clampReviewChronology(
+            command.reviewedAt,
+            current.lastReviewedAt,
+          ),
+        }
+      : command;
     const position = deriveNextReviewPosition(
       current
         ? {
@@ -384,10 +390,10 @@ async function applyReviewBatchTransaction(
       validatedParametersByRevisionId.get(revision.id) ??
       validateRevisionIdentity(input.userId, revision);
     validatedParametersByRevisionId.set(revision.id, parameters);
-    const reviewedAt = new Date(command.reviewedAt);
+    const reviewedAt = new Date(effective.reviewedAt);
     const scheduled = scheduler({
       current: current ? cardFromState(current) : null,
-      rating: command.rating,
+      rating: effective.rating,
       reviewedAt,
       parameters,
     });
@@ -399,7 +405,7 @@ async function applyReviewBatchTransaction(
     }
 
     const event = eventFromSchedule(
-      command,
+      effective,
       current,
       scheduled.after,
       scheduled.log.elapsed_days,
@@ -429,7 +435,7 @@ async function applyReviewBatchTransaction(
       ),
     );
     maximumCycles.set(command.cardId, position.learningCycle);
-    appliedCommands.push(command);
+    appliedCommands.push(effective);
     results.push(reviewResultFromEvent(event, 'applied'));
   }
 

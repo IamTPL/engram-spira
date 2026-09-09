@@ -736,7 +736,7 @@ describe('PostgreSQL canonical FSRS live writer', () => {
     ]).toEqual([{ cycle: 1, reps: 2, version: 2, daily: 2 }]);
   });
 
-  test('rejects one unowned card atomically and rejects stale/future chronology before domain writes', async () => {
+  test('rejects one unowned card atomically and clamps stale/future chronology instead of rejecting it', async () => {
     const owner = await seedUser();
     const outsider = await seedUser();
     await expect(
@@ -759,28 +759,34 @@ describe('PostgreSQL canonical FSRS live writer', () => {
         reviewedAt: '2026-07-29T11:00:00.000Z',
       }),
     );
-    await expect(
-      service().reviewCard(
-        owner.userId,
-        review(owner.cardIds[0]!, {
-          reviewedAt: '2026-07-29T10:59:59.999Z',
-        }),
-      ),
-    ).rejects.toThrow('earlier than');
-    await expect(
-      service().reviewCard(
-        owner.userId,
-        review(owner.cardIds[0]!, {
-          reviewedAt: '2026-07-29T12:05:00.001Z',
-        }),
-      ),
-    ).rejects.toThrow('five minutes');
+    // A client clock slightly behind the server cannot move a card back in
+    // time: the review is clamped to the state's lastReviewedAt.
+    const clampedBack = await service().reviewCard(
+      owner.userId,
+      review(owner.cardIds[0]!, {
+        reviewedAt: '2026-07-29T10:59:59.999Z',
+      }),
+    );
+    // A client clock ahead of the server is clamped to receivedAt.
+    const clampedForward = await service().reviewCard(
+      owner.userId,
+      review(owner.cardIds[0]!, {
+        reviewedAt: '2026-07-29T12:05:00.001Z',
+      }),
+    );
+    expect(clampedBack.status).toBe('applied');
+    expect(clampedForward.status).toBe('applied');
     expect([
       ...await sql`
-        SELECT count(*)::int AS count
+        SELECT sequence, reviewed_at AS "reviewedAt"
         FROM fsrs_review_events WHERE user_id = ${owner.userId}
+        ORDER BY sequence
       `,
-    ]).toEqual([{ count: 1 }]);
+    ]).toEqual([
+      { sequence: 1, reviewedAt: new Date('2026-07-29T11:00:00.000Z') },
+      { sequence: 2, reviewedAt: new Date('2026-07-29T11:00:00.000Z') },
+      { sequence: 3, reviewedAt: RECEIVED_AT },
+    ]);
   });
 
   test('uses active parameters for New, preserves the state revision after rotation, and rejects invalid active parameters', async () => {

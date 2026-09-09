@@ -2,7 +2,13 @@ import type { ReviewAction } from '../../shared/constants';
 import { ConflictError, ValidationError } from '../../shared/errors';
 
 const MAX_BATCH_SIZE = 100;
-const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+/**
+ * Client clocks are untrusted. An instant after the server's `receivedAt` is
+ * clamped to `receivedAt`; an instant more than a week before it is rejected
+ * as implausible (a keepalive flush on page exit lags by minutes, a queued
+ * offline session by hours — never weeks).
+ */
+const MAX_PAST_SKEW_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_DURATION_MS = 60 * 60 * 1000;
 const MIN_TIMEZONE_OFFSET_MINUTES = -840;
 const MAX_TIMEZONE_OFFSET_MINUTES = 720;
@@ -128,15 +134,19 @@ export function normalizeLiveReviewCommands(
         `Review event ${index + 1} reviewedAt must be an ISO-8601 instant string`,
       );
     }
-    const reviewedAt = canonicalInstant(
+    const clientReviewedAt = canonicalInstant(
       rawInput.reviewedAt,
       `Review event ${index + 1} reviewedAt`,
     );
-    if (reviewedAt.milliseconds > receivedAtMs + MAX_FUTURE_SKEW_MS) {
+    if (clientReviewedAt.milliseconds < receivedAtMs - MAX_PAST_SKEW_MS) {
       throw new ValidationError(
-        `Review event ${index + 1} reviewedAt is more than five minutes in the future`,
+        `Review event ${index + 1} reviewedAt is more than 7 days before receivedAt`,
       );
     }
+    const reviewedAt =
+      clientReviewedAt.milliseconds > receivedAtMs
+        ? { iso: receivedAtIso, milliseconds: receivedAtMs }
+        : clientReviewedAt;
     const durationMs = normalizeDuration(
       rawInput.durationMs,
       `Review event ${index + 1} durationMs`,
@@ -159,6 +169,12 @@ export function normalizeLiveReviewCommands(
   });
 }
 
+/**
+ * A retried `requestId` must describe the same review (card, rating, live
+ * origin). `reviewedAt` and `durationMs` are deliberately not compared: the
+ * server clamps `reviewedAt` against its own clock and the card's state, so a
+ * byte-identical retry can legitimately differ from what was persisted.
+ */
 export function assertMatchingLiveReviewRequest(
   command: NormalizedLiveReviewCommand,
   existing: LiveReviewEventSnapshot,
@@ -169,9 +185,6 @@ export function assertMatchingLiveReviewRequest(
     canonicalUuid(existing.cardId, 'Persisted review cardId') ===
       command.cardId &&
     existing.rating === command.rating &&
-    canonicalInstant(existing.reviewedAt, 'Persisted review reviewedAt').iso ===
-      command.reviewedAt &&
-    existing.durationMs === command.durationMs &&
     existing.origin === 'live';
   if (!samePayload) {
     throw new ConflictError(
@@ -236,17 +249,21 @@ export function reviewResultFromEvent(
   };
 }
 
-export function assertReviewChronology(
+/**
+ * A card's history is monotonic. A client instant earlier than the card's
+ * `lastReviewedAt` (clock behind the server, or a 1-minute learning step
+ * graded from a machine a few minutes slow) is clamped up to that instant
+ * rather than rejected, so the grade is never lost.
+ */
+export function clampReviewChronology(
   reviewedAt: string | Date,
   lastReviewedAt: string | Date,
-): void {
+): string {
   const reviewed = canonicalInstant(reviewedAt, 'reviewedAt');
   const previous = canonicalInstant(lastReviewedAt, 'lastReviewedAt');
-  if (reviewed.milliseconds < previous.milliseconds) {
-    throw new ValidationError(
-      'reviewedAt cannot be earlier than the card lastReviewedAt',
-    );
-  }
+  return reviewed.milliseconds < previous.milliseconds
+    ? previous.iso
+    : reviewed.iso;
 }
 
 export function studyDateForReviewedAt(

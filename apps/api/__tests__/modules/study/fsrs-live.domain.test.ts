@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ConflictError, ValidationError } from '../../../src/shared/errors';
 import {
   assertMatchingLiveReviewRequest,
-  assertReviewChronology,
+  clampReviewChronology,
   deriveNextReviewPosition,
   groupReviewsByStudyDate,
   normalizeLiveReviewCommands,
@@ -110,20 +110,26 @@ describe('live FSRS command normalization', () => {
     expect(normalize().durationMs).toBeNull();
   });
 
-  test('uses the externally captured receivedAt and allows exactly five minutes of future skew', () => {
+  test('clamps an instant after receivedAt down to receivedAt (client clock ahead of the server)', () => {
     const command = normalize(
-      reviewInput({ reviewedAt: '2026-07-28T07:25:16.123Z' }),
+      reviewInput({ reviewedAt: '2026-07-28T07:25:16.124Z' }),
       new Date('2026-07-28T07:20:16.123Z'),
     );
 
     expect(command.receivedAt).toBe('2026-07-28T07:20:16.123Z');
-    expect(command.reviewedAt).toBe('2026-07-28T07:25:16.123Z');
+    expect(command.reviewedAt).toBe('2026-07-28T07:20:16.123Z');
   });
 
-  test('rejects an instant more than five minutes after receivedAt', () => {
+  test('keeps an instant up to 7 days before receivedAt and rejects anything older', () => {
+    expect(
+      normalize(
+        reviewInput({ reviewedAt: '2026-07-21T07:20:16.123Z' }),
+        new Date('2026-07-28T07:20:16.123Z'),
+      ).reviewedAt,
+    ).toBe('2026-07-21T07:20:16.123Z');
     expect(() =>
       normalize(
-        reviewInput({ reviewedAt: '2026-07-28T07:25:16.124Z' }),
+        reviewInput({ reviewedAt: '2026-07-21T07:20:16.122Z' }),
         new Date('2026-07-28T07:20:16.123Z'),
       ),
     ).toThrow(ValidationError);
@@ -312,14 +318,22 @@ describe('live review idempotency', () => {
     ).not.toThrow();
   });
 
+  test('tolerates reviewedAt and durationMs differences because the server clamps them', () => {
+    const command = normalize();
+    expect(() =>
+      assertMatchingLiveReviewRequest(
+        command,
+        event({ reviewedAt: new Date('2026-07-28T07:15:16.124Z'), durationMs: 1 }),
+      ),
+    ).not.toThrow();
+  });
+
   test('maps every semantic payload mismatch to ConflictError', () => {
     const command = normalize();
     const mismatches: LiveReviewEventSnapshot[] = [
       event({ requestId: REQUEST_2 }),
       event({ cardId: CARD_2 }),
       event({ rating: 'hard' }),
-      event({ reviewedAt: new Date('2026-07-28T07:15:16.124Z') }),
-      event({ durationMs: 1 }),
       event({ origin: 'migration' }),
     ];
 
@@ -377,22 +391,28 @@ describe('immutable event response projection', () => {
 });
 
 describe('review chronology', () => {
-  test('allows a review at the same instant as the current state', () => {
-    expect(() =>
-      assertReviewChronology(
+  test('keeps a review at or after the current state instant', () => {
+    expect(
+      clampReviewChronology(
         '2026-07-28T07:15:16.123Z',
         new Date('2026-07-28T07:15:16.123Z'),
       ),
-    ).not.toThrow();
+    ).toBe('2026-07-28T07:15:16.123Z');
+    expect(
+      clampReviewChronology(
+        '2026-07-28T07:15:17.000Z',
+        new Date('2026-07-28T07:15:16.123Z'),
+      ),
+    ).toBe('2026-07-28T07:15:17.000Z');
   });
 
-  test('rejects a review older than the current state', () => {
-    expect(() =>
-      assertReviewChronology(
+  test('clamps a review older than the current state up to the state instant', () => {
+    expect(
+      clampReviewChronology(
         '2026-07-28T07:15:16.122Z',
         new Date('2026-07-28T07:15:16.123Z'),
       ),
-    ).toThrow(ValidationError);
+    ).toBe('2026-07-28T07:15:16.123Z');
   });
 });
 
