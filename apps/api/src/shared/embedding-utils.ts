@@ -171,22 +171,3 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
   return denom === 0 ? 0 : dot / denom;
 }
-
-// ── Retention Formula ────────────────────────────────────────────────────────
-
-/**
- * Compute retention using FSRS/SM-2 formula: R(t) = e^(-t/S)
- * Uses FSRS stability if available, otherwise approximates from SM-2 params.
- */
-export function computeRetention(
-  stability: number | null,
-  intervalDays: number,
-  easeFactor: number,
-  daysSinceReview: number,
-): number {
-  const S =
-    stability && stability > 0
-      ? stability
-      : Math.max(1, intervalDays * (easeFactor / 2.5));
-  return Math.exp(-daysSinceReview / S);
-}

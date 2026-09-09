@@ -63,16 +63,39 @@ async function createDisposableDatabase() {
       id uuid PRIMARY KEY,
       deck_id uuid NOT NULL
     );
-    CREATE TABLE study_progress (
+    CREATE TABLE fsrs_parameter_revisions (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL,
+      parameters jsonb NOT NULL,
+      decay double precision NOT NULL,
+      factor double precision NOT NULL,
+      retired_at timestamptz
+    );
+    CREATE TABLE fsrs_card_states (
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL,
       card_id uuid NOT NULL,
-      ease_factor double precision NOT NULL DEFAULT 2.5,
-      interval_days integer NOT NULL DEFAULT 1,
       next_review_at timestamptz NOT NULL,
-      last_reviewed_at timestamptz,
-      stability real
+      last_reviewed_at timestamptz NOT NULL,
+      stability double precision NOT NULL,
+      state text NOT NULL,
+      parameter_revision_id uuid NOT NULL
     );
+    CREATE FUNCTION fsrs_retrievability(
+      stability double precision,
+      elapsed_seconds double precision,
+      decay double precision,
+      factor double precision
+    ) RETURNS double precision
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS $$
+      SELECT round(
+        power(
+          1 + factor * (GREATEST(elapsed_seconds, 0) / 86400.0) / stability,
+          decay
+        )::numeric,
+        8
+      )::double precision
+    $$;
     CREATE TABLE lexemes (
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL,
@@ -159,6 +182,7 @@ integrationTest(
       const ancestorSenseId = id(1_032);
       const foreignSenseId = id(1_033);
       const lexemeIds = [id(1_040), id(1_041), id(1_042), id(1_043)];
+      const revisionId = id(1_049);
 
       await client`
         INSERT INTO users (id)
@@ -217,13 +241,29 @@ integrationTest(
           (${foreignCardId}, ${foreignSenseId}, 'deterministic', true)
       `;
       await client`
-        INSERT INTO study_progress (
+        INSERT INTO fsrs_parameter_revisions (
+          id,
+          user_id,
+          parameters,
+          decay,
+          factor
+        )
+        VALUES (
+          ${revisionId},
+          ${userId},
+          ${client.json({ request_retention: 0.9 })},
+          -0.1542,
+          round((exp(ln(0.9) / -0.1542) - 1)::numeric, 8)
+        )
+      `;
+      await client`
+        INSERT INTO fsrs_card_states (
           id,
           user_id,
           card_id,
-          interval_days,
-          ease_factor,
           stability,
+          state,
+          parameter_revision_id,
           last_reviewed_at,
           next_review_at
         )
@@ -231,9 +271,9 @@ integrationTest(
           ${id(1_050)},
           ${userId},
           ${auntCardId},
-          8,
-          2.5,
           10,
+          'review',
+          ${revisionId},
           now() - interval '2 days',
           '2030-03-04T05:06:07Z'
         )

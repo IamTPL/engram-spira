@@ -7,11 +7,11 @@ import {
   decks,
   cardFieldValues,
   templateFields,
-  studyProgress,
   dismissedSuggestions,
 } from '../../db/schema';
 import { NotFoundError, ValidationError } from '../../shared/errors';
-import { computeRetention, getCardLabels } from '../../shared/embedding-utils';
+import { getCardLabels } from '../../shared/embedding-utils';
+import { fsrsRetrievability, fsrsStateJoin } from '../study/fsrs-sql';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -261,6 +261,7 @@ export async function getCardLinks(userId: string, cardId: string) {
 export async function getDeckGraph(
   userId: string,
   deckId: string,
+  asOf: Date = new Date(),
 ): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
   // Verify deck ownership
   const [deck] = await db
@@ -271,37 +272,30 @@ export async function getDeckGraph(
 
   if (!deck) throw new NotFoundError('Deck');
 
-  // Fetch all cards in deck with first field value (label) + retention
-  const cardRows = await db
-    .select({
-      id: cards.id,
-      sortOrder: cards.sortOrder,
-    })
-    .from(cards)
-    .where(eq(cards.deckId, deckId))
-    .orderBy(cards.sortOrder);
+  // Every card in the deck with its canonical predicted recall in one
+  // statement (NULL retention = never reviewed).
+  const cardRows = await db.execute<{
+    cardId: string;
+    sortOrder: number;
+    retention: number | null;
+  }>(sql`
+    SELECT
+      c.id::text AS "cardId",
+      c.sort_order AS "sortOrder",
+      ${fsrsRetrievability(asOf)} AS retention
+    FROM cards c
+    ${fsrsStateJoin(userId)}
+    WHERE c.deck_id = ${deckId}::uuid
+    ORDER BY c.sort_order
+  `);
 
   if (cardRows.length === 0) return { nodes: [], edges: [] };
 
-  const cardIds = cardRows.map((c) => c.id);
+  const cardIds = cardRows.map((c) => c.cardId);
 
-  // Parallel: retention + links (labels fetched separately via getCardLabels)
-  const [progressRows, linkRows] = await Promise.all([
-    db
-      .select({
-        cardId: studyProgress.cardId,
-        stability: studyProgress.stability,
-        intervalDays: studyProgress.intervalDays,
-        easeFactor: studyProgress.easeFactor,
-        lastReviewedAt: studyProgress.lastReviewedAt,
-      })
-      .from(studyProgress)
-      .where(
-        and(
-          eq(studyProgress.userId, userId),
-          inArray(studyProgress.cardId, cardIds),
-        ),
-      ),
+  // Parallel: labels + links
+  const [labelMap, linkRows] = await Promise.all([
+    getCardLabels(cardIds),
     db
       .select()
       .from(cardLinks)
@@ -313,28 +307,12 @@ export async function getDeckGraph(
       ),
   ]);
 
-  // Build label map using shared utility
-  const labelMap = await getCardLabels(cardIds);
-
-  // Build retention map
-  const retentionMap = new Map<string, number>();
-  const now = new Date();
-  for (const p of progressRows) {
-    if (!p.lastReviewedAt) continue;
-    const elapsed = Math.max(
-      0,
-      (now.getTime() - p.lastReviewedAt.getTime()) / 86_400_000,
-    );
-    retentionMap.set(p.cardId, computeRetention(p.stability, p.intervalDays, p.easeFactor, elapsed));
-  }
-
   // Build nodes
   const nodes: GraphNode[] = cardRows.map((c) => ({
-    id: c.id,
-    label: labelMap.get(c.id) ?? `Card ${c.sortOrder + 1}`,
-    retention: retentionMap.has(c.id)
-      ? Math.round(retentionMap.get(c.id)! * 1000) / 1000
-      : null,
+    id: c.cardId,
+    label: labelMap.get(c.cardId) ?? `Card ${c.sortOrder + 1}`,
+    retention:
+      c.retention == null ? null : Math.round(c.retention * 1000) / 1000,
   }));
 
   // Build edges (only between cards within this deck)

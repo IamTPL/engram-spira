@@ -7,11 +7,11 @@ import {
   decks,
   cardFieldValues,
   templateFields,
-  studyProgress,
 } from '../../db/schema';
 import { searchByEmbedding } from '../embedding/embedding.service';
-import { computeRetention, getCardLabels } from '../../shared/embedding-utils';
+import { getCardLabels } from '../../shared/embedding-utils';
 import { NotFoundError } from '../../shared/errors';
+import { fsrsRetrievability, fsrsStateJoin } from './fsrs-sql';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -168,6 +168,7 @@ export async function getRelatedCards(
 export async function getSmartGroups(
   userId: string,
   topN = 5,
+  asOf: Date = new Date(),
 ): Promise<{ groups: SmartGroup[] }> {
   // Get concept counts across user's cards
   const conceptCounts = await db.execute<{
@@ -186,75 +187,58 @@ export async function getSmartGroups(
 
   if (conceptCounts.length === 0) return { groups: [] };
 
-  // Single query: fetch sample cards + retention data for ALL top concepts at once
-  const conceptNames = conceptCounts.map((cc) => cc.concept);
-  const sampleRows = await db.execute<{
+  // A bare JS array binds as a row constructor `($1, $2, …)` through drizzle's
+  // `sql`, which `= ANY(…)` rejects — expand it into an `ARRAY[…]` of
+  // parameters instead (at most `topN` of them).
+  const conceptNames = sql.join(
+    conceptCounts.map((cc) => sql`${cc.concept}`),
+    sql`, `,
+  );
+
+  // Single canonical statement: average predicted recall + up to 5 sample cards
+  // for ALL top concepts at once. Retention comes from `fsrs_card_states` +
+  // `fsrs_parameter_revisions`; AVG ignores never-reviewed (NULL) cards, so
+  // `avgRetention` is NULL for a concept with none.
+  const groupRows = await db.execute<{
     concept: string;
-    card_id: string;
-    stability: number | null;
-    interval_days: number | null;
-    ease_factor: number | null;
-    last_reviewed_at: string | null;
+    avgRetention: number | null;
+    sampleCardIds: string[] | null;
   }>(sql`
+    WITH scored AS (
+      SELECT
+        cc2.concept,
+        c.id AS card_id,
+        ${fsrsRetrievability(asOf)} AS retention,
+        ROW_NUMBER() OVER (
+          PARTITION BY cc2.concept ORDER BY c.id
+        ) AS rn
+      FROM card_concepts cc2
+      JOIN cards c ON cc2.card_id = c.id
+      JOIN decks d ON c.deck_id = d.id AND d.user_id = ${userId}::uuid
+      ${fsrsStateJoin(userId)}
+      WHERE cc2.concept = ANY(ARRAY[${conceptNames}]::text[])
+    )
     SELECT
-      cc2.concept,
-      cc2.card_id,
-      sp.stability,
-      sp.interval_days,
-      sp.ease_factor,
-      sp.last_reviewed_at::text
-    FROM card_concepts cc2
-    JOIN cards c ON cc2.card_id = c.id
-    JOIN decks d ON c.deck_id = d.id
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
-    WHERE d.user_id = ${userId}
-      AND cc2.concept = ANY(${conceptNames})
+      concept,
+      AVG(retention)::double precision AS "avgRetention",
+      ARRAY_AGG(card_id::text ORDER BY rn) FILTER (WHERE rn <= 5)
+        AS "sampleCardIds"
+    FROM scored
+    GROUP BY concept
   `);
 
-  // Group sample rows by concept
-  type SampleRow = {
-    concept: string;
-    card_id: string;
-    stability: number | null;
-    interval_days: number | null;
-    ease_factor: number | null;
-    last_reviewed_at: string | null;
-  };
-  const samplesByConcept = new Map<string, SampleRow[]>();
-  for (const sr of sampleRows) {
-    const arr = samplesByConcept.get(sr.concept) ?? [];
-    if (arr.length < 5) arr.push(sr); // Limit to 5 samples per concept
-    samplesByConcept.set(sr.concept, arr);
-  }
+  const scoredByConcept = new Map(
+    groupRows.map((row) => [row.concept, row] as const),
+  );
 
-  const now = Date.now();
   const groups: SmartGroup[] = conceptCounts.map((cc) => {
-    const samples = samplesByConcept.get(cc.concept) ?? [];
-    let totalR = 0;
-    let reviewedCount = 0;
-
-    for (const sr of samples) {
-      if (!sr.last_reviewed_at || !sr.interval_days) continue;
-      reviewedCount++;
-      const elapsed = Math.max(
-        0,
-        (now - new Date(sr.last_reviewed_at).getTime()) / 86_400_000,
-      );
-      const S =
-        sr.stability && sr.stability > 0
-          ? sr.stability
-          : Math.max(1, sr.interval_days * ((sr.ease_factor ?? 2.5) / 2.5));
-      totalR += Math.exp(-elapsed / S);
-    }
-
+    const scored = scoredByConcept.get(cc.concept);
     return {
       name: cc.concept,
       cardCount: cc.card_count,
       avgRetention:
-        reviewedCount > 0
-          ? Math.round((totalR / reviewedCount) * 1000) / 1000
-          : null,
-      sampleCardIds: samples.map((sr) => sr.card_id),
+        scored?.avgRetention == null ? null : roundMetric(scored.avgRetention),
+      sampleCardIds: scored?.sampleCardIds ?? [],
     };
   });
 
@@ -306,34 +290,27 @@ async function enrichCardResults(cardIds: string[]) {
 async function getCardRetentions(
   userId: string,
   cardIds: string[],
+  asOf: Date = new Date(),
 ): Promise<Map<string, number>> {
-  const rows = await db
-    .select({
-      cardId: studyProgress.cardId,
-      stability: studyProgress.stability,
-      intervalDays: studyProgress.intervalDays,
-      easeFactor: studyProgress.easeFactor,
-      lastReviewedAt: studyProgress.lastReviewedAt,
-    })
-    .from(studyProgress)
-    .where(
-      and(
-        eq(studyProgress.userId, userId),
-        inArray(studyProgress.cardId, cardIds),
-      ),
-    );
+  if (cardIds.length === 0) return new Map();
 
-  const now = Date.now();
-  const map = new Map<string, number>();
+  // Bind one PostgreSQL array value instead of one parameter per card: a bare
+  // JS array becomes a row constructor through drizzle's `sql`, and a parameter
+  // per card would hit the 65,535 bind-parameter ceiling on large selections.
+  const cardIdArrayLiteral = `{${cardIds.join(',')}}`;
+  const rows = await db.execute<{
+    cardId: string;
+    retention: number;
+  }>(sql`
+    SELECT c.id::text AS "cardId", ${fsrsRetrievability(asOf)} AS retention
+    FROM cards c
+    ${fsrsStateJoin(userId)}
+    WHERE c.id = ANY(${cardIdArrayLiteral}::uuid[]) AND s.id IS NOT NULL
+  `);
 
-  for (const p of rows) {
-    if (!p.lastReviewedAt) continue;
-    const elapsed = Math.max(
-      0,
-      (now - p.lastReviewedAt.getTime()) / 86_400_000,
-    );
-    map.set(p.cardId, computeRetention(p.stability, p.intervalDays, p.easeFactor, elapsed));
-  }
+  return new Map(rows.map((row) => [row.cardId, row.retention] as const));
+}
 
-  return map;
+function roundMetric(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }

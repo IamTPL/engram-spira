@@ -114,6 +114,9 @@ async function loadNodes(
 ): Promise<NeighborhoodNodeRecord[]> {
   if (input.senseIds.length === 0) return [];
 
+  // Bound once as ISO text: the client is drizzle-wrapped, so a JS `Date`
+  // parameter would throw (see src/db/pg-codecs.ts).
+  const asOfIso = new Date().toISOString();
   const rows = await sql<NodeRow[]>`
     SELECT
       ls.id,
@@ -147,26 +150,14 @@ async function loadNodes(
     ) mapped ON true
     LEFT JOIN LATERAL (
       SELECT
-        sp.next_review_at,
+        s.next_review_at,
         CASE
-          WHEN sp.last_reviewed_at IS NULL THEN NULL
-          ELSE LEAST(
-            1,
-            EXP(
-              GREATEST(
-                -50,
-                -(
-                  EXTRACT(EPOCH FROM (NOW() - sp.last_reviewed_at)) / 86400
-                ) / GREATEST(
-                  COALESCE(
-                    sp.stability,
-                    sp.interval_days::real * (sp.ease_factor / 2.5),
-                    1
-                  ),
-                  1
-                )
-              )
-            )
+          WHEN s.id IS NULL THEN NULL
+          ELSE fsrs_retrievability(
+            s.stability,
+            EXTRACT(EPOCH FROM (${asOfIso}::timestamptz - s.last_reviewed_at)),
+            r.decay,
+            r.factor
           )::real
         END AS retention
       FROM card_senses cs
@@ -174,14 +165,16 @@ async function loadNodes(
       JOIN decks d
         ON d.id = c.deck_id
        AND d.user_id = ${input.userId}
-      LEFT JOIN study_progress sp
-        ON sp.card_id = c.id
-       AND sp.user_id = ${input.userId}
+      LEFT JOIN fsrs_card_states s
+        ON s.card_id = c.id
+       AND s.user_id = ${input.userId}
+      LEFT JOIN fsrs_parameter_revisions r
+        ON r.id = s.parameter_revision_id
       WHERE cs.sense_id = ls.id
       ORDER BY
         (c.id = ${input.focusCardId}) DESC,
         (c.deck_id = ${input.deckId}) DESC,
-        (sp.id IS NOT NULL) DESC,
+        (s.id IS NOT NULL) DESC,
         c.id
       LIMIT 1
     ) representative ON true
