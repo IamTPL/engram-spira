@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api, getApiError } from '@/api/client';
 import { queryClient } from '@/lib/query-client';
+import { prefetchStudyDeck } from '@/lib/prefetch-study';
 import { toast } from '@/stores/toast.store';
 import {
   ArrowLeft,
@@ -173,6 +174,8 @@ const DeckHeader: Component<DeckHeaderProps> = (props) => {
 
             <Button
               onClick={() => navigate(`/study/${props.deck()?.id ?? ''}`)}
+              onPointerEnter={() => prefetchStudyDeck(props.deck()?.id)}
+              onFocus={() => prefetchStudyDeck(props.deck()?.id)}
               disabled={!props.deck()?.id}
               size="sm"
               class="h-8 shrink-0 justify-self-end px-3 shadow-sm lg:col-start-4 lg:row-start-1"

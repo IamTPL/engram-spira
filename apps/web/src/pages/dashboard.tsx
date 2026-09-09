@@ -19,6 +19,7 @@ import {
   remainingSeconds,
 } from '@/stores/focus.store';
 import { api, getApiError } from '@/api/client';
+import { prefetchStudyDeck } from '@/lib/prefetch-study';
 import { toast } from '@/stores/toast.store';
 import type {
   AggregateResponse,
@@ -531,6 +532,8 @@ const DashboardPage: Component = () => {
                       <button
                         class="group flex min-h-14 w-full items-center gap-3 py-3 text-left first:pt-0 last:pb-0"
                         onClick={() => navigate(`/study/${deck.id}`)}
+                        onPointerEnter={() => prefetchStudyDeck(deck.id)}
+                        onFocus={() => prefetchStudyDeck(deck.id)}
                       >
                         <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-due-fill text-due-fill-foreground">
                           <BookOpen class="h-4 w-4" />
