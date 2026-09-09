@@ -7,6 +7,7 @@ import {
   fsrsDue,
   fsrsRetrievability,
   fsrsStateJoin,
+  fsrsTargetRetention,
 } from '../study/fsrs-sql';
 import type { StudyQueueQuery, StudyQueueResponse } from './experience.types';
 
@@ -18,12 +19,13 @@ export type StudyQueueRow = {
   templateName: string | null;
   dueAt: Date | string | null;
   retentionEstimate: number | null;
-  boxLevel: number | null;
+  state: 'learning' | 'review' | 'relearning' | null;
+  targetRetention: number | null;
   lastReviewedAt: Date | string | null;
   sortOrder: number;
 };
 
-type StudyQueueScope = {
+export type StudyQueueScope = {
   deckId?: string;
   folderId?: string;
   classId?: string;
@@ -39,6 +41,7 @@ export type StudyQueueLoaders = {
     userId: string,
     query: StudyQueueQuery,
     scope: StudyQueueScope,
+    asOf: Date,
   ) => Promise<StudyQueueRow[]>;
 };
 
@@ -50,8 +53,9 @@ export async function getStudyQueue(
   const normalized = normalizeQuery(query);
   const scope = await validateScope(userId, normalized, loaders);
   const limit = Math.min(Math.max(normalized.limit ?? 50, 1), 200);
-  const rows = await loaders.loadQueueRows(userId, { ...normalized, limit }, scope);
-  const cards = rows.map((row) => toQueueCard(row, normalized.mode));
+  const asOf = new Date();
+  const rows = await loaders.loadQueueRows(userId, { ...normalized, limit }, scope, asOf);
+  const cards = rows.map((row) => toQueueCard(row, normalized.mode, asOf));
   const sortOrderByCard = new Map<string, number>();
   for (const row of rows) {
     if (!sortOrderByCard.has(row.id)) {
@@ -133,9 +137,10 @@ async function validateScope(
 function toQueueCard(
   row: StudyQueueRow,
   mode: StudyQueueQuery['mode'],
+  asOf: Date,
 ): StudyQueueResponse['cards'][number] {
   const dueAt = toIso(row.dueAt);
-  const reason = reasonForRow(row, mode);
+  const reason = reasonForRow(row, mode, asOf);
 
   return {
     id: row.id,
@@ -152,20 +157,25 @@ function toQueueCard(
 function reasonForRow(
   row: StudyQueueRow,
   mode: StudyQueueQuery['mode'],
+  asOf: Date,
 ): StudyQueueResponse['cards'][number]['reason'] {
   if (mode === 'interleaved') return 'interleaved';
   if (mode === 'at-risk') return 'at-risk';
   if (row.dueAt === null) return 'new';
-  if (isDue(row.dueAt)) return 'due';
-  if (row.boxLevel === 0 && row.lastReviewedAt !== null) return 'learning';
-  if (row.retentionEstimate !== null && row.retentionEstimate < 0.8) {
+  if (isDue(row.dueAt, asOf)) return 'due';
+  if (row.state === 'learning' || row.state === 'relearning') return 'learning';
+  if (
+    row.retentionEstimate !== null &&
+    row.targetRetention !== null &&
+    row.retentionEstimate < row.targetRetention
+  ) {
     return 'at-risk';
   }
   return 'manual';
 }
 
-function isDue(value: Date | string): boolean {
-  return new Date(value).getTime() <= Date.now();
+function isDue(value: Date | string, asOf: Date): boolean {
+  return new Date(value).getTime() <= asOf.getTime();
 }
 
 function reasonRank(reason: StudyQueueResponse['cards'][number]['reason']) {
@@ -253,12 +263,12 @@ export const defaultStudyQueueLoaders: StudyQueueLoaders = {
   loadQueueRows,
 };
 
-async function loadQueueRows(
+export function queueRowsSql(
   userId: string,
   query: StudyQueueQuery,
   scope: StudyQueueScope,
-): Promise<StudyQueueRow[]> {
-  const asOf = new Date();
+  asOf: Date,
+): SQL {
   const filters: SQL[] = [sql`d.user_id = ${userId}`];
 
   if (scope.deckId) filters.push(sql`d.id = ${scope.deckId}`);
@@ -281,7 +291,7 @@ async function loadQueueRows(
   const smartGroupJoin =
     query.mode === 'smart-group' ? sql`JOIN card_concepts cc ON cc.card_id = c.id` : sql``;
 
-  return db.execute<StudyQueueRow>(sql`
+  return sql`
     SELECT
       c.id,
       c.deck_id AS "deckId",
@@ -290,7 +300,8 @@ async function loadQueueRows(
       ct.name AS "templateName",
       s.next_review_at AS "dueAt",
       ${fsrsRetrievability(asOf)}::real AS "retentionEstimate",
-      NULL::int AS "boxLevel",
+      s.state AS state,
+      CASE WHEN s.id IS NULL THEN NULL ELSE ${fsrsTargetRetention()} END AS "targetRetention",
       s.last_reviewed_at AS "lastReviewedAt",
       c.sort_order AS "sortOrder"
     FROM cards c
@@ -304,10 +315,19 @@ async function loadQueueRows(
     LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
     WHERE ${sql.join(filters, sql` AND `)}
     GROUP BY c.id, c.deck_id, ct.name, s.id, s.next_review_at, s.last_reviewed_at,
-      s.stability, r.decay, r.factor, c.sort_order
+      s.state, s.stability, r.decay, r.factor, r.parameters, c.sort_order
     ORDER BY COALESCE(s.next_review_at, ${fsrsAsOf(asOf)}) ASC, c.sort_order ASC, c.id ASC
     LIMIT ${query.limit ?? 50}
-  `);
+  `;
+}
+
+async function loadQueueRows(
+  userId: string,
+  query: StudyQueueQuery,
+  scope: StudyQueueScope,
+  asOf: Date,
+): Promise<StudyQueueRow[]> {
+  return db.execute<StudyQueueRow>(queueRowsSql(userId, query, scope, asOf));
 }
 
 function isUuid(value: string) {
