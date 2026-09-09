@@ -1,17 +1,26 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
 import { NotFoundError } from '../../shared/errors';
-import { aggregateResponse, resolveSection } from './aggregate.helpers';
 import {
-  atRiskRetentionFilterSql,
-  retentionEstimateSelectSql,
-} from './retention-sql';
+  FSRS_LEARNING,
+  FSRS_NEW,
+  fsrsAsOf,
+  fsrsAtRisk,
+  fsrsRetrievability,
+  fsrsStateJoin,
+} from '../study/fsrs-sql';
+import { aggregateResponse, resolveSection } from './aggregate.helpers';
 import type {
   AggregateResponse,
   DeckWorkspaceQuery,
   DeckWorkspaceResponse,
   DeckWorkspaceSections,
 } from './experience.types';
+
+export type DeckStudySummary = {
+  study: DeckWorkspaceResponse['study'];
+  analytics: DeckWorkspaceResponse['analytics'];
+};
 
 export type DeckWorkspaceLoaders = {
   loadDeck: (
@@ -23,14 +32,10 @@ export type DeckWorkspaceLoaders = {
     deckId: string,
     query: DeckWorkspaceQuery,
   ) => Promise<DeckWorkspaceResponse['cards']>;
-  loadStudy: (
+  loadStudySummary: (
     userId: string,
     deckId: string,
-  ) => Promise<DeckWorkspaceResponse['study']>;
-  loadAnalytics: (
-    userId: string,
-    deckId: string,
-  ) => Promise<DeckWorkspaceResponse['analytics']>;
+  ) => Promise<DeckStudySummary>;
   loadCounters: (
     userId: string,
     deckId: string,
@@ -56,15 +61,10 @@ export async function getDeckWorkspace(
     load: () => loaders.loadCards(userId, deckId, query),
     empty: (data) => data.items.length === 0,
   });
-  const study = await resolveSection({
-    load: () => loaders.loadStudy(userId, deckId),
-    fallback: null,
-    empty: (data) => data === null,
-  });
-  const analytics = await resolveSection({
-    load: () => loaders.loadAnalytics(userId, deckId),
-    fallback: null,
-    empty: (data) => data === null,
+  const summary = await resolveSection<DeckStudySummary>({
+    load: () => loaders.loadStudySummary(userId, deckId),
+    fallback: { study: null, analytics: null },
+    empty: (data) => data.study === null && data.analytics === null,
   });
   const counters = await resolveSection({
     load: () => loaders.loadCounters(userId, deckId),
@@ -76,15 +76,15 @@ export async function getDeckWorkspace(
     {
       deck: deck.data,
       cards: cards.data,
-      study: study.data,
-      analytics: analytics.data,
+      study: summary.data.study,
+      analytics: summary.data.analytics,
       counters: counters.data,
     },
     {
       deck: deck.meta,
       cards: cards.meta,
-      study: study.meta,
-      analytics: analytics.meta,
+      study: summary.meta,
+      analytics: summary.meta,
       counters: counters.meta,
     } satisfies DeckWorkspaceSections,
   );
@@ -93,8 +93,7 @@ export async function getDeckWorkspace(
 export const defaultDeckWorkspaceLoaders: DeckWorkspaceLoaders = {
   loadDeck,
   loadCards,
-  loadStudy,
-  loadAnalytics,
+  loadStudySummary: (userId, deckId) => loadStudySummary(userId, deckId),
   loadCounters,
 };
 
@@ -181,53 +180,51 @@ async function loadCards(
   };
 }
 
-async function loadStudy(userId: string, deckId: string) {
+/** One pass over a deck's canonical FSRS state feeding both the study and analytics sections. */
+export function deckStudySummarySql(
+  userId: string,
+  deckId: string,
+  asOf: Date,
+): SQL {
+  return sql`
+    SELECT
+      COUNT(c.id) FILTER (WHERE s.id IS NOT NULL AND s.next_review_at <= ${fsrsAsOf(asOf)})::int AS "dueCount",
+      COUNT(c.id) FILTER (WHERE ${FSRS_NEW})::int AS "newCount",
+      COUNT(c.id) FILTER (WHERE ${FSRS_LEARNING})::int AS "learningCount",
+      MAX(s.last_reviewed_at) AS "lastStudiedAt",
+      AVG(${fsrsRetrievability(asOf)})::real AS "avgRetention",
+      COUNT(c.id) FILTER (WHERE ${fsrsAtRisk(asOf)})::int AS "atRiskCount"
+    FROM cards c
+    JOIN decks d ON d.id = c.deck_id
+    ${fsrsStateJoin(userId)}
+    WHERE d.id = ${deckId}::uuid AND d.user_id = ${userId}::uuid`;
+}
+
+async function loadStudySummary(
+  userId: string,
+  deckId: string,
+  asOf = new Date(),
+): Promise<DeckStudySummary> {
   const [row] = await db.execute<{
     dueCount: number;
     newCount: number;
     learningCount: number;
     lastStudiedAt: Date | string | null;
-  }>(sql`
-    SELECT
-      COUNT(c.id) FILTER (WHERE sp.id IS NOT NULL AND sp.next_review_at <= NOW())::int AS "dueCount",
-      COUNT(c.id) FILTER (WHERE sp.id IS NULL)::int AS "newCount",
-      COUNT(c.id) FILTER (WHERE sp.id IS NOT NULL AND sp.box_level = 0)::int AS "learningCount",
-      MAX(sp.last_reviewed_at) AS "lastStudiedAt"
-    FROM cards c
-    JOIN decks d ON d.id = c.deck_id
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
-    WHERE d.id = ${deckId} AND d.user_id = ${userId}
-  `);
-
-  return {
-    dueCount: row?.dueCount ?? 0,
-    newCount: row?.newCount ?? 0,
-    learningCount: row?.learningCount ?? 0,
-    lastStudiedAt: toIso(row?.lastStudiedAt ?? null),
-  };
-}
-
-async function loadAnalytics(userId: string, deckId: string) {
-  const [row] = await db.execute<{
     avgRetention: number | null;
     atRiskCount: number;
-  }>(sql`
-    SELECT
-      AVG(
-        ${retentionEstimateSelectSql()}
-      )::real AS "avgRetention",
-      COUNT(c.id) FILTER (
-        WHERE ${atRiskRetentionFilterSql()}
-      )::int AS "atRiskCount"
-    FROM cards c
-    JOIN decks d ON d.id = c.deck_id
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
-    WHERE d.id = ${deckId} AND d.user_id = ${userId}
-  `);
+  }>(deckStudySummarySql(userId, deckId, asOf));
 
   return {
-    avgRetention: row?.avgRetention ?? null,
-    atRiskCount: row?.atRiskCount ?? 0,
+    study: {
+      dueCount: row?.dueCount ?? 0,
+      newCount: row?.newCount ?? 0,
+      learningCount: row?.learningCount ?? 0,
+      lastStudiedAt: toIso(row?.lastStudiedAt ?? null),
+    },
+    analytics: {
+      avgRetention: row?.avgRetention ?? null,
+      atRiskCount: row?.atRiskCount ?? 0,
+    },
   };
 }
 

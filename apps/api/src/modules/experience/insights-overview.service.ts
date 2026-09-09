@@ -1,18 +1,22 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
 import * as forecastService from '../study/forecast.service';
+import {
+  fsrsAsOf,
+  fsrsAtRisk,
+  fsrsRetrievability,
+  fsrsStateJoin,
+} from '../study/fsrs-sql';
 import * as recommendationsService from '../study/recommendations.service';
 import { aggregateResponse, resolveSection } from './aggregate.helpers';
-import {
-  AT_RISK_RETENTION_THRESHOLD,
-  retentionEstimateSelectSql,
-} from './retention-sql';
 import type {
   AggregateResponse,
   CommandCenterResponse,
   InsightsOverviewResponse,
   InsightsOverviewSections,
 } from './experience.types';
+
+const AT_RISK_CARD_LIMIT = 20;
 
 export type InsightsOverviewLoaders = {
   loadForecast: (userId: string) => Promise<InsightsOverviewResponse['forecast']>;
@@ -106,37 +110,32 @@ async function loadWeakAreas(userId: string) {
   })) satisfies CommandCenterResponse['weakAreas'];
 }
 
-async function loadAtRiskCards(userId: string) {
+/** Cards whose canonical retrievability has already fallen below their target retention. */
+export function atRiskCardsSql(userId: string, asOf: Date, limit: number): SQL {
+  return sql`
+    SELECT
+      c.id::text AS id,
+      c.deck_id::text AS "deckId",
+      MIN(CASE WHEN tf.side = 'front' THEN cfv.value #>> '{}' END) AS title,
+      ${fsrsRetrievability(asOf)}::real AS "retentionEstimate"
+    FROM cards c
+    JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+    ${fsrsStateJoin(userId)}
+    LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
+    LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
+    WHERE ${fsrsAtRisk(asOf)}
+    GROUP BY c.id, c.deck_id, s.id, s.stability, s.last_reviewed_at, r.decay, r.factor
+    ORDER BY "retentionEstimate" ASC, c.id ASC
+    LIMIT ${limit}`;
+}
+
+async function loadAtRiskCards(userId: string, asOf = new Date()) {
   const rows = await db.execute<{
     id: string;
     deckId: string;
     title: string | null;
     retentionEstimate: number | null;
-  }>(sql`
-    WITH scored AS (
-      SELECT
-        c.id,
-        c.deck_id AS "deckId",
-        MIN(CASE WHEN tf.side = 'front' THEN cfv.value #>> '{}' END) AS title,
-        ${retentionEstimateSelectSql()} AS "retentionEstimate"
-      FROM study_progress sp
-      JOIN cards c ON c.id = sp.card_id
-      JOIN decks d ON d.id = c.deck_id
-      LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
-      LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
-      WHERE sp.user_id = ${userId}
-        AND d.user_id = ${userId}
-        AND sp.next_review_at > NOW()
-        AND sp.last_reviewed_at IS NOT NULL
-      GROUP BY c.id, c.deck_id, sp.last_reviewed_at, sp.stability,
-        sp.interval_days, sp.ease_factor
-    )
-    SELECT id, "deckId", title, "retentionEstimate"
-    FROM scored
-    WHERE "retentionEstimate" < ${AT_RISK_RETENTION_THRESHOLD}
-    ORDER BY "retentionEstimate" ASC, id ASC
-    LIMIT 20
-  `);
+  }>(atRiskCardsSql(userId, asOf, AT_RISK_CARD_LIMIT));
 
   return rows.map((row) => ({
     id: row.id,
@@ -158,13 +157,20 @@ async function loadHeatmap(userId: string) {
   return rows.reverse();
 }
 
-async function loadTrends(userId: string) {
-  const [row] = await db.execute<{ reviewedThisWeek: number }>(sql`
+/** Live reviews (migration backfill excluded) recorded in the trailing 7 days. */
+export function reviewedThisWeekSql(userId: string, asOf: Date): SQL {
+  return sql`
     SELECT COUNT(*)::int AS "reviewedThisWeek"
-    FROM review_logs
-    WHERE user_id = ${userId}
-      AND reviewed_at >= NOW() - interval '7 days'
-  `);
+    FROM fsrs_review_events e
+    WHERE e.user_id = ${userId}::uuid
+      AND e.origin = 'live'
+      AND e.reviewed_at >= ${fsrsAsOf(asOf)} - interval '7 days'`;
+}
+
+async function loadTrends(userId: string, asOf = new Date()) {
+  const [row] = await db.execute<{ reviewedThisWeek: number }>(
+    reviewedThisWeekSql(userId, asOf),
+  );
 
   return {
     reviewedThisWeek: row?.reviewedThisWeek ?? 0,

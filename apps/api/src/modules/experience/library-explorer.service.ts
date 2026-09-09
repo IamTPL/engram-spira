@@ -1,5 +1,6 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
+import { fsrsDue, fsrsStateJoin } from '../study/fsrs-sql';
 import { aggregateResponse, resolveSection } from './aggregate.helpers';
 import type {
   AggregateResponse,
@@ -57,8 +58,9 @@ export const defaultLibraryExplorerLoaders: LibraryExplorerLoaders = {
   loadRecentDeckIds,
 };
 
-async function loadClasses(userId: string) {
-  const rows = await db.execute<LibraryRow>(sql`
+/** Class > folder > deck tree with per-deck card and due counts from canonical FSRS state. */
+export function libraryClassesSql(userId: string, asOf: Date): SQL {
+  return sql`
     SELECT
       cl.id AS "classId",
       cl.name AS "className",
@@ -69,16 +71,19 @@ async function loadClasses(userId: string) {
       d.name AS "deckName",
       d.created_at AS "deckUpdatedAt",
       COUNT(c.id)::int AS "cardCount",
-      COUNT(c.id) FILTER (WHERE sp.id IS NULL OR sp.next_review_at <= NOW())::int AS "dueCount"
+      COUNT(c.id) FILTER (WHERE ${fsrsDue(asOf)})::int AS "dueCount"
     FROM classes cl
     LEFT JOIN folders f ON f.class_id = cl.id
-    LEFT JOIN decks d ON d.folder_id = f.id AND d.user_id = ${userId}
+    LEFT JOIN decks d ON d.folder_id = f.id AND d.user_id = ${userId}::uuid
     LEFT JOIN cards c ON c.deck_id = d.id
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
-    WHERE cl.user_id = ${userId}
+    ${fsrsStateJoin(userId)}
+    WHERE cl.user_id = ${userId}::uuid
     GROUP BY cl.id, cl.name, cl.description, f.id, f.name, d.id, d.name, d.created_at
-    ORDER BY cl.sort_order ASC, f.sort_order ASC, d.created_at DESC
-  `);
+    ORDER BY cl.sort_order ASC, f.sort_order ASC, d.created_at DESC`;
+}
+
+async function loadClasses(userId: string, asOf = new Date()) {
+  const rows = await db.execute<LibraryRow>(libraryClassesSql(userId, asOf));
 
   const classes = new Map<string, LibraryExplorerResponse['classes'][number]>();
   const foldersByClass = new Map<

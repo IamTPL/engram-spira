@@ -522,13 +522,15 @@ function deckWorkspaceLoaders(
       pageSize: 1,
       total: 4,
     }),
-    loadStudy: async () => ({
-      dueCount: 1,
-      newCount: 1,
-      learningCount: 1,
-      lastStudiedAt: '2026-06-27T10:00:00.000Z',
+    loadStudySummary: async () => ({
+      study: {
+        dueCount: 1,
+        newCount: 1,
+        learningCount: 1,
+        lastStudiedAt: '2026-06-27T10:00:00.000Z',
+      },
+      analytics: { avgRetention: 0.76, atRiskCount: 1 },
     }),
-    loadAnalytics: async () => ({ avgRetention: 0.76, atRiskCount: 1 }),
     loadCounters: async () => ({ graphLinks: 0, duplicates: 0, aiSuggestions: 0 }),
     ...overrides,
   };

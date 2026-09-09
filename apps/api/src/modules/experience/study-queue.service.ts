@@ -2,9 +2,12 @@ import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import {
-  atRiskRetentionFilterSql,
-  retentionEstimateSelectSql,
-} from './retention-sql';
+  fsrsAsOf,
+  fsrsAtRisk,
+  fsrsDue,
+  fsrsRetrievability,
+  fsrsStateJoin,
+} from '../study/fsrs-sql';
 import type { StudyQueueQuery, StudyQueueResponse } from './experience.types';
 
 export type StudyQueueRow = {
@@ -255,6 +258,7 @@ async function loadQueueRows(
   query: StudyQueueQuery,
   scope: StudyQueueScope,
 ): Promise<StudyQueueRow[]> {
+  const asOf = new Date();
   const filters: SQL[] = [sql`d.user_id = ${userId}`];
 
   if (scope.deckId) filters.push(sql`d.id = ${scope.deckId}`);
@@ -268,10 +272,10 @@ async function loadQueueRows(
     query.mode === 'folder' ||
     query.mode === 'class'
   ) {
-    filters.push(sql`(sp.id IS NULL OR sp.next_review_at <= NOW())`);
+    filters.push(fsrsDue(asOf));
   }
   if (query.mode === 'at-risk') {
-    filters.push(atRiskRetentionFilterSql());
+    filters.push(fsrsAtRisk(asOf));
   }
 
   const smartGroupJoin =
@@ -284,10 +288,10 @@ async function loadQueueRows(
       MIN(CASE WHEN tf.side = 'front' THEN cfv.value #>> '{}' END) AS front,
       MIN(CASE WHEN tf.side = 'back' THEN cfv.value #>> '{}' END) AS back,
       ct.name AS "templateName",
-      sp.next_review_at AS "dueAt",
-      ${retentionEstimateSelectSql()} AS "retentionEstimate",
-      sp.box_level AS "boxLevel",
-      sp.last_reviewed_at AS "lastReviewedAt",
+      s.next_review_at AS "dueAt",
+      ${fsrsRetrievability(asOf)}::real AS "retentionEstimate",
+      NULL::int AS "boxLevel",
+      s.last_reviewed_at AS "lastReviewedAt",
       c.sort_order AS "sortOrder"
     FROM cards c
     JOIN decks d ON d.id = c.deck_id
@@ -295,13 +299,13 @@ async function loadQueueRows(
     JOIN classes cl ON cl.id = f.class_id
     JOIN card_templates ct ON ct.id = d.card_template_id
     ${smartGroupJoin}
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
+    ${fsrsStateJoin(userId)}
     LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
     LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
     WHERE ${sql.join(filters, sql` AND `)}
-    GROUP BY c.id, c.deck_id, ct.name, sp.next_review_at, sp.last_reviewed_at,
-      sp.box_level, sp.stability, sp.interval_days, sp.ease_factor, c.sort_order
-    ORDER BY COALESCE(sp.next_review_at, NOW()) ASC, c.sort_order ASC, c.id ASC
+    GROUP BY c.id, c.deck_id, ct.name, s.id, s.next_review_at, s.last_reviewed_at,
+      s.stability, r.decay, r.factor, c.sort_order
+    ORDER BY COALESCE(s.next_review_at, ${fsrsAsOf(asOf)}) ASC, c.sort_order ASC, c.id ASC
     LIMIT ${query.limit ?? 50}
   `);
 }

@@ -1,11 +1,18 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db';
 import * as forecastService from '../study/forecast.service';
 import * as recommendationsService from '../study/recommendations.service';
 import * as studyService from '../study/study.service';
 import * as notificationsService from '../notifications/notifications.service';
+import {
+  FSRS_LEARNING,
+  FSRS_NEW,
+  fsrsAsOf,
+  fsrsAtRisk,
+  fsrsDue,
+  fsrsStateJoin,
+} from '../study/fsrs-sql';
 import { aggregateResponse, resolveSection } from './aggregate.helpers';
-import { atRiskRetentionFilterSql } from './retention-sql';
 import type {
   CommandCenterResponse,
   CommandCenterSections,
@@ -108,27 +115,28 @@ export const defaultCommandCenterLoaders: CommandCenterLoaders = {
   loadNotifications,
 };
 
-async function loadReviewQueue(userId: string) {
+/** Queue counters over canonical FSRS state: due / new / learning-ahead / at-risk. */
+export function reviewQueueSql(userId: string, asOf: Date): SQL {
+  return sql`
+    SELECT
+      COUNT(*) FILTER (WHERE s.id IS NOT NULL AND s.next_review_at <= ${fsrsAsOf(asOf)})::int AS "dueCount",
+      COUNT(*) FILTER (WHERE ${FSRS_NEW})::int AS "newCount",
+      COUNT(*) FILTER (
+        WHERE ${FSRS_LEARNING} AND s.next_review_at > ${fsrsAsOf(asOf)}
+      )::int AS "learningCount",
+      COUNT(*) FILTER (WHERE ${fsrsAtRisk(asOf)})::int AS "atRiskCount"
+    FROM cards c
+    JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+    ${fsrsStateJoin(userId)}`;
+}
+
+async function loadReviewQueue(userId: string, asOf = new Date()) {
   const [row] = await db.execute<{
     dueCount: number;
     newCount: number;
     learningCount: number;
     atRiskCount: number;
-  }>(sql`
-    SELECT
-      COUNT(*) FILTER (WHERE sp.id IS NOT NULL AND sp.next_review_at <= NOW())::int AS "dueCount",
-      COUNT(*) FILTER (WHERE sp.id IS NULL)::int AS "newCount",
-      COUNT(*) FILTER (
-        WHERE sp.id IS NOT NULL AND sp.box_level = 0 AND sp.next_review_at > NOW()
-      )::int AS "learningCount",
-      COUNT(*) FILTER (
-        WHERE ${atRiskRetentionFilterSql()}
-      )::int AS "atRiskCount"
-    FROM cards c
-    JOIN decks d ON d.id = c.deck_id
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
-    WHERE d.user_id = ${userId}
-  `);
+  }>(reviewQueueSql(userId, asOf));
 
   const dueCount = row?.dueCount ?? 0;
   const newCount = row?.newCount ?? 0;
@@ -155,7 +163,27 @@ async function loadStreak(userId: string) {
   };
 }
 
-async function loadDueDecks(userId: string) {
+/** Top decks that have at least one due card, with their new count and last review. */
+export function dueDecksSummarySql(userId: string, asOf: Date): SQL {
+  return sql`
+    SELECT
+      d.id,
+      d.name,
+      d.folder_id AS "folderId",
+      COUNT(*) FILTER (WHERE ${fsrsDue(asOf)})::int AS "dueCount",
+      COUNT(*) FILTER (WHERE ${FSRS_NEW})::int AS "newCount",
+      MAX(s.last_reviewed_at) AS "lastStudiedAt"
+    FROM decks d
+    JOIN cards c ON c.deck_id = d.id
+    ${fsrsStateJoin(userId)}
+    WHERE d.user_id = ${userId}::uuid
+    GROUP BY d.id, d.name, d.folder_id
+    HAVING COUNT(*) FILTER (WHERE ${fsrsDue(asOf)}) > 0
+    ORDER BY "dueCount" DESC, d.name ASC
+    LIMIT 10`;
+}
+
+async function loadDueDecks(userId: string, asOf = new Date()) {
   const rows = await db.execute<{
     id: string;
     name: string;
@@ -163,23 +191,7 @@ async function loadDueDecks(userId: string) {
     dueCount: number;
     newCount: number;
     lastStudiedAt: Date | string | null;
-  }>(sql`
-    SELECT
-      d.id,
-      d.name,
-      d.folder_id AS "folderId",
-      COUNT(*) FILTER (WHERE sp.id IS NULL OR sp.next_review_at <= NOW())::int AS "dueCount",
-      COUNT(*) FILTER (WHERE sp.id IS NULL)::int AS "newCount",
-      MAX(sp.last_reviewed_at) AS "lastStudiedAt"
-    FROM decks d
-    JOIN cards c ON c.deck_id = d.id
-    LEFT JOIN study_progress sp ON sp.card_id = c.id AND sp.user_id = ${userId}
-    WHERE d.user_id = ${userId}
-    GROUP BY d.id, d.name, d.folder_id
-    HAVING COUNT(*) FILTER (WHERE sp.id IS NULL OR sp.next_review_at <= NOW()) > 0
-    ORDER BY "dueCount" DESC, d.name ASC
-    LIMIT 10
-  `);
+  }>(dueDecksSummarySql(userId, asOf));
 
   return rows.map((row) => ({
     id: row.id,
