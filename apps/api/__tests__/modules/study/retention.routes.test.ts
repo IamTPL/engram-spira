@@ -179,8 +179,8 @@ describe('memory health routes', () => {
 
     for (const [rawOffset, expectedOffset] of [
       ['60junk', 0],
-      ['+900', 840],
-      ['-900', -720],
+      ['+900', 720],
+      ['-900', -840],
     ] as const) {
       const response = await app.handle(
         new Request(

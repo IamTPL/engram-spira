@@ -190,7 +190,9 @@ export function deckStudySummarySql(
     SELECT
       COUNT(c.id) FILTER (WHERE s.id IS NOT NULL AND s.next_review_at <= ${fsrsAsOf(asOf)})::int AS "dueCount",
       COUNT(c.id) FILTER (WHERE ${FSRS_NEW})::int AS "newCount",
-      COUNT(c.id) FILTER (WHERE ${FSRS_LEARNING})::int AS "learningCount",
+      COUNT(c.id) FILTER (
+        WHERE ${FSRS_LEARNING} AND s.next_review_at > ${fsrsAsOf(asOf)}
+      )::int AS "learningCount",
       MAX(s.last_reviewed_at) AS "lastStudiedAt",
       AVG(${fsrsRetrievability(asOf)})::real AS "avgRetention",
       COUNT(c.id) FILTER (WHERE ${fsrsAtRisk(asOf)})::int AS "atRiskCount"

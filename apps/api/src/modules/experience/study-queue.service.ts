@@ -314,8 +314,10 @@ export function queueRowsSql(
     LEFT JOIN card_field_values cfv ON cfv.card_id = c.id
     LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
     WHERE ${sql.join(filters, sql` AND `)}
-    GROUP BY c.id, c.deck_id, ct.name, s.id, s.next_review_at, s.last_reviewed_at,
-      s.state, s.stability, r.decay, r.factor, r.parameters, c.sort_order
+    -- Grouping by each joined table's primary key is enough: Postgres derives
+    -- the functional dependency, so every other s.* / r.* column (including the
+    -- jsonb r.parameters) is legal in the select list without being repeated.
+    GROUP BY c.id, c.deck_id, ct.name, s.id, r.id, c.sort_order
     ORDER BY COALESCE(s.next_review_at, ${fsrsAsOf(asOf)}) ASC, c.sort_order ASC, c.id ASC
     LIMIT ${query.limit ?? 50}
   `;

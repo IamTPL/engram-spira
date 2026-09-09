@@ -52,8 +52,9 @@ bug is structurally impossible here. `state_version` is the per-card monotonic c
 the next event `sequence`; `learning_cycle` groups a card's events between resets.
 
 **`fsrs_review_events`** — append-only, one row per applied review, with the full `before_*`/`after_*` state
-snapshot pair. `uq (user_id, request_id)` is the **idempotency key**; `uq (user_id, card_id, sequence)` makes
-the per-card history a total order. `origin IN ('live','migration')` — `'migration'` rows are what the
+snapshot pair. `uq (user_id, request_id)` is the **idempotency key**; `uq (user_id, card_id, learning_cycle, sequence)`
+makes the per-card history a total order **within a learning cycle** (a progress reset opens a new cycle
+and restarts `sequence`). `origin IN ('live','migration')` — `'migration'` rows are what the
 one-time replay of the legacy SM-2 history wrote before `0029` dropped the source tables.
 
 **`study_daily_logs`** — `(user_id, study_date date, cards_reviewed)` with `uq_user_study_date`. The only
@@ -223,10 +224,12 @@ Three asymmetries that are **intentional or pending**, not bugs to tidy up in pa
 - **`forecastSql.atRiskCount` is a different quantity on purpose** (`forecast.service.ts:80`): a decay
   forecast over *every* card that has a state row — learning and already-due included — evaluated at each
   horizon day. It will not match the at-risk widgets.
-- **`learningCount` is not yet uniform.** `reviewQueueSql` counts learning **and not due**
-  (`command-center.service.ts:124-126`); `deckStudySummarySql` counts all learning
-  (`deck-workspace.service.ts:193`). The agreed resolution is "learning AND not due" everywhere; it is
-  **pending** and both spellings are currently asserted by tests. Unify them in one deliberate change.
+- **`learningCount` is "learning AND not yet due" everywhere.** Both `reviewQueueSql`
+  (`command-center.service.ts:122-126`) and `deckStudySummarySql` (`deck-workspace.service.ts:193-195`)
+  spell it `s.state IN ('learning','relearning') AND s.next_review_at > asOf`. A learning card that is
+  already due belongs to `dueCount`, not `learningCount` — the two counters are disjoint, so a widget may
+  add them. `fsrs-consumers.postgres.test.ts` pins this with a deliberately due learning card in the
+  scenario; do not re-widen either spelling to "all learning".
 
 `GET /study/queue`'s `reason` is derived from the same vocabulary in JS (`study-queue.service.ts:157-175`):
 `interleaved`/`at-risk` modes force their own reason, else `new` (no due date) → `due` → `learning`
@@ -253,15 +256,18 @@ events stay queryable and distinguishable.
 The only mechanism is the **`x-timezone-offset`** header, sent on every request by the web client from
 `new Date().getTimezoneOffset()` and allow-listed in CORS (`index.ts:135`).
 
-`getTimezoneOffsetMinutes` (`study.routes.ts:26-34`) requires `/^[+-]?\d+$/`, defaults to `0`, and clamps to
-**`[-720, 840]`**. Since `getTimezoneOffset()` returns −840 for UTC+14, users in UTC+13/+14 (Kiritimati, Samoa
-DST, Chatham) are silently clipped to UTC+12. Five handlers read it: `/streak`, `/activity`,
-`/dashboard-snapshot`, `/review-batch` and `/retention-details`.
+`getTimezoneOffsetMinutes` (`study.routes.ts:26-37`) requires `/^[+-]?\d+$/`, defaults to `0`, and clamps to
+**`[-840, 720]`** — the real `Date.prototype.getTimezoneOffset()` range (−840 = UTC+14, +720 = UTC−12), so
+UTC+13/+14 users (Kiritimati, Samoa DST, Chatham) are no longer clipped to UTC+12. Five handlers read it:
+`/streak`, `/activity`, `/dashboard-snapshot`, `/review-batch` and `/retention-details`.
+`retention-details.service.ts:100` re-clamps to the same bounds at the service boundary; keep the two in
+step, or the narrower one silently undoes the other.
 
 On the write path the offset only decides which `study_daily_logs.study_date` a review lands on
 (`studyDateForReviewedAt`, `fsrs-live.domain.ts:252`), and the domain layer independently validates it as an
-integer in `[-840, 720]` (`:493`) — note the **reversed sign convention** relative to the route clamp: the
-route takes the JS `getTimezoneOffset()` sign, and `studyDateForReviewedAt` subtracts it.
+integer in `[-840, 720]` (`:493`) — **the same bounds and the same sign convention** as the route. There
+never was a reversed convention: both sides take the JS `getTimezoneOffset()` sign and subtract it; the only
+defect was the route's clamp range, fixed in the final review wave.
 
 Streak/activity code calls `Date.prototype.setDate` on an offset-shifted instant, so **correctness depends on
 the API process running with `TZ=UTC`** — and nothing sets it. Never call a bare `new Date()` in a service
@@ -291,6 +297,9 @@ over a deck or a user's population.
 - **`getForecast`** (`forecast.service.ts:113`) — `days` clamped `[1,90]` and truncated to an integer, then
   one statement: `generate_series(0, days-1)` × `LEFT JOIN LATERAL` over a `states` CTE. At-risk uses the
   per-revision `request_retention`, not a hardcoded 0.8. Missing rows render as `avgRetention: 1`.
+  It labels each day as `asOf + N` in **UTC** (`new Date(asOf + offset * 86_400_000).toISOString().slice(0,10)`)
+  and does **not** read `x-timezone-offset`, so a user east of UTC sees the boundary shift — a deviation from
+  spec §7 and pre-existing behaviour, not something this wave changed.
 - **`getRetentionHeatmap`** (`heatmapSql`, `:147`) — per-card predicted recall for one deck, recall ascending.
   Ownership is folded into the join, so an unowned deck yields `{cards: []}` rather than a 404 — unlike every
   other deck-scoped read in the module.
@@ -312,8 +321,8 @@ over a deck or a user's population.
 - **`getRelatedCards`** — explicit `card_links` neighbours first (either direction), then tops up with
   `searchByEmbedding` at similarity 0.5, inside a bare `try/catch` that swallows **all** embedding failures.
 
-`recommendations.service.ts:305` still defines `getCardRetentions()`, which has **zero callers** — see
-[known-issues.md](known-issues.md).
+The dead `getCardRetentions()` in `recommendations.service.ts` (zero callers) was deleted in the final
+review wave. The module's only remaining retention read is inside `getStudyRecommendations`.
 
 ## Magic-number index
 
@@ -345,7 +354,8 @@ over a deck or a user's population.
 
 The legacy history was replayed into `fsrs_review_events` / `fsrs_card_states` on the dev database **before**
 `0029` dropped the source tables; the replay tooling was deleted in the same phase once it had served its
-purpose. Full sequence: `git log --oneline fix/pgclient-codecs..HEAD` (27 commits).
+purpose. Re-derive the full sequence rather than trusting a count:
+`git log --oneline fix/pgclient-codecs..HEAD`.
 
 The two engine defects this document used to describe — state loss on a falsy `stability`, and
 `elapsed_days` always 0 because `last_review` was `new Date()` — are structurally impossible on the live path:

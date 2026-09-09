@@ -302,30 +302,6 @@ async function enrichCardResults(cardIds: string[]) {
 // getCardLabels imported from ../../shared/embedding-utils
 // (replaces local getCardLabelsMap)
 
-async function getCardRetentions(
-  userId: string,
-  cardIds: string[],
-  asOf: Date = new Date(),
-): Promise<Map<string, number>> {
-  if (cardIds.length === 0) return new Map();
-
-  // Bind one PostgreSQL array value instead of one parameter per card: a bare
-  // JS array becomes a row constructor through drizzle's `sql`, and a parameter
-  // per card would hit the 65,535 bind-parameter ceiling on large selections.
-  const cardIdArrayLiteral = `{${cardIds.join(',')}}`;
-  const rows = await db.execute<{
-    cardId: string;
-    retention: number;
-  }>(sql`
-    SELECT c.id::text AS "cardId", ${fsrsRetrievability(asOf)} AS retention
-    FROM cards c
-    ${fsrsStateJoin(userId)}
-    WHERE c.id = ANY(${cardIdArrayLiteral}::uuid[]) AND s.id IS NOT NULL
-  `);
-
-  return new Map(rows.map((row) => [row.cardId, row.retention] as const));
-}
-
 function roundMetric(value: number): number {
   return Math.round(value * 1000) / 1000;
 }

@@ -194,6 +194,13 @@ A **statement** is one SQL round trip. Statements issued together in a `Promise.
 | `GET /notifications/due-decks` | 1 statement | `dueDecksSql` (`notifications.service.ts:13`) |
 | `GET /study/forecast`, `/retention-heatmap`, `/at-risk-cards` | 1 statement each | `forecastSql`, `heatmapSql`, `atRiskCardsSql` |
 
+One statement is not one unit of work: `forecastSql` is O(days × states) `fsrs_retrievability()`
+evaluations per request — the `LEFT JOIN LATERAL` re-evaluates the curve for every state row on every
+horizon day, so a 90-day horizon over 10 000 cards is 900 000 calls in one query. `fsrs_retrievability`
+is `IMMUTABLE PARALLEL SAFE` and the arithmetic is cheap, so this is fine at current scale; if the
+forecast endpoint ever shows up in the request log as slow, start here (narrow the `states` CTE, or
+bucket by `last_reviewed_at`) rather than adding statements.
+
 Exceeding a budget is a decision, not an accident: record it in the commit body with the reason.
 
 ## 5. Semantics you must not silently change
@@ -210,11 +217,13 @@ Performance work rewrites statements, and a rewritten statement is where these d
 - **`forecastSql.atRiskCount` is a different quantity on purpose** (`forecast.service.ts:80`): a
   decay forecast over *every* card that has a state row — learning and already-due cards included —
   evaluated at each horizon day. It will not match the at-risk widgets, and it should not.
-- **`learningCount` is not yet uniform.** `reviewQueueSql`
-  (`command-center.service.ts:124-126`) counts learning **and not due**; `deckStudySummarySql`
-  (`deck-workspace.service.ts:193`) counts all learning. The agreed resolution is "learning AND not
-  due" everywhere; it is **pending** and both spellings are currently asserted by tests. Unify them
-  in one deliberate change, tests included — not as a drive-by inside a performance rewrite.
+- **`learningCount` is uniformly "learning AND not yet due".** Both `reviewQueueSql`
+  (`command-center.service.ts:122-126`) and `deckStudySummarySql`
+  (`deck-workspace.service.ts:193-195`) now spell it
+  `s.state IN ('learning','relearning') AND s.next_review_at > asOf`. A learning card that is
+  already due is counted by `dueCount` only, so the two counters are disjoint and a widget may add
+  them. `fsrs-consumers.postgres.test.ts` seeds a deliberately due learning card to pin exactly
+  this; do not re-widen either spelling to "all learning" inside a performance rewrite.
 
 ## 6. Process
 

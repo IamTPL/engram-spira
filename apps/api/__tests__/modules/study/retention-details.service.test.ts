@@ -213,10 +213,12 @@ describe('retention details service', () => {
 
     expect(result.rangeDays).toBe(90);
     expect(outcomeCalls).toHaveLength(1);
-    expect(outcomeCalls[0]?.tzOffset).toBe(-720);
+    expect(outcomeCalls[0]?.tzOffset).toBe(-840);
     expect(outcomeCalls[0]?.until).toEqual(AS_OF);
+    // tzOffset now clamps to -840 (UTC+14), so the 90-day local window opens
+    // 14 hours before local midnight instead of 12.
     expect(outcomeCalls[0]?.from.toISOString()).toBe(
-      '2026-04-30T12:00:00.000Z',
+      '2026-04-30T10:00:00.000Z',
     );
   });
 

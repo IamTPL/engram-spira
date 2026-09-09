@@ -132,7 +132,11 @@ const InterleavedStudyPage: Component = () => {
     retry: (failureCount, error) =>
       failureCount < 2 && !/already used/i.test(error.message),
     onSuccess: (_, input) => {
-      queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
+      // NOTE: Do NOT invalidate ['interleavedStudy'] here — it refetches the
+      // active in-session query and replaces the cards array while
+      // currentIndex stays put, so cards get skipped and "Session complete"
+      // fires early (same trap as study-mode.tsx:158-160). The restart handler
+      // invalidates deliberately, once the session is over.
       const cardDeckIds = new Map(
         (studyData()?.cards ?? []).map((card) => [card.id, card.deckId]),
       );
@@ -152,6 +156,8 @@ const InterleavedStudyPage: Component = () => {
           return next;
         });
       }
+      // Prefix match: the dashboard query is ['experience-command-center', userId].
+      queryClient.invalidateQueries({ queryKey: ['experience-command-center'] });
     },
     onError: (error: Error) => toast.error(error.message),
   }));

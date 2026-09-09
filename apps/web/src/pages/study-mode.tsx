@@ -166,6 +166,8 @@ const StudyModePage: Component = () => {
       queryClient.invalidateQueries({
         queryKey: memoryHealthKeys.deck(params.deckId),
       });
+      // Prefix match: the dashboard query is ['experience-command-center', userId].
+      queryClient.invalidateQueries({ queryKey: ['experience-command-center'] });
     },
     onError: (error: Error) => toast.error(error.message),
   }));
@@ -312,7 +314,7 @@ const StudyModePage: Component = () => {
       });
       invalidateStudy();
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['experience-command-center'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({
         queryKey: memoryHealthKeys.deck(params.deckId),

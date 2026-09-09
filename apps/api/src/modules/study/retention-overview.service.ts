@@ -195,6 +195,12 @@ export function retentionOverviewSql(
         AS "onTrackCount",
       (SELECT AVG(retention)::double precision FROM scored)
         AS "averageRetention",
+      -- The user's ACTIVE revision target -- what the header renders. It is
+      -- deliberately NOT what classifies a card: fsrsAtRisk compares each card
+      -- against ITS OWN revision's request_retention (COALESCE 0.9), so a card
+      -- still scheduled by a retired revision is judged by that revision's
+      -- target. The two can legitimately differ after a parameter change; do
+      -- not "fix" one to drive the other.
       (
         SELECT (r.parameters->>'request_retention')::double precision
         FROM fsrs_parameter_revisions r

@@ -84,7 +84,9 @@ describe('experience api wrappers', () => {
   });
 
   test('exposes stable query keys', () => {
-    expect(experienceQueryKeys.commandCenter()).toEqual(['command-center']);
+    expect(experienceQueryKeys.commandCenter()).toEqual([
+      'experience-command-center',
+    ]);
     expect(
       experienceQueryKeys.deckWorkspace('deck-1', {
         cardPage: 2,

@@ -97,7 +97,10 @@ export async function getRetentionDetails(
     MAX_RANGE_DAYS,
     30,
   );
-  const tzOffset = clampInteger(requestedTzOffset, -720, 840, 0);
+  // Same bounds as study.routes.ts / fsrs-live.domain.ts: the real
+  // `getTimezoneOffset()` range is [-840, 720] (UTC+14 .. UTC-12). A narrower
+  // clamp here would silently undo the route's value for UTC+13/+14 users.
+  const tzOffset = clampInteger(requestedTzOffset, -840, 720, 0);
   const from = localRangeStart(asOf, tzOffset, rangeDays);
 
   const [owned, outcomeRows, workloadRows, recentRows] = await Promise.all([

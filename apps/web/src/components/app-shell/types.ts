@@ -16,7 +16,7 @@ export type CommandActionContext = {
 };
 
 export type QueryInvalidationKey =
-  | 'command-center'
+  | 'experience-command-center'
   | 'library-explorer'
   | 'study-queue'
   | 'deck-workspace'

@@ -60,7 +60,7 @@ describe('command actions', () => {
     ).resolves.toEqual({
       status: 'success',
       navigateTo: '/study?mode=at-risk&deckId=deck-1',
-      invalidate: ['study-queue', 'command-center'],
+      invalidate: ['study-queue', 'experience-command-center'],
     });
   });
 
@@ -95,7 +95,7 @@ describe('command actions', () => {
       status: 'success',
       message: 'Deck created',
       navigateTo: '/deck/deck-1',
-      invalidate: ['library-explorer', 'command-center'],
+      invalidate: ['library-explorer', 'experience-command-center'],
     });
     expect(calls).toEqual([
       {
@@ -132,7 +132,7 @@ describe('command actions', () => {
       status: 'success',
       message: 'Folder created',
       navigateTo: '/folder/folder-1',
-      invalidate: ['library-explorer', 'command-center'],
+      invalidate: ['library-explorer', 'experience-command-center'],
     });
     expect(calls).toEqual([
       { classId: 'class-1', body: { name: 'Family' } },
@@ -162,7 +162,7 @@ describe('command actions', () => {
       status: 'success',
       message: 'Folder created',
       navigateTo: '/folder/folder-2',
-      invalidate: ['library-explorer', 'command-center'],
+      invalidate: ['library-explorer', 'experience-command-center'],
     });
     expect(calls).toEqual([{ classId: 'class-9', body: { name: 'Family' } }]);
   });

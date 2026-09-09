@@ -45,7 +45,7 @@ type EdenResponse<T> = {
 export type ExperienceApiClient = any;
 
 export const experienceQueryKeys = {
-  commandCenter: () => ['command-center'] as const,
+  commandCenter: () => ['experience-command-center'] as const,
   libraryExplorer: () => ['library-explorer'] as const,
   commandSearch: (query?: CommandSearchQuery) =>
     ['command-search', query ?? null] as const,

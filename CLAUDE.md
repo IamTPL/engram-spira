@@ -21,7 +21,7 @@ A direct CodeGraph answer is typically 1–3 calls; the equivalent grep/read loo
 
 ### Verification is not optional
 
-`AGENTS.md` §4 lists the three commands. Run them and quote real output before saying anything passes. This repo has a **red baseline** (22 web tsc errors, 3 failing API tests) — always capture it *before* your change so you can prove you did not add to it. Never report success from reasoning alone.
+`AGENTS.md` §4 lists the three commands. Run them and quote real output before saying anything passes. **The baseline is currently green; always re-measure with the three commands in `AGENTS.md` §4** — capture it *before* your change so you can prove you did not add to it. Never report success from reasoning alone.
 
 ### Reading the docs
 

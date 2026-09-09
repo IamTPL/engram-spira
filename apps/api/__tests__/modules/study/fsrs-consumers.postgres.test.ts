@@ -16,6 +16,7 @@ import {
 } from '../../../src/modules/experience/command-center.service';
 import { deckStudySummarySql } from '../../../src/modules/experience/deck-workspace.service';
 import {
+  AT_RISK_CARD_LIMIT,
   atRiskCardsSql,
   reviewedThisWeekSql,
 } from '../../../src/modules/experience/insights-overview.service';
@@ -74,6 +75,10 @@ interface SeededDeck {
   deckName: string;
   templateId: string;
   cardIds: string[];
+}
+
+interface SeededScenario extends SeededDeck {
+  revisionId: string;
 }
 
 function assertDisposableName(name: string) {
@@ -221,13 +226,68 @@ async function insertState(
 }
 
 /**
- * One deck of 5 cards, ten days after their last review:
+ * Appends one immutable audit row. Every NOT NULL column is bound explicitly
+ * (timestamps through `bindTimestamp`, because the client is drizzle-wrapped),
+ * and the projection checks 0027 installs are respected:
+ * `after_state_version = after_reps = sequence`, and the `before_*` snapshot is
+ * all-NULL exactly when `sequence = 1`.
+ */
+async function insertEvent(
+  userId: string,
+  cardId: string,
+  revisionId: string,
+  input: {
+    sequence: number;
+    reviewedAt: Date;
+    origin: 'live' | 'migration';
+  },
+) {
+  const first = input.sequence === 1;
+  await raw`
+    INSERT INTO fsrs_review_events (
+      request_id, user_id, card_id, learning_cycle, sequence, rating,
+      reviewed_at, received_at, duration_ms, parameter_revision_id, origin,
+      before_state, before_due_at, before_stability, before_difficulty,
+      before_scheduled_days, before_learning_steps,
+      elapsed_days, after_state, after_due_at, after_stability,
+      after_difficulty, after_scheduled_days, after_learning_steps,
+      after_reps, after_lapses, after_state_version
+    ) VALUES (
+      ${crypto.randomUUID()}::uuid, ${userId}::uuid, ${cardId}::uuid,
+      1, ${input.sequence}::int, 'good',
+      ${bindTimestamp(input.reviewedAt)}::timestamptz,
+      ${bindTimestamp(input.reviewedAt)}::timestamptz,
+      1200::int, ${revisionId}::uuid, ${input.origin},
+      ${first ? null : 'review'},
+      ${first ? null : bindTimestamp(LAST_REVIEWED_AT)}::timestamptz,
+      ${first ? null : 5}::double precision,
+      ${first ? null : 5.5}::double precision,
+      ${first ? null : 5}::int,
+      ${first ? null : 0}::int,
+      10::int, 'review',
+      ${bindTimestamp(
+        new Date(input.reviewedAt.getTime() + 10 * DAY_MS),
+      )}::timestamptz,
+      10::double precision, 5.5::double precision, 10::int, 0::int,
+      ${input.sequence}::int, 0::int, ${input.sequence}::bigint
+    )
+  `;
+}
+
+/**
+ * One deck of 6 cards, ten days after their last review:
  * `[0]` New, `[1]` due review (S=10, R=0.9), `[2]` learning not yet due
  * (S=0.5, R≈0.627), `[3]` at-risk review (S=1, R≈0.693 < 0.9 target),
- * `[4]` on-track review (S=1000, R≈0.998).
+ * `[4]` on-track review (S=1000, R≈0.998), `[5]` **due** learning (S=0.5,
+ * `next_review_at` an hour before `AS_OF`).
+ *
+ * `[5]` is what separates the two `learningCount` spellings: it is learning
+ * *and* due, so "learning" alone would count it while the agreed
+ * "learning AND not yet due" does not — and it is due, so every due counter
+ * must pick it up.
  */
-async function seedScenario() {
-  const deck = await seedDeck(5);
+async function seedScenario(): Promise<SeededScenario> {
+  const deck = await seedDeck(6);
   const revision = await insertRevision(deck.userId);
   await insertState(deck.userId, deck.cardIds[1]!, revision, {
     nextReviewAt: AS_OF,
@@ -249,7 +309,12 @@ async function seedScenario() {
     state: 'review',
     stability: 1000,
   });
-  return deck;
+  await insertState(deck.userId, deck.cardIds[5]!, revision, {
+    nextReviewAt: new Date('2026-01-11T11:00:00.000Z'),
+    state: 'learning',
+    stability: 0.5,
+  });
+  return { ...deck, revisionId: revision };
 }
 
 /** Rows as a plain array — postgres.js returns an Array subclass. */
@@ -309,18 +374,23 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
   test('notifications: due decks and total, through a state index', async () => {
     const deck = await seedScenario();
 
+    // `fsrsDue` = no state row OR next_review_at <= asOf, so the New card,
+    // the due review card and the due *learning* card all count: 3.
     expect(await run(dueDecksSql(deck.userId, AS_OF, 10))).toEqual([
-      { deckId: deck.deckId, deckName: deck.deckName, dueCount: 2 },
+      { deckId: deck.deckId, deckName: deck.deckName, dueCount: 3 },
     ]);
-    expect(await run(totalDueSql(deck.userId, AS_OF))).toEqual([{ total: 2 }]);
+    expect(await run(totalDueSql(deck.userId, AS_OF))).toEqual([{ total: 3 }]);
     await explainUsesStateIndex(dueDecksSql(deck.userId, AS_OF, 10));
   });
 
   test('command center review queue and due-deck summary', async () => {
     const deck = await seedScenario();
 
+    // dueCount here excludes New (it requires a state row): the due review
+    // card plus the due learning card = 2. `learningCount` is "learning AND
+    // not yet due", so only card [2] qualifies and stays 1.
     expect(await run(reviewQueueSql(deck.userId, AS_OF))).toEqual([
-      { dueCount: 1, newCount: 1, learningCount: 1, atRiskCount: 1 },
+      { dueCount: 2, newCount: 1, learningCount: 1, atRiskCount: 1 },
     ]);
     const [top, ...rest] = await run<{
       id: string;
@@ -332,7 +402,8 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
     expect(top).toMatchObject({
       id: deck.deckId,
       name: deck.deckName,
-      dueCount: 2,
+      // `fsrsDue` again: New + due review + due learning.
+      dueCount: 3,
       newCount: 1,
     });
     // The wrapped client's identity timestamp parser hands back Postgres text.
@@ -347,8 +418,11 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
     const [row] = await run<Record<string, number | null>>(
       deckStudySummarySql(deck.userId, deck.deckId, AS_OF),
     );
+    // Same shape as `reviewQueueSql` now that both spell `learningCount` as
+    // "learning AND not yet due": the due learning card lands in `dueCount`
+    // only, so dueCount = 2 while learningCount stays 1.
     expect(row).toMatchObject({
-      dueCount: 1,
+      dueCount: 2,
       newCount: 1,
       learningCount: 1,
       atRiskCount: 1,
@@ -364,17 +438,43 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
     const deck = await seedScenario();
     await seedFields(deck.templateId, deck.cardIds[3]!);
 
+    // Four audit rows on the due card; only the first is both `live` and
+    // inside the closed window [asOf - 7 days, asOf].
+    const events: Array<{
+      sequence: number;
+      reviewedAt: Date;
+      origin: 'live' | 'migration';
+    }> = [
+      { sequence: 1, reviewedAt: new Date(AS_OF.getTime() - DAY_MS), origin: 'live' },
+      {
+        sequence: 2,
+        reviewedAt: new Date(AS_OF.getTime() - 8 * DAY_MS),
+        origin: 'live',
+      },
+      {
+        sequence: 3,
+        reviewedAt: new Date(AS_OF.getTime() - DAY_MS),
+        origin: 'migration',
+      },
+      { sequence: 4, reviewedAt: new Date(AS_OF.getTime() + DAY_MS), origin: 'live' },
+    ];
+    for (const event of events) {
+      await insertEvent(deck.userId, deck.cardIds[1]!, deck.revisionId, event);
+    }
+
     const atRisk = await run<{
       id: string;
       deckId: string;
       title: string | null;
       retentionEstimate: number;
-    }>(atRiskCardsSql(deck.userId, AS_OF, 20));
+    }>(atRiskCardsSql(deck.userId, AS_OF, AT_RISK_CARD_LIMIT));
+    // At risk needs state='review' AND not due, so the due learning card is
+    // not a candidate: still just card [3].
     expect(atRisk.map((row) => row.id)).toEqual([deck.cardIds[3]]);
     expect(atRisk[0]).toMatchObject({ deckId: deck.deckId, title: 'front' });
     expect(atRisk[0]!.retentionEstimate).toBeLessThan(0.9);
     expect(await run(reviewedThisWeekSql(deck.userId, AS_OF))).toEqual([
-      { reviewedThisWeek: 0 },
+      { reviewedThisWeek: 1 },
     ]);
   });
 
@@ -392,8 +492,8 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
     expect(rows[0]).toMatchObject({
       deckId: deck.deckId,
       deckName: deck.deckName,
-      cardCount: 5,
-      dueCount: 2,
+      cardCount: 6,
+      dueCount: 3,
     });
   });
 
@@ -412,9 +512,14 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
       state: string | null;
       targetRetention: number | null;
     }>(statement);
+    // `fsrsDue` picks up all three due cards, ordered by
+    // COALESCE(next_review_at, asOf) then sort_order: the due learning card
+    // (11:00) precedes the New card (COALESCE -> 12:00, sort_order 0) and the
+    // due review card (12:00, sort_order 1).
     expect(
       rows.map((row) => [row.id, row.state, row.targetRetention]),
     ).toEqual([
+      [deck.cardIds[5], 'learning', 0.9],
       [deck.cardIds[0], null, null],
       [deck.cardIds[1], 'review', 0.9],
     ]);
@@ -427,15 +532,18 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
     const [row] = await run<Record<string, unknown>>(
       retentionOverviewSql(deck.userId, deck.deckId, AS_OF),
     );
+    // The due learning card is status 'due' (next_review_at <= asOf wins over
+    // the state), so total 6 / dueCount 2 / attentionTotal 3; 'at_risk' and
+    // 'on_track' are unchanged.
     expect(row).toMatchObject({
       owned: true,
-      total: 5,
+      total: 6,
       newCount: 1,
-      dueCount: 1,
+      dueCount: 2,
       atRiskCount: 1,
       onTrackCount: 2,
       targetRetention: 0.9,
-      attentionTotal: 2,
+      attentionTotal: 3,
     });
     expect(row!.averageRetention as number).toBeGreaterThan(0);
     expect(row!.averageRetention as number).toBeLessThanOrEqual(1);
@@ -445,11 +553,15 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
       retention: number;
       nextReviewAt: string;
     }>;
+    // Due first, then retention ASC: the due learning card (S=0.5) outranks
+    // the due review card (S=10, R=0.9), and at-risk trails both.
     expect(attention.map((item) => [item.cardId, item.status])).toEqual([
+      [deck.cardIds[5], 'due'],
       [deck.cardIds[1], 'due'],
       [deck.cardIds[3], 'at_risk'],
     ]);
-    expect(attention[0]!.nextReviewAt).toBe('2026-01-11T12:00:00.000Z');
+    expect(attention[0]!.nextReviewAt).toBe('2026-01-11T11:00:00.000Z');
+    expect(attention[1]!.nextReviewAt).toBe('2026-01-11T12:00:00.000Z');
     await explainUsesStateIndex(
       retentionOverviewSql(deck.userId, deck.deckId, AS_OF),
     );
@@ -530,13 +642,13 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
       atRiskCount: number;
       avgRetention: number;
     }>(forecastSql(deck.userId, 3, AS_OF));
-    // `states` has no state filter, so the learning card (S=0.5) and the due
-    // card (S=10) are in scope too: at asOf only S=0.5 and S=1 are under the
-    // 0.9 target; from day 1 the S=10 card has decayed under it as well.
+    // `states` has no state filter, so both learning cards (S=0.5) and the due
+    // card (S=10) are in scope too: at asOf the two S=0.5 cards and S=1 are
+    // under the 0.9 target; from day 1 the S=10 card has decayed under it too.
     expect(rows.map((row) => [Number(row.offset), row.atRiskCount])).toEqual([
-      [0, 2],
-      [1, 3],
-      [2, 3],
+      [0, 3],
+      [1, 4],
+      [2, 4],
     ]);
     for (const row of rows) {
       expect(row.avgRetention).toBeGreaterThan(0);
@@ -552,8 +664,14 @@ describe('canonical FSRS consumer statements (drizzle-wrapped client)', () => {
     const rows = await run<{ cardId: string; retention: number }>(
       heatmapSql(deck.userId, deck.deckId, AS_OF),
     );
-    expect(rows.map((row) => row.cardId)).toEqual([
-      deck.cardIds[2],
+    // Cards [2] and [5] share S=0.5 and the same last review, so their
+    // retention is bit-identical and `ORDER BY retention ASC, c.id` breaks the
+    // tie on a random uuid — assert the pair, then the strict tail.
+    const heatmapIds = rows.map((row) => row.cardId);
+    expect(new Set(heatmapIds.slice(0, 2))).toEqual(
+      new Set([deck.cardIds[2], deck.cardIds[5]]),
+    );
+    expect(heatmapIds.slice(2)).toEqual([
       deck.cardIds[3],
       deck.cardIds[1],
       deck.cardIds[4],

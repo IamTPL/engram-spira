@@ -16,7 +16,7 @@ import type {
   InsightsOverviewSections,
 } from './experience.types';
 
-const AT_RISK_CARD_LIMIT = 20;
+export const AT_RISK_CARD_LIMIT = 20;
 
 export type InsightsOverviewLoaders = {
   loadForecast: (userId: string) => Promise<InsightsOverviewResponse['forecast']>;
@@ -157,14 +157,21 @@ async function loadHeatmap(userId: string) {
   return rows.reverse();
 }
 
-/** Live reviews (migration backfill excluded) recorded in the trailing 7 days. */
+/**
+ * Live reviews (migration backfill excluded) recorded in the trailing 7 days.
+ * The window is closed at both ends: `reviewed_at` is client-supplied, so
+ * without the upper bound a clock-skewed or future-dated event would inflate
+ * "this week" — and the count would no longer be reproducible for a pinned
+ * `asOf`.
+ */
 export function reviewedThisWeekSql(userId: string, asOf: Date): SQL {
   return sql`
     SELECT COUNT(*)::int AS "reviewedThisWeek"
     FROM fsrs_review_events e
     WHERE e.user_id = ${userId}::uuid
       AND e.origin = 'live'
-      AND e.reviewed_at >= ${fsrsAsOf(asOf)} - interval '7 days'`;
+      AND e.reviewed_at >= ${fsrsAsOf(asOf)} - interval '7 days'
+      AND e.reviewed_at <= ${fsrsAsOf(asOf)}`;
 }
 
 async function loadTrends(userId: string, asOf = new Date()) {

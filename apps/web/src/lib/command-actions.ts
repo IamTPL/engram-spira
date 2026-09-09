@@ -186,14 +186,17 @@ async function unwrapActionResponse<T>(response: {
 }
 
 const invalidates = {
-  studyQueue: ['study-queue', 'command-center'] satisfies QueryInvalidationKey[],
+  studyQueue: [
+    'study-queue',
+    'experience-command-center',
+  ] satisfies QueryInvalidationKey[],
   deckMutation: [
     'library-explorer',
-    'command-center',
+    'experience-command-center',
   ] satisfies QueryInvalidationKey[],
   folderMutation: [
     'library-explorer',
-    'command-center',
+    'experience-command-center',
   ] satisfies QueryInvalidationKey[],
 };
 

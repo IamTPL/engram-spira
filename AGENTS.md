@@ -139,7 +139,7 @@ Load only what your task touches. Each file is self-contained.
 | Adding/changing an API module, error & auth contracts | [docs/agents/api-conventions.md](docs/agents/api-conventions.md) |
 | Finding an endpoint's exact shape | [docs/agents/endpoints.md](docs/agents/endpoints.md) |
 | Schema, migrations, pgvector | [docs/agents/database.md](docs/agents/database.md) |
-| SM-2 / FSRS, review, streaks, retention | [docs/agents/srs-study.md](docs/agents/srs-study.md) |
+| FSRS scheduling, review, streaks, retention | [docs/agents/srs-study.md](docs/agents/srs-study.md) |
 | Gemini generation, embeddings, search, knowledge graph | [docs/agents/ai-search.md](docs/agents/ai-search.md) |
 | Command-center aggregate (BFF) layer | [docs/agents/experience-bff.md](docs/agents/experience-bff.md) |
 | SolidJS, app shell, stores, design tokens | [docs/agents/frontend.md](docs/agents/frontend.md) |

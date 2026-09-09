@@ -30,7 +30,10 @@ function getTimezoneOffsetMinutes(headers: Record<string, string | undefined>) {
   if (!/^[+-]?\d+$/u.test(normalized)) return 0;
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return 0;
-  return Math.max(-720, Math.min(840, parsed));
+  // Real `Date.prototype.getTimezoneOffset()` range: UTC+14 yields -840,
+  // UTC-12 yields +720. `fsrs-live.domain.ts` validates the same bounds — both
+  // sides subtract the offset, so the conventions already agree.
+  return Math.max(-840, Math.min(720, parsed));
 }
 
 export type StudyRouteServices = {
