@@ -1,54 +1,58 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db';
-import {
-  cards,
-  decks,
-  fsrsUserParams,
-  studyProgress,
-  users,
-} from '../../db/schema';
 import { getCardLabels } from '../../shared/embedding-utils';
 import { NotFoundError } from '../../shared/errors';
-import { MAX_STUDY_CLUSTER_CARDS } from './study-cluster';
-import type {
-  RetentionAlgorithm,
-  RetentionStatus,
-} from './retention-estimator';
 import {
-  assessRetention,
-  createRetentionContext,
-  type RetentionAssessment,
-} from './retention-estimator';
+  fsrsAsOf,
+  fsrsAtRisk,
+  fsrsRetrievability,
+  fsrsStateJoin,
+} from './fsrs-sql';
+import { MAX_STUDY_CLUSTER_CARDS } from './study-cluster';
 
-export interface RetentionOverviewCardRow {
+export type RetentionStatus = 'new' | 'due' | 'at_risk' | 'on_track';
+
+export interface RetentionOverviewAttentionRow {
   cardId: string;
   sortOrder: number;
-  lastReviewedAt: Date | null;
-  nextReviewAt: Date | null;
-  stability: number | null;
+  status: Extract<RetentionStatus, 'due' | 'at_risk'>;
+  retention: number | null;
+  lastReviewedAt: string;
+  nextReviewAt: string;
 }
 
+// A type alias (not an interface) so it satisfies `db.execute`'s
+// `Record<string, unknown>` constraint through TypeScript's implicit index
+// signature.
+export type RetentionOverviewAggregate = {
+  owned: boolean;
+  total: number;
+  newCount: number;
+  dueCount: number;
+  atRiskCount: number;
+  onTrackCount: number;
+  /** AVG predicted recall over the cards that have an FSRS state row. */
+  averageRetention: number | null;
+  /** Active parameter revision's `request_retention`, null when none exists. */
+  targetRetention: number | null;
+  attentionTotal: number;
+  attention: RetentionOverviewAttentionRow[];
+};
+
 export interface RetentionOverviewLoaders {
-  loadContext(
+  loadAggregate(
     userId: string,
     deckId: string,
-  ): Promise<{
-    algorithm: RetentionAlgorithm;
-    fsrsParams: unknown;
-  } | null>;
-  loadCards(
-    userId: string,
-    deckId: string,
-  ): Promise<RetentionOverviewCardRow[]>;
+    asOf: Date,
+  ): Promise<RetentionOverviewAggregate>;
   loadLabels(cardIds: string[]): Promise<Map<string, string>>;
 }
 
 export interface RetentionOverviewResponse {
   asOf: string;
-  algorithm: RetentionAlgorithm;
   metric: {
-    kind: 'predicted_recall' | 'schedule_status';
+    kind: 'predicted_recall';
     average: number | null;
     target: number | null;
   };
@@ -59,14 +63,14 @@ export interface RetentionOverviewResponse {
     due: number;
     atRisk: number;
     onTrack: number;
-    unavailable: number;
+    unavailable: 0;
   };
   distribution: {
     new: number;
     due: number;
     atRisk: number;
     onTrack: number;
-    unavailable: number;
+    unavailable: 0;
   };
   attentionTotal: number;
   attention: Array<{
@@ -74,7 +78,7 @@ export interface RetentionOverviewResponse {
     label: string;
     status: Extract<RetentionStatus, 'due' | 'at_risk'>;
     retention: number | null;
-    lastReviewedAt: string | null;
+    lastReviewedAt: string;
     nextReviewAt: string;
   }>;
   reviewCardIds: string[];
@@ -86,205 +90,155 @@ export async function getRetentionOverview(
   loaders: RetentionOverviewLoaders = defaultRetentionOverviewLoaders,
   asOf: Date = new Date(),
 ): Promise<RetentionOverviewResponse> {
-  const [sourceContext, rows] = await Promise.all([
-    loaders.loadContext(userId, deckId),
-    loaders.loadCards(userId, deckId),
-  ]);
-  if (!sourceContext) throw new NotFoundError('Deck');
+  const aggregate = await loaders.loadAggregate(userId, deckId, asOf);
+  if (!aggregate.owned) throw new NotFoundError('Deck');
 
-  const context = createRetentionContext(
-    sourceContext.algorithm,
-    sourceContext.fsrsParams,
+  const labels = await loaders.loadLabels(
+    aggregate.attention.map((item) => item.cardId),
   );
   const counts = {
-    new: 0,
-    due: 0,
-    atRisk: 0,
-    onTrack: 0,
-    unavailable: 0,
+    new: aggregate.newCount,
+    due: aggregate.dueCount,
+    atRisk: aggregate.atRiskCount,
+    onTrack: aggregate.onTrackCount,
+    unavailable: 0 as const,
   };
-  const selected: Array<{
-    card: RetentionOverviewCardRow;
-    assessment: RetentionAssessment & { status: 'due' | 'at_risk' };
-  }> = [];
-  let attentionTotal = 0;
-  let retentionTotal = 0;
-  let retentionCount = 0;
-
-  for (const card of rows) {
-    const assessment = assessRetention(
-      context,
-      {
-        lastReviewedAt: card.lastReviewedAt,
-        nextReviewAt: card.nextReviewAt,
-        stability: card.stability,
-      },
-      asOf,
-    );
-    incrementCount(counts, assessment.status);
-    if (assessment.retention !== null) {
-      retentionTotal += assessment.retention;
-      retentionCount++;
-    }
-    if (assessment.status === 'due' || assessment.status === 'at_risk') {
-      attentionTotal++;
-      insertAttentionCandidate(selected, {
-        card,
-        assessment: {
-          ...assessment,
-          status: assessment.status,
-        },
-      });
-    }
-  }
-
-  const selectedIds = selected.map((item) => item.card.cardId);
-  const labels = await loaders.loadLabels(selectedIds);
-
-  const average =
-    retentionCount === 0
-      ? null
-      : roundMetric(retentionTotal / retentionCount);
 
   return {
     asOf: asOf.toISOString(),
-    algorithm: context.algorithm,
     metric: {
-      kind:
-        context.algorithm === 'fsrs'
-          ? 'predicted_recall'
-          : 'schedule_status',
-      average: context.algorithm === 'fsrs' ? average : null,
-      target: context.targetRetention,
+      kind: 'predicted_recall',
+      average:
+        aggregate.averageRetention === null
+          ? null
+          : roundMetric(aggregate.averageRetention),
+      target: aggregate.targetRetention,
     },
     summary: {
-      total: rows.length,
-      reviewed: rows.length - counts.new,
+      total: aggregate.total,
+      reviewed: aggregate.total - aggregate.newCount,
       ...counts,
     },
     distribution: { ...counts },
-    attentionTotal,
-    attention: selected.map(({ card, assessment }) => {
-      const label = labels.get(card.cardId)?.trim();
-      return {
-        cardId: card.cardId,
-        label: label || `Card ${card.sortOrder + 1}`,
-        status: assessment.status,
-        retention:
-          assessment.retention === null
-            ? null
-            : roundMetric(assessment.retention),
-        lastReviewedAt: card.lastReviewedAt?.toISOString() ?? null,
-        nextReviewAt: card.nextReviewAt!.toISOString(),
-      };
-    }),
-    reviewCardIds: selected.flatMap(({ card, assessment }) =>
-      assessment.status === 'due' ? [card.cardId] : [],
+    attentionTotal: aggregate.attentionTotal,
+    attention: aggregate.attention.map((item) => ({
+      cardId: item.cardId,
+      label: labels.get(item.cardId)?.trim() || `Card ${item.sortOrder + 1}`,
+      status: item.status,
+      retention: item.retention === null ? null : roundMetric(item.retention),
+      lastReviewedAt: item.lastReviewedAt,
+      nextReviewAt: item.nextReviewAt,
+    })),
+    reviewCardIds: aggregate.attention.flatMap((item) =>
+      item.status === 'due' ? [item.cardId] : [],
     ),
   };
 }
 
+/**
+ * The whole memory-health aggregate in one canonical statement: per-card status
+ * and predicted recall are derived in SQL from `fsrs_card_states` +
+ * `fsrs_parameter_revisions`, then rolled up into counts, the AVG metric, the
+ * active target retention and the top attention list.
+ *
+ * The attention ordering is deterministic and identical in the CTE's `LIMIT`
+ * and the `json_agg`: due first, then lowest retention, then soonest due, then
+ * sort order, then id.
+ */
+export function retentionOverviewSql(
+  userId: string,
+  deckId: string,
+  asOf: Date,
+): SQL {
+  return sql`
+    WITH scored AS (
+      SELECT
+        c.id,
+        c.sort_order,
+        CASE
+          WHEN s.id IS NULL THEN 'new'
+          WHEN s.next_review_at <= ${fsrsAsOf(asOf)} THEN 'due'
+          WHEN ${fsrsAtRisk(asOf)} THEN 'at_risk'
+          ELSE 'on_track'
+        END AS status,
+        ${fsrsRetrievability(asOf)} AS retention,
+        s.last_reviewed_at,
+        s.next_review_at
+      FROM cards c
+      JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+      ${fsrsStateJoin(userId)}
+      WHERE c.deck_id = ${deckId}::uuid
+    ),
+    attention AS (
+      SELECT id, sort_order, status, retention, last_reviewed_at, next_review_at
+      FROM scored
+      WHERE status IN ('due', 'at_risk')
+      ORDER BY
+        (status = 'due') DESC,
+        retention ASC NULLS LAST,
+        next_review_at ASC,
+        sort_order ASC,
+        id ASC
+      LIMIT ${MAX_STUDY_CLUSTER_CARDS}
+    )
+    SELECT
+      EXISTS (
+        SELECT 1 FROM decks
+        WHERE id = ${deckId}::uuid AND user_id = ${userId}::uuid
+      ) AS owned,
+      (SELECT COUNT(*)::int FROM scored) AS total,
+      (SELECT COUNT(*)::int FROM scored WHERE status = 'new') AS "newCount",
+      (SELECT COUNT(*)::int FROM scored WHERE status = 'due') AS "dueCount",
+      (SELECT COUNT(*)::int FROM scored WHERE status = 'at_risk')
+        AS "atRiskCount",
+      (SELECT COUNT(*)::int FROM scored WHERE status = 'on_track')
+        AS "onTrackCount",
+      (SELECT AVG(retention)::double precision FROM scored)
+        AS "averageRetention",
+      (
+        SELECT (r.parameters->>'request_retention')::double precision
+        FROM fsrs_parameter_revisions r
+        WHERE r.user_id = ${userId}::uuid AND r.retired_at IS NULL
+        LIMIT 1
+      ) AS "targetRetention",
+      (SELECT COUNT(*)::int FROM scored WHERE status IN ('due', 'at_risk'))
+        AS "attentionTotal",
+      COALESCE((
+        SELECT json_agg(
+          json_build_object(
+            'cardId', id::text,
+            'sortOrder', sort_order,
+            'status', status,
+            'retention', retention,
+            'lastReviewedAt', to_char(
+              last_reviewed_at AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+            ),
+            'nextReviewAt', to_char(
+              next_review_at AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+            )
+          )
+          ORDER BY
+            (status = 'due') DESC,
+            retention ASC NULLS LAST,
+            next_review_at ASC,
+            sort_order ASC,
+            id ASC
+        )
+        FROM attention
+      ), '[]'::json) AS attention`;
+}
+
 export const defaultRetentionOverviewLoaders: RetentionOverviewLoaders = {
-  async loadContext(userId, deckId) {
-    const [row] = await db
-      .select({
-        algorithm: users.srsAlgorithm,
-        fsrsParams: fsrsUserParams.params,
-      })
-      .from(decks)
-      .innerJoin(users, eq(decks.userId, users.id))
-      .leftJoin(fsrsUserParams, eq(fsrsUserParams.userId, users.id))
-      .where(and(eq(decks.id, deckId), eq(decks.userId, userId)))
-      .limit(1);
-    if (!row) return null;
-    return {
-      algorithm: row.algorithm === 'fsrs' ? 'fsrs' : 'sm2',
-      fsrsParams: row.fsrsParams ?? {},
-    };
-  },
-  loadCards(userId, deckId) {
-    return db
-      .select({
-        cardId: cards.id,
-        sortOrder: cards.sortOrder,
-        lastReviewedAt: studyProgress.lastReviewedAt,
-        nextReviewAt: studyProgress.nextReviewAt,
-        stability: studyProgress.stability,
-      })
-      .from(cards)
-      .innerJoin(decks, eq(cards.deckId, decks.id))
-      .leftJoin(
-        studyProgress,
-        and(
-          eq(studyProgress.cardId, cards.id),
-          eq(studyProgress.userId, userId),
-        ),
-      )
-      .where(and(eq(decks.id, deckId), eq(decks.userId, userId)))
-      .orderBy(asc(cards.sortOrder), asc(cards.id));
+  async loadAggregate(userId, deckId, asOf) {
+    const [row] = await db.execute<RetentionOverviewAggregate>(
+      retentionOverviewSql(userId, deckId, asOf),
+    );
+    return row!;
   },
   loadLabels: getCardLabels,
 };
-
-function incrementCount(
-  counts: RetentionOverviewResponse['distribution'],
-  status: RetentionStatus,
-): void {
-  if (status === 'new') counts.new++;
-  if (status === 'due') counts.due++;
-  if (status === 'at_risk') counts.atRisk++;
-  if (status === 'on_track') counts.onTrack++;
-  if (status === 'unavailable') counts.unavailable++;
-}
-
-function compareAttention(
-  left: {
-    card: RetentionOverviewCardRow;
-    assessment: RetentionAssessment & { status: 'due' | 'at_risk' };
-  },
-  right: {
-    card: RetentionOverviewCardRow;
-    assessment: RetentionAssessment & { status: 'due' | 'at_risk' };
-  },
-): number {
-  if (left.assessment.status !== right.assessment.status) {
-    return left.assessment.status === 'due' ? -1 : 1;
-  }
-
-  if (
-    left.assessment.status === 'at_risk' &&
-    right.assessment.status === 'at_risk'
-  ) {
-    const retentionDiff =
-      (left.assessment.retention ?? 1) -
-      (right.assessment.retention ?? 1);
-    if (retentionDiff !== 0) return retentionDiff;
-  }
-
-  const dueDiff =
-    (left.card.nextReviewAt?.getTime() ?? Number.POSITIVE_INFINITY) -
-    (right.card.nextReviewAt?.getTime() ?? Number.POSITIVE_INFINITY);
-  if (dueDiff !== 0) return dueDiff;
-
-  const orderDiff = left.card.sortOrder - right.card.sortOrder;
-  if (orderDiff !== 0) return orderDiff;
-  return left.card.cardId.localeCompare(right.card.cardId);
-}
-
-function insertAttentionCandidate(
-  selected: Array<{
-    card: RetentionOverviewCardRow;
-    assessment: RetentionAssessment & { status: 'due' | 'at_risk' };
-  }>,
-  candidate: {
-    card: RetentionOverviewCardRow;
-    assessment: RetentionAssessment & { status: 'due' | 'at_risk' };
-  },
-): void {
-  selected.push(candidate);
-  selected.sort(compareAttention);
-  if (selected.length > MAX_STUDY_CLUSTER_CARDS) selected.pop();
-}
 
 function roundMetric(value: number): number {
   return Math.round(value * 1000) / 1000;
