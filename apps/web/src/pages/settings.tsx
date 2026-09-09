@@ -6,8 +6,7 @@ import {
   createEffect,
 } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
-import { createQuery, createMutation } from '@tanstack/solid-query';
-import { queryClient } from '@/lib/query-client';
+import { createQuery } from '@tanstack/solid-query';
 import PageShell from '@/components/layout/page-shell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,7 +45,6 @@ import {
   Pencil,
   X,
   Loader2,
-  BrainCircuit,
   Layers,
 } from 'lucide-solid';
 import TemplateBuilder from '@/components/templates/template-builder';
@@ -114,31 +112,6 @@ const SettingsPage: Component = () => {
     staleTime: 5 * 60_000,
   }));
   const avatars = () => avatarsQuery.data ?? [];
-
-  // ── SRS Algorithm preference ──────────────────────────────────
-  const algorithmQuery = createQuery(() => ({
-    queryKey: ['srsAlgorithm'],
-    queryFn: async () => {
-      const { data } = await (api.study as any).algorithm.get();
-      return (data?.algorithm ?? 'sm2') as 'sm2' | 'fsrs';
-    },
-    staleTime: 60_000,
-  }));
-
-  const algorithmMutation = createMutation(() => ({
-    mutationFn: async (algorithm: 'sm2' | 'fsrs') => {
-      const { error } = await (api.study as any).algorithm.patch({ algorithm });
-      if (error) throw new Error(getApiError(error));
-      return algorithm;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['srsAlgorithm'] });
-      toast.success('Algorithm updated!');
-    },
-    onError: (err: Error) => {
-      toast.error(err.message ?? 'Failed to update algorithm');
-    },
-  }));
 
   // ── Profile edit state ───────────────────────────────────────────────
   const [displayName, setDisplayName] = createSignal(
@@ -629,88 +602,6 @@ const SettingsPage: Component = () => {
                   on your system settings.
                 </Show>
               </p>
-          </div>
-        </section>
-
-        {/* ── Study Algorithm Section ── */}
-        <section class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2">
-              <BrainCircuit class="h-4 w-4 text-muted-foreground" />
-              <h2 class="text-base font-semibold text-foreground">
-                Spaced repetition
-              </h2>
-            </div>
-            <p class="text-sm leading-5 text-muted-foreground">
-              Control how Engram schedules the next review for each card.
-            </p>
-          </div>
-          <div class="overflow-hidden rounded-xl border bg-card p-5 shadow-xs sm:p-6">
-              <p class="text-sm font-medium text-foreground">Algorithm</p>
-              <p class="mb-4 mt-1 text-xs leading-5 text-muted-foreground">
-                Choose which spaced repetition algorithm schedules your reviews.
-              </p>
-              <div
-                class="grid grid-cols-1 gap-3 sm:grid-cols-2"
-                role="radiogroup"
-                aria-label="Spaced repetition algorithm"
-              >
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={(algorithmQuery.data ?? 'sm2') === 'sm2'}
-                  class={`flex flex-col gap-1 rounded-lg border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    (algorithmQuery.data ?? 'sm2') === 'sm2'
-                      ? 'border-foreground bg-foreground text-background'
-                      : 'border-border bg-background hover:bg-muted'
-                  }`}
-                  disabled={algorithmMutation.isPending}
-                  onClick={() => algorithmMutation.mutate('sm2')}
-                >
-                  <span class="text-sm font-semibold">SM-2</span>
-                  <span
-                    class={`text-xs ${
-                      (algorithmQuery.data ?? 'sm2') === 'sm2'
-                        ? 'text-background/70'
-                        : 'text-muted-foreground'
-                    }`}
-                  >
-                    Classic SuperMemo algorithm. Simple and proven.
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={algorithmQuery.data === 'fsrs'}
-                  class={`flex flex-col gap-1 rounded-lg border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    algorithmQuery.data === 'fsrs'
-                      ? 'border-foreground bg-foreground text-background'
-                      : 'border-border bg-background hover:bg-muted'
-                  }`}
-                  disabled={algorithmMutation.isPending}
-                  onClick={() => algorithmMutation.mutate('fsrs')}
-                >
-                  <span class="text-sm font-semibold">FSRS</span>
-                  <span
-                    class={`text-xs ${
-                      algorithmQuery.data === 'fsrs'
-                        ? 'text-background/70'
-                        : 'text-muted-foreground'
-                    }`}
-                  >
-                    Modern algorithm with better retention modeling.
-                  </span>
-                </button>
-              </div>
-              <Show when={algorithmMutation.isPending}>
-                <div
-                  class="mt-3 flex items-center gap-2 text-xs text-muted-foreground"
-                  aria-live="polite"
-                >
-                  <Loader2 class="h-3 w-3 animate-spin" />
-                  Switching algorithm...
-                </div>
-              </Show>
           </div>
         </section>
 
