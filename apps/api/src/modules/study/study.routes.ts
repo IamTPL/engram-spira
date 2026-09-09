@@ -241,7 +241,7 @@ export function createStudyRoutes(
       ({ currentUser, query }) =>
         forecastService.getAtRiskCards(
           currentUser.id,
-          query.threshold ? Number(query.threshold) : 0.8,
+          query.threshold === undefined ? null : Number(query.threshold),
           query.limit ? Number(query.limit) : 20,
         ),
       {

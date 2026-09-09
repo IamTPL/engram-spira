@@ -1,30 +1,16 @@
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
+
 import { db } from '../../db';
 import {
-  studyProgress,
-  cards,
-  decks,
-  cardFieldValues,
-  templateFields,
-} from '../../db/schema';
-import { computeRetention } from '../../shared/embedding-utils';
-
-// computeRetention imported from ../../shared/embedding-utils
-
-function daysBetween(a: Date, b: Date): number {
-  return Math.max(0, (b.getTime() - a.getTime()) / 86_400_000);
-}
+  FSRS_REVIEW,
+  fsrsAsOf,
+  fsrsDueLater,
+  fsrsRetrievability,
+  fsrsStateJoin,
+  fsrsTargetRetention,
+} from './fsrs-sql';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface ProgressRow {
-  cardId: string;
-  stability: number | null;
-  intervalDays: number;
-  easeFactor: number;
-  lastReviewedAt: Date | null;
-  nextReviewAt: Date;
-}
 
 export interface ForecastDay {
   date: string;
@@ -48,54 +34,101 @@ export interface AtRiskCard {
   fields: { fieldName: string; side: string; value: unknown }[];
 }
 
+// `db.execute` constrains its row type to `Record<string, unknown>`, which
+// only object type aliases satisfy through TypeScript's implicit index
+// signature — interfaces do not.
+type ForecastRow = {
+  offset: number;
+  atRiskCount: number;
+  avgRetention: number | null;
+};
+
+// `retention` and `stability` are non-null here: the statement keeps only rows
+// that have an `fsrs_card_states` row, whose `stability`, `last_reviewed_at`
+// and (FK) revision `decay`/`factor` are all NOT NULL.
+type HeatmapRow = {
+  cardId: string;
+  retention: number;
+  lastReviewed: Date | string;
+  nextReview: Date | string;
+  stability: number;
+};
+
+type AtRiskRow = {
+  cardId: string;
+  deckId: string;
+  deckName: string;
+  retention: number;
+  total: number;
+  fields: { fieldName: string; side: string; value: unknown }[];
+};
+
 // ── Forecast endpoint ────────────────────────────────────────────────────────
 
 /**
- * Predict how many cards will drop below retention threshold each day.
+ * Predicted recall per horizon day, computed entirely in SQL from
+ * `fsrs_card_states` + `fsrs_parameter_revisions`.
  *
- * Performance: single DB query → in-memory R(t) computation.
- * 1000 cards × 30 days = 30K Math.exp() calls ≈ <5ms.
+ * `LEFT JOIN LATERAL … ON true` keeps every horizon day in the result even
+ * when the user has no canonical state rows, and the per-revision
+ * `request_retention` (not a hardcoded 0.8) decides what counts as at risk.
+ * `day_offset` is spelled out because `offset` is a reserved word — only the
+ * output alias is quoted, so the row key stays `offset`.
  */
+export function forecastSql(userId: string, days: number, asOf: Date): SQL {
+  return sql`
+    WITH states AS (
+      SELECT s.stability, s.last_reviewed_at, r.decay, r.factor,
+        ${fsrsTargetRetention()} AS target
+      FROM fsrs_card_states s
+      JOIN fsrs_parameter_revisions r ON r.id = s.parameter_revision_id
+      WHERE s.user_id = ${userId}::uuid
+    ),
+    horizon AS (SELECT generate_series(0, ${days - 1}) AS day_offset)
+    SELECT
+      h.day_offset AS "offset",
+      COUNT(x.retention) FILTER (WHERE x.retention < x.target)::int
+        AS "atRiskCount",
+      AVG(x.retention)::double precision AS "avgRetention"
+    FROM horizon h
+    LEFT JOIN LATERAL (
+      SELECT fsrs_retrievability(
+               st.stability,
+               EXTRACT(EPOCH FROM (
+                 (${fsrsAsOf(asOf)} + h.day_offset * interval '1 day')
+                 - st.last_reviewed_at
+               )),
+               st.decay,
+               st.factor
+             ) AS retention,
+             st.target
+      FROM states st
+    ) x ON true
+    GROUP BY h.day_offset
+    ORDER BY h.day_offset`;
+}
+
 export async function getForecast(
   userId: string,
   days: number,
+  asOf: Date = new Date(),
 ): Promise<{ forecast: ForecastDay[] }> {
   const clampedDays = Math.min(Math.max(days, 1), 90);
-  const now = new Date();
+  const rows = await db.execute<ForecastRow>(
+    forecastSql(userId, clampedDays, asOf),
+  );
 
-  const progress = await fetchUserProgress(userId);
-
+  const byOffset = new Map(rows.map((row) => [Number(row.offset), row]));
   const forecast: ForecastDay[] = [];
-
-  for (let d = 0; d < clampedDays; d++) {
-    const targetDate = new Date(now.getTime() + d * 86_400_000);
-    let atRiskCount = 0;
-    let totalRetention = 0;
-    let reviewedCards = 0;
-
-    for (const p of progress) {
-      if (!p.lastReviewedAt) continue;
-      reviewedCards++;
-
-      const elapsed = daysBetween(p.lastReviewedAt, targetDate);
-      const R = computeRetention(
-        p.stability,
-        p.intervalDays,
-        p.easeFactor,
-        elapsed,
-      );
-      totalRetention += R;
-
-      if (R < 0.8) atRiskCount++;
-    }
-
+  for (let offset = 0; offset < clampedDays; offset += 1) {
+    const row = byOffset.get(offset);
     forecast.push({
-      date: targetDate.toISOString().slice(0, 10),
-      atRiskCount,
+      date: new Date(asOf.getTime() + offset * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      atRiskCount: row?.atRiskCount ?? 0,
       avgRetention:
-        reviewedCards > 0
-          ? Math.round((totalRetention / reviewedCards) * 1000) / 1000
-          : 1,
+        row?.avgRetention == null ? 1 : roundMetric(row.avgRetention),
     });
   }
 
@@ -105,182 +138,130 @@ export async function getForecast(
 // ── Retention heatmap ────────────────────────────────────────────────────────
 
 /**
- * Get per-card retention values for a specific deck.
- * Frontend renders as color-coded grid (green → red).
+ * Per-card predicted recall for one owned deck. Ownership is folded into the
+ * join, so an unowned (or missing) deck yields zero rows — the empty array the
+ * endpoint has always returned.
  */
+export function heatmapSql(userId: string, deckId: string, asOf: Date): SQL {
+  return sql`
+    SELECT c.id::text AS "cardId",
+      ${fsrsRetrievability(asOf)} AS retention,
+      s.last_reviewed_at AS "lastReviewed",
+      s.next_review_at AS "nextReview",
+      s.stability
+    FROM cards c
+    JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+    ${fsrsStateJoin(userId)}
+    WHERE c.deck_id = ${deckId}::uuid AND s.id IS NOT NULL
+    ORDER BY retention ASC, c.id`;
+}
+
 export async function getRetentionHeatmap(
   userId: string,
   deckId: string,
+  asOf: Date = new Date(),
 ): Promise<{ cards: HeatmapCard[] }> {
-  // Verify ownership
-  const [deck] = await db
-    .select({ id: decks.id })
-    .from(decks)
-    .where(and(eq(decks.id, deckId), eq(decks.userId, userId)))
-    .limit(1);
+  const rows = await db.execute<HeatmapRow>(heatmapSql(userId, deckId, asOf));
 
-  if (!deck) return { cards: [] };
-
-  const now = new Date();
-
-  const rows = await db
-    .select({
-      cardId: studyProgress.cardId,
-      stability: studyProgress.stability,
-      intervalDays: studyProgress.intervalDays,
-      easeFactor: studyProgress.easeFactor,
-      lastReviewedAt: studyProgress.lastReviewedAt,
-      nextReviewAt: studyProgress.nextReviewAt,
-    })
-    .from(studyProgress)
-    .innerJoin(cards, eq(studyProgress.cardId, cards.id))
-    .where(and(eq(studyProgress.userId, userId), eq(cards.deckId, deckId)));
-
-  const heatmapCards: HeatmapCard[] = rows.map((p) => {
-    const elapsed = p.lastReviewedAt ? daysBetween(p.lastReviewedAt, now) : 0;
-    const retention = computeRetention(
-      p.stability,
-      p.intervalDays,
-      p.easeFactor,
-      elapsed,
-    );
-
-    return {
-      cardId: p.cardId,
-      retention: Math.round(retention * 1000) / 1000,
-      lastReviewed: p.lastReviewedAt?.toISOString() ?? null,
-      nextReview: p.nextReviewAt.toISOString(),
-      stability: p.stability,
-    };
-  });
-
-  // Sort: lowest retention first (most at-risk on top)
-  heatmapCards.sort((a, b) => a.retention - b.retention);
-
-  return { cards: heatmapCards };
+  return {
+    cards: rows.map((row) => ({
+      cardId: row.cardId,
+      retention: roundMetric(row.retention),
+      lastReviewed: toIso(row.lastReviewed),
+      nextReview: toIso(row.nextReview),
+      stability: row.stability,
+    })),
+  };
 }
 
 // ── At-risk cards ────────────────────────────────────────────────────────────
 
 /**
- * Find cards that haven't reached their due date yet but already have
- * low predicted retention. These are "silently decaying" cards.
+ * Cards not yet due whose predicted recall has already decayed below target —
+ * "silently decaying" cards. `threshold` of `null` uses each state's own
+ * revision `request_retention`; a number overrides it for every card.
+ *
+ * `total` is the pre-`LIMIT` count from `COUNT(*) OVER ()`, so zero matching
+ * rows naturally yield `total: 0`. Fields are tie-broken by `tf.id` because
+ * `sort_order` repeats across the front/back sides of a template.
  */
-export async function getAtRiskCards(
+export function atRiskCardsSql(
   userId: string,
-  threshold = 0.8,
-  limit = 20,
-): Promise<{ atRisk: AtRiskCard[]; total: number }> {
-  const now = new Date();
-
-  // Fetch progress for cards NOT yet due (nextReviewAt > now)
-  // but whose predicted retention may be low
-  const progress = await db
-    .select({
-      cardId: studyProgress.cardId,
-      deckId: cards.deckId,
-      stability: studyProgress.stability,
-      intervalDays: studyProgress.intervalDays,
-      easeFactor: studyProgress.easeFactor,
-      lastReviewedAt: studyProgress.lastReviewedAt,
-    })
-    .from(studyProgress)
-    .innerJoin(cards, eq(studyProgress.cardId, cards.id))
-    .innerJoin(decks, eq(cards.deckId, decks.id))
-    .where(
-      and(
-        eq(studyProgress.userId, userId),
-        eq(decks.userId, userId),
-        sql`${studyProgress.nextReviewAt} > NOW()`,
-        sql`${studyProgress.lastReviewedAt} IS NOT NULL`,
-      ),
-    );
-
-  // Compute retention and filter
-  const atRiskRaw: { cardId: string; deckId: string; retention: number }[] = [];
-
-  for (const p of progress) {
-    if (!p.lastReviewedAt) continue;
-    const elapsed = daysBetween(p.lastReviewedAt, now);
-    const R = computeRetention(
-      p.stability,
-      p.intervalDays,
-      p.easeFactor,
-      elapsed,
-    );
-
-    if (R < threshold) {
-      atRiskRaw.push({ cardId: p.cardId, deckId: p.deckId, retention: R });
-    }
-  }
-
-  // Sort by retention ascending (most at-risk first)
-  atRiskRaw.sort((a, b) => a.retention - b.retention);
-
-  const total = atRiskRaw.length;
-  const topN = atRiskRaw.slice(0, limit);
-
-  if (topN.length === 0) return { atRisk: [], total: 0 };
-
-  // Enrich with fields + deck names
-  const cardIds = topN.map((r) => r.cardId);
-  const deckIds = [...new Set(topN.map((r) => r.deckId))];
-
-  const [fieldRows, deckRows] = await Promise.all([
-    db
-      .select({
-        cardId: cardFieldValues.cardId,
-        fieldName: templateFields.name,
-        side: templateFields.side,
-        value: cardFieldValues.value,
-      })
-      .from(cardFieldValues)
-      .innerJoin(
-        templateFields,
-        eq(cardFieldValues.templateFieldId, templateFields.id),
-      )
-      .where(inArray(cardFieldValues.cardId, cardIds)),
-    db
-      .select({ id: decks.id, name: decks.name })
-      .from(decks)
-      .where(inArray(decks.id, deckIds)),
-  ]);
-
-  const fieldsByCard = new Map<string, typeof fieldRows>();
-  for (const f of fieldRows) {
-    const arr = fieldsByCard.get(f.cardId) ?? [];
-    arr.push(f);
-    fieldsByCard.set(f.cardId, arr);
-  }
-  const deckNameMap = new Map(deckRows.map((d) => [d.id, d.name]));
-
-  const atRisk: AtRiskCard[] = topN.map((r) => ({
-    cardId: r.cardId,
-    deckId: r.deckId,
-    deckName: deckNameMap.get(r.deckId) ?? '',
-    retention: Math.round(r.retention * 1000) / 1000,
-    fields: (fieldsByCard.get(r.cardId) ?? []).map((f) => ({
-      fieldName: f.fieldName,
-      side: f.side,
-      value: f.value,
-    })),
-  }));
-
-  return { atRisk, total };
+  asOf: Date,
+  threshold: number | null,
+  limit: number,
+): SQL {
+  const target =
+    threshold === null
+      ? fsrsTargetRetention()
+      : sql`${threshold}::double precision`;
+  return sql`
+    WITH scored AS (
+      SELECT c.id, c.deck_id, d.name AS deck_name,
+        ${fsrsRetrievability(asOf)} AS retention,
+        COUNT(*) OVER () AS total
+      FROM cards c
+      JOIN decks d ON d.id = c.deck_id AND d.user_id = ${userId}::uuid
+      ${fsrsStateJoin(userId)}
+      WHERE ${FSRS_REVIEW} AND ${fsrsDueLater(asOf)}
+        AND ${fsrsRetrievability(asOf)} < ${target}
+    )
+    SELECT sc.id::text AS "cardId", sc.deck_id::text AS "deckId",
+      sc.deck_name AS "deckName",
+      sc.retention, sc.total::int AS total,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'fieldName', tf.name,
+            'side', tf.side,
+            'value', cfv.value
+          )
+          ORDER BY tf.sort_order, tf.id
+        ) FILTER (WHERE tf.id IS NOT NULL),
+        '[]'::json
+      ) AS fields
+    FROM scored sc
+    LEFT JOIN card_field_values cfv ON cfv.card_id = sc.id
+    LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
+    GROUP BY sc.id, sc.deck_id, sc.deck_name, sc.retention, sc.total
+    ORDER BY sc.retention ASC, sc.id
+    LIMIT ${limit}`;
 }
 
-// ── Shared helper ────────────────────────────────────────────────────────────
+export async function getAtRiskCards(
+  userId: string,
+  threshold: number | null = null,
+  limit = 20,
+  asOf: Date = new Date(),
+): Promise<{ atRisk: AtRiskCard[]; total: number }> {
+  const rows = await db.execute<AtRiskRow>(
+    atRiskCardsSql(userId, asOf, threshold, limit),
+  );
 
-async function fetchUserProgress(userId: string): Promise<ProgressRow[]> {
-  return db
-    .select({
-      cardId: studyProgress.cardId,
-      stability: studyProgress.stability,
-      intervalDays: studyProgress.intervalDays,
-      easeFactor: studyProgress.easeFactor,
-      lastReviewedAt: studyProgress.lastReviewedAt,
-      nextReviewAt: studyProgress.nextReviewAt,
-    })
-    .from(studyProgress)
-    .where(eq(studyProgress.userId, userId));
+  return {
+    atRisk: rows.map((row) => ({
+      cardId: row.cardId,
+      deckId: row.deckId,
+      deckName: row.deckName,
+      retention: roundMetric(row.retention),
+      fields: (row.fields ?? []).map((field) => ({
+        fieldName: field.fieldName,
+        side: field.side,
+        value: field.value,
+      })),
+    })),
+    total: rows[0]?.total ?? 0,
+  };
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────────────
+
+function roundMetric(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function toIso(value: Date | string): string {
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
