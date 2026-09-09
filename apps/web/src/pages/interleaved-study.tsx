@@ -29,6 +29,8 @@ import {
   type DueDeckLike,
   type ReviewItem,
 } from './study-review-state';
+import { createReviewOutbox } from './study-review-outbox';
+import { sendReviewBatchKeepalive } from '@/lib/review-keepalive';
 
 /** `POST /study/interleaved` accepts at most 20 deck ids. */
 const INTERLEAVED_DECK_LIMIT = 20;
@@ -61,7 +63,6 @@ const InterleavedStudyPage: Component = () => {
   const [currentIndex, setCurrentIndex] = createSignal(0);
   const [isFlipped, setIsFlipped] = createSignal(false);
   const [reviewing, setReviewing] = createSignal(false);
-  const [pendingReviews, setPendingReviews] = createSignal<ReviewItem[]>([]);
   const [cardShownAt, setCardShownAt] = createSignal<number | null>(null);
 
   // Session stats
@@ -74,7 +75,10 @@ const InterleavedStudyPage: Component = () => {
 
   const studyQuery = createQuery(() => ({
     queryKey: ['interleavedStudy', scopedFolderId()],
+    // The in-session queue must never be swapped under the user (see the
+    // NOTE on the mutation's onSuccess below).
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     // Short: the queue is invalidated by card mutations and removed on exit;
     // this only lets a hover prefetch a few seconds earlier be reused on mount.
     staleTime: 5_000,
@@ -124,10 +128,11 @@ const InterleavedStudyPage: Component = () => {
   const studyData = () => studyQuery.data;
 
   const reviewBatchMutation = createMutation(() => ({
-    mutationFn: async (input: { items: ReviewItem[]; keepalive?: boolean }) => {
+    mutationFn: async (input: { items: ReviewItem[] }) => {
+      // keepalive: a grade sent a moment before the tab closes still lands.
       const { error } = await (api.study as any)['review-batch'].post(
         { items: input.items },
-        input.keepalive ? { fetch: { keepalive: true } } : undefined,
+        { fetch: { keepalive: true } },
       );
       if (error) throw new Error(getApiError(error));
     },
@@ -137,7 +142,7 @@ const InterleavedStudyPage: Component = () => {
       // NOTE: Do NOT invalidate ['interleavedStudy'] here — it refetches the
       // active in-session query and replaces the cards array while
       // currentIndex stays put, so cards get skipped and "Session complete"
-      // fires early (same trap as study-mode.tsx:158-160). The restart handler
+      // fires early (same trap as the NOTE in study-mode.tsx). The restart handler
       // invalidates deliberately, once the session is over.
       const cardDeckIds = new Map(
         (studyData()?.cards ?? []).map((card) => [card.id, card.deckId]),
@@ -186,31 +191,13 @@ const InterleavedStudyPage: Component = () => {
     () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
-  // Every grade is sent as soon as it is made (the requestId makes a retry
-  // idempotent, so nothing can double-apply). In-flight requests are tracked
-  // so the batch-end refetch waits until the server holds every review.
-  const inFlight = new Set<Promise<void>>();
-  const flushPendingReviews = (keepalive = false): Promise<void> => {
-    const pending = pendingReviews();
-    if (pending.length === 0) return Promise.resolve();
-    setPendingReviews((prev) => prev.slice(pending.length));
-    const request: Promise<void> = reviewBatchMutation
-      .mutateAsync({ items: pending, keepalive })
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        if (error instanceof Error && /already used/i.test(error.message)) {
-          // Non-retryable: the server already applied these requestIds.
-          return;
-        }
-        // Items keep their requestId; put them back so the next flush retries idempotently.
-        setPendingReviews((prev) => [...pending, ...prev]);
-      })
-      .finally(() => {
-        inFlight.delete(request);
-      });
-    inFlight.add(request);
-    return request;
-  };
+  // Every grade is sent as soon as it is made; the requestId makes a retry
+  // idempotent. `settle()` is awaited before the restart refetch so the
+  // server holds every grade first (see study-review-outbox.ts).
+  const outbox = createReviewOutbox({
+    send: (items) => reviewBatchMutation.mutateAsync({ items }),
+    sendKeepalive: sendReviewBatchKeepalive,
+  });
 
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
@@ -218,11 +205,7 @@ const InterleavedStudyPage: Component = () => {
 
     setReviewing(true);
     try {
-      setPendingReviews((prev) => [
-        ...prev,
-        buildReviewItem(card.id, action, cardShownAt()),
-      ]);
-      void flushPendingReviews();
+      outbox.enqueue(buildReviewItem(card.id, action, cardShownAt()));
       batch(() => {
         setStats((s) => ({
           ...s,
@@ -239,13 +222,15 @@ const InterleavedStudyPage: Component = () => {
     }
   };
 
-  const handleRestart = () => {
+  const handleRestart = async () => {
     batch(() => {
       setCurrentIndex(0);
       setStats({ again: 0, hard: 0, good: 0, easy: 0 });
       setIsFlipped(false);
     });
-    queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
+    // Otherwise a grade still in flight comes back as due in the new mix.
+    await outbox.settle();
+    await queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -271,20 +256,19 @@ const InterleavedStudyPage: Component = () => {
   };
 
   // pagehide covers tab close and hard navigation, where onCleanup may never run.
-  const handlePageHide = () => {
-    void flushPendingReviews(true);
-  };
+  const handlePageHide = () => outbox.flushKeepalive();
   onMount(() => {
     document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('pagehide', handlePageHide);
   });
   onCleanup(() => {
-    void flushPendingReviews(true);
+    outbox.flushKeepalive();
     document.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('pagehide', handlePageHide);
-    // The session is over: drop the queue snapshot so the next visit (or a
-    // hover prefetch) fetches the current due list instead of this one.
-    queryClient.removeQueries({ queryKey: ['interleavedStudy'] });
+    // The session is over: drop the queue snapshot so the next visit fetches
+    // the current due list. Deferred a microtask so it runs after the query
+    // observer has detached, whatever Solid's cleanup order.
+    queueMicrotask(() => queryClient.removeQueries({ queryKey: ['interleavedStudy'] }));
   });
 
   return (

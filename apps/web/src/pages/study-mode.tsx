@@ -45,6 +45,8 @@ import {
   type DueDeckLike,
   type ReviewItem,
 } from './study-review-state';
+import { createReviewOutbox } from './study-review-outbox';
+import { sendReviewBatchKeepalive } from '@/lib/review-keepalive';
 
 const StudyModePage: Component = () => {
   const params = useParams<{ deckId: string }>();
@@ -59,7 +61,6 @@ const StudyModePage: Component = () => {
   const effectiveStudyMode = () =>
     clusterStudy() ? 'all' : studyMode();
   const [checkingMore, setCheckingMore] = createSignal(false);
-  const [pendingReviews, setPendingReviews] = createSignal<ReviewItem[]>([]);
   const [cardShownAt, setCardShownAt] = createSignal<number | null>(null);
 
   // Session stats
@@ -89,7 +90,11 @@ const StudyModePage: Component = () => {
       effectiveStudyMode(),
       searchParams.cardIds ?? '',
     ],
+    // The in-session queue must never be swapped under the user: a refetch
+    // replaces the cards array while currentIndex stays put (premature
+    // "Session complete"). Only the batch-end handler refetches, deliberately.
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     // Short: the queue is invalidated by card mutations and removed on exit;
     // this only lets a hover prefetch a few seconds earlier be reused on mount.
     staleTime: 5_000,
@@ -148,10 +153,11 @@ const StudyModePage: Component = () => {
   }));
 
   const reviewBatchMutation = createMutation(() => ({
-    mutationFn: async (input: { items: ReviewItem[]; keepalive?: boolean }) => {
+    mutationFn: async (input: { items: ReviewItem[] }) => {
+      // keepalive: a grade sent a moment before the tab closes still lands.
       const { error } = await (api.study as any)['review-batch'].post(
         { items: input.items },
-        input.keepalive ? { fetch: { keepalive: true } } : undefined,
+        { fetch: { keepalive: true } },
       );
       if (error) throw new Error(getApiError(error));
     },
@@ -200,32 +206,13 @@ const StudyModePage: Component = () => {
     () => stats().again + stats().hard + stats().good + stats().easy > 0,
   );
 
-  // Every grade is sent as soon as it is made (the requestId makes a retry
-  // idempotent, so nothing can double-apply). In-flight requests are tracked
-  // so the batch-end refetch waits until the server holds every review.
-  const inFlight = new Set<Promise<void>>();
-  const flushPendingReviews = (keepalive = false): Promise<void> => {
-    const pending = pendingReviews();
-    if (pending.length === 0) return Promise.resolve();
-    setPendingReviews((prev) => prev.slice(pending.length));
-    const request: Promise<void> = reviewBatchMutation
-      .mutateAsync({ items: pending, keepalive })
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        if (error instanceof Error && /already used/i.test(error.message)) {
-          // Non-retryable: the server already applied these requestIds.
-          return;
-        }
-        // Items keep their requestId; put them back so the next flush retries idempotently.
-        setPendingReviews((prev) => [...pending, ...prev]);
-      })
-      .finally(() => {
-        inFlight.delete(request);
-      });
-    inFlight.add(request);
-    return request;
-  };
-  const settleReviews = () => Promise.all(inFlight).then(() => undefined);
+  // Every grade is sent as soon as it is made; the requestId makes a retry
+  // idempotent. `settle()` is awaited before any deliberate refetch so the
+  // server holds every grade first (see study-review-outbox.ts).
+  const outbox = createReviewOutbox({
+    send: (items) => reviewBatchMutation.mutateAsync({ items }),
+    sendKeepalive: sendReviewBatchKeepalive,
+  });
 
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
@@ -233,11 +220,7 @@ const StudyModePage: Component = () => {
 
     setReviewing(true);
     try {
-      setPendingReviews((prev) => [
-        ...prev,
-        buildReviewItem(card.id, action, cardShownAt()),
-      ]);
-      void flushPendingReviews();
+      outbox.enqueue(buildReviewItem(card.id, action, cardShownAt()));
       const nextIndex = currentIndex() + 1;
       batch(() => {
         setStats((s) => ({
@@ -260,7 +243,7 @@ const StudyModePage: Component = () => {
         nextIndex >= data.cards.length &&
         effectiveStudyMode() === 'due'
       ) {
-        await settleReviews();
+        await outbox.settle();
         setCheckingMore(true);
         // Brief delay for learning-step cards to become due
         await new Promise((r) => setTimeout(r, 1500));
@@ -278,8 +261,12 @@ const StudyModePage: Component = () => {
     }
   };
 
-  const invalidateStudy = () =>
-    queryClient.invalidateQueries({ queryKey: ['studyData', params.deckId] });
+  // Every deliberate refetch waits for the outbox first, otherwise a grade
+  // still in flight comes back as a due card in the new queue.
+  const invalidateStudy = async () => {
+    await outbox.settle();
+    await queryClient.invalidateQueries({ queryKey: ['studyData', params.deckId] });
+  };
 
   const handleRestart = () => {
     batch(() => {
@@ -288,7 +275,7 @@ const StudyModePage: Component = () => {
       setIsFlipped(false);
       setStudyMode('due');
     });
-    invalidateStudy();
+    void invalidateStudy();
   };
 
   // Continue session without resetting stats (used by countdown timer)
@@ -298,7 +285,7 @@ const StudyModePage: Component = () => {
       setIsFlipped(false);
       setStudyMode('due');
     });
-    invalidateStudy();
+    void invalidateStudy();
   };
 
   const handleReviewAll = () => {
@@ -312,6 +299,7 @@ const StudyModePage: Component = () => {
 
   const handleResetProgress = async () => {
     try {
+      await outbox.settle();
       const { error } = await (api.study.deck as any)[params.deckId][
         'reset-progress'
       ].post();
@@ -324,7 +312,7 @@ const StudyModePage: Component = () => {
         setIsFlipped(false);
         setStudyMode('due');
       });
-      invalidateStudy();
+      await invalidateStudy();
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
       queryClient.invalidateQueries({ queryKey: ['experience-command-center'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
@@ -395,26 +383,27 @@ const StudyModePage: Component = () => {
   });
 
   // pagehide covers tab close and hard navigation, where onCleanup may never run.
-  const handlePageHide = () => {
-    void flushPendingReviews(true);
-  };
+  const handlePageHide = () => outbox.flushKeepalive();
   onMount(() => {
     document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('pagehide', handlePageHide);
   });
   onCleanup(() => {
-    void flushPendingReviews(true);
+    outbox.flushKeepalive();
     document.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('pagehide', handlePageHide);
-    // The session is over: drop the queue snapshot so the next visit (or a
-    // hover prefetch) fetches the current due list instead of this one.
-    queryClient.removeQueries({ queryKey: ['studyData', params.deckId] });
+    // The session is over: drop every study-queue snapshot so the next visit
+    // (or a hover prefetch) fetches the current due list. Prefix key on
+    // purpose — router params already point at the destination route here,
+    // so `params.deckId` cannot be trusted. Deferred a microtask so it runs
+    // after the query observer has detached, whatever Solid's cleanup order.
+    queueMicrotask(() => queryClient.removeQueries({ queryKey: ['studyData'] }));
   });
 
   return (
     <div class="flex h-full min-h-0 flex-col bg-background">
       <header class="shrink-0 border-b bg-surface">
-        <div class="grid h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:px-5">
+        <div class="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 sm:px-5">
           <Button
             variant="ghost"
             size="sm"
@@ -452,8 +441,9 @@ const StudyModePage: Component = () => {
             </Show>
             <Show when={currentCard()}>
               {(card) => {
-                const summary = () =>
-                  describeCardProgress(card().progress, new Date());
+                const summary = createMemo(() =>
+                  describeCardProgress(card().progress, new Date()),
+                );
                 return (
                   <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
                     <span class="font-medium text-foreground">
@@ -697,23 +687,6 @@ const StudyModePage: Component = () => {
                       </div>
                       <p class="text-xs text-muted-foreground">
                         Cards you struggled with will reappear automatically.
-                      </p>
-                    </div>
-                  </Show>
-
-                  <Show
-                    when={
-                      scheduleQuery.data &&
-                      scheduleQuery.data!.upcoming.length === 0 &&
-                      scheduleQuery.data!.dueSoon === 0 &&
-                      scheduleQuery.data!.learnedCards > 0
-                    }
-                  >
-                    <div class="flex items-center gap-3 rounded-xl border border-new/25 bg-new-surface p-4 text-left">
-                      <CheckCircle class="h-5 w-5 shrink-0 text-new" />
-                      <p class="text-sm font-medium text-new">
-                        All {scheduleQuery.data!.learnedCards} cards are fully
-                        mastered.
                       </p>
                     </div>
                   </Show>

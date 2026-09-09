@@ -78,17 +78,25 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
+// Each tier floors its own unit so a value just under a boundary never prints
+// the next unit under the wrong label (59.7 min is "59 min", not "60 min").
 function formatAge(ms: number): string {
-  if (ms < MINUTE_MS) return 'just now';
-  if (ms < HOUR_MS) return `${Math.round(ms / MINUTE_MS)} min ago`;
-  if (ms < 2 * DAY_MS) return `${Math.round(ms / HOUR_MS)} h ago`;
+  if (!Number.isFinite(ms) || ms < MINUTE_MS) return 'just now';
+  const minutes = Math.floor(ms / MINUTE_MS);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(ms / HOUR_MS);
+  if (hours < 48) return `${hours} h ago`;
   return `${Math.round(ms / DAY_MS)} days ago`;
 }
 
+// Stability is a magnitude, so each tier rounds — and a value that rounds up
+// to the next unit is promoted into it (59.7 min → "1 h", 23.98 h → "1 d").
 function formatStability(days: number): string {
-  if (days < 1 / 24) return `${Math.max(1, Math.round(days * 24 * 60))} min`;
-  if (days < 1) return `${Math.round(days * 24)} h`;
-  return `${Math.round(days)} d`;
+  const minutes = Math.round(days * 24 * 60);
+  if (minutes < 60) return `${Math.max(1, minutes)} min`;
+  const hours = Math.round(days * 24);
+  if (hours < 24) return `${hours} h`;
+  return `${Math.max(1, Math.round(days))} d`;
 }
 
 /**
