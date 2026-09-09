@@ -73,7 +73,9 @@ type AtRiskRow = {
  * when the user has no canonical state rows, and the per-revision
  * `request_retention` (not a hardcoded 0.8) decides what counts as at risk.
  * `day_offset` is spelled out because `offset` is a reserved word — only the
- * output alias is quoted, so the row key stays `offset`.
+ * output alias is quoted, so the row key stays `offset`. `days` is bound
+ * `::int`; the service truncates it first, because `t.Numeric` would otherwise
+ * let `?days=7.5` reach Postgres as a fractional bound (22P02).
  */
 export function forecastSql(userId: string, days: number, asOf: Date): SQL {
   return sql`
@@ -84,7 +86,7 @@ export function forecastSql(userId: string, days: number, asOf: Date): SQL {
       JOIN fsrs_parameter_revisions r ON r.id = s.parameter_revision_id
       WHERE s.user_id = ${userId}::uuid
     ),
-    horizon AS (SELECT generate_series(0, ${days - 1}) AS day_offset)
+    horizon AS (SELECT generate_series(0, ${days - 1}::int) AS day_offset)
     SELECT
       h.day_offset AS "offset",
       COUNT(x.retention) FILTER (WHERE x.retention < x.target)::int
@@ -113,7 +115,7 @@ export async function getForecast(
   days: number,
   asOf: Date = new Date(),
 ): Promise<{ forecast: ForecastDay[] }> {
-  const clampedDays = Math.min(Math.max(days, 1), 90);
+  const clampedDays = clampInt(days, 1, 90, 1);
   const rows = await db.execute<ForecastRow>(
     forecastSql(userId, clampedDays, asOf),
   );
@@ -181,9 +183,12 @@ export async function getRetentionHeatmap(
  * "silently decaying" cards. `threshold` of `null` uses each state's own
  * revision `request_retention`; a number overrides it for every card.
  *
- * `total` is the pre-`LIMIT` count from `COUNT(*) OVER ()`, so zero matching
- * rows naturally yield `total: 0`. Fields are tie-broken by `tf.id` because
- * `sort_order` repeats across the front/back sides of a template.
+ * `total` is the pre-`LIMIT` count from `COUNT(*) OVER ()` inside `scored`, so
+ * zero matching rows naturally yield `total: 0`. The `capped` CTE applies the
+ * `LIMIT` *before* the field join, so a user with thousands of at-risk cards
+ * does not pay a full `card_field_values` aggregation to return 20 rows.
+ * Fields are tie-broken by `tf.id` because `sort_order` repeats across the
+ * front/back sides of a template.
  */
 export function atRiskCardsSql(
   userId: string,
@@ -205,6 +210,11 @@ export function atRiskCardsSql(
       ${fsrsStateJoin(userId)}
       WHERE ${FSRS_REVIEW} AND ${fsrsDueLater(asOf)}
         AND ${fsrsRetrievability(asOf)} < ${target}
+    ),
+    capped AS (
+      SELECT * FROM scored
+      ORDER BY retention ASC, id
+      LIMIT ${limit}::int
     )
     SELECT sc.id::text AS "cardId", sc.deck_id::text AS "deckId",
       sc.deck_name AS "deckName",
@@ -220,12 +230,11 @@ export function atRiskCardsSql(
         ) FILTER (WHERE tf.id IS NOT NULL),
         '[]'::json
       ) AS fields
-    FROM scored sc
+    FROM capped sc
     LEFT JOIN card_field_values cfv ON cfv.card_id = sc.id
     LEFT JOIN template_fields tf ON tf.id = cfv.template_field_id
     GROUP BY sc.id, sc.deck_id, sc.deck_name, sc.retention, sc.total
-    ORDER BY sc.retention ASC, sc.id
-    LIMIT ${limit}`;
+    ORDER BY sc.retention ASC, sc.id`;
 }
 
 export async function getAtRiskCards(
@@ -235,7 +244,7 @@ export async function getAtRiskCards(
   asOf: Date = new Date(),
 ): Promise<{ atRisk: AtRiskCard[]; total: number }> {
   const rows = await db.execute<AtRiskRow>(
-    atRiskCardsSql(userId, asOf, threshold, limit),
+    atRiskCardsSql(userId, asOf, threshold, clampInt(limit, 1, 200, 20)),
   );
 
   return {
@@ -255,6 +264,21 @@ export async function getAtRiskCards(
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Whole-number bound for an `::int` placeholder. Route query params come from
+ * `t.Numeric`, which accepts fractions, and an internal caller could pass
+ * `NaN` — either would reach Postgres as `22P02 invalid input syntax`.
+ */
+function clampInt(
+  value: number,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const whole = Number.isFinite(value) ? Math.trunc(value) : fallback;
+  return Math.min(Math.max(whole, min), max);
+}
 
 function roundMetric(value: number): number {
   return Math.round(value * 1000) / 1000;

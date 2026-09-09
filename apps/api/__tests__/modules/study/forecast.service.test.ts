@@ -1,7 +1,16 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { resetMocks, setMockReturn } from '../../helpers/db-mock';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import { resetMocks, setMockReturn, mockDbChain } from '../../helpers/db-mock';
 
 import * as forecastService from '../../../src/modules/study/forecast.service';
+
+const dialect = new PgDialect();
+
+/** The rendered SQL + bound parameters of the most recent `db.execute` call. */
+function lastQuery() {
+  const calls = mockDbChain.execute.mock.calls;
+  return dialect.sqlToQuery(calls[calls.length - 1]![0]);
+}
 
 describe('forecast.service', () => {
   beforeEach(() => resetMocks());
@@ -63,6 +72,22 @@ describe('forecast.service', () => {
         [0, 1],
       ]);
     });
+
+    test('truncates a fractional day count and binds it as an integer', async () => {
+      setMockReturn([]);
+      const result = await forecastService.getForecast('user-1', 7.9);
+      expect(result.forecast).toHaveLength(7);
+      const query = lastQuery();
+      expect(query.sql).toContain('generate_series(0, $2::int)');
+      expect(query.params[1]).toBe(6);
+    });
+
+    test('falls back to a single day when days is not finite', async () => {
+      setMockReturn([]);
+      const result = await forecastService.getForecast('user-1', Number.NaN);
+      expect(result.forecast).toHaveLength(1);
+      expect(lastQuery().params[1]).toBe(0);
+    });
   });
 
   describe('getRetentionHeatmap', () => {
@@ -106,6 +131,25 @@ describe('forecast.service', () => {
       setMockReturn([]);
       const result = await forecastService.getAtRiskCards('user-1');
       expect(result).toEqual({ atRisk: [], total: 0 });
+    });
+
+    test('caps the rows before the field aggregation', async () => {
+      setMockReturn([]);
+      await forecastService.getAtRiskCards('user-1', null, 20);
+      const query = lastQuery();
+      expect(query.sql).toMatch(/capped AS \(\s*SELECT \* FROM scored/);
+      expect(query.sql).toContain('FROM capped sc');
+      expect(query.sql).toMatch(/LIMIT \$\d+::int/);
+    });
+
+    test('truncates and clamps the limit and binds it as an integer', async () => {
+      setMockReturn([]);
+      await forecastService.getAtRiskCards('user-1', 0.9, 20.5);
+      expect(lastQuery().params.at(-1)).toBe(20);
+      await forecastService.getAtRiskCards('user-1', null, 5000);
+      expect(lastQuery().params.at(-1)).toBe(200);
+      await forecastService.getAtRiskCards('user-1', null, 0);
+      expect(lastQuery().params.at(-1)).toBe(1);
     });
 
     test('takes total from the window count and keeps aggregated fields', async () => {
