@@ -64,9 +64,11 @@ export function createStudyRoutes(
         duration: 60 * 1000,
         max: 180,
         skip: (req) => !req,
-        // Per session, not per IP: each grade is its own request.
-        generator: async (req, server) =>
-          studyRateLimitKey(req, req && server?.requestIP(req)?.address),
+        // Per user (then session), not per IP: each grade is its own request.
+        generator: async (req, server, derived: { currentUser?: { id?: string } }) =>
+          studyRateLimitKey(req, req && server?.requestIP(req)?.address, {
+            userId: derived?.currentUser?.id,
+          }),
         errorResponse: new Response(
           JSON.stringify({ error: 'Too many study requests, please retry' }),
           { status: 429, headers: { 'Content-Type': 'application/json' } },

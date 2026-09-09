@@ -24,7 +24,7 @@ grep -rhE '^\s*\.(get|post|put|patch|delete)\(' apps/api/src/modules/*/*.routes.
 | decks | `/decks` | — | body only |
 | cards | `/cards` | — | body only (**no param/query validation**) |
 | card-templates | `/card-templates` | — | body only |
-| study | `/study` | **180**/min | yes |
+| study | `/study` | **180**/min **per user** (`study-rate-limit.ts`) | yes |
 | ai | `/ai` | **20**/min on `POST /generate` + 30/hr per user | yes |
 | embedding | `/embedding` | — | — |
 | search | `/search` | **60**/min | query |
@@ -119,7 +119,7 @@ FSRS-only. There is no `POST /study/review` and no `GET`/`PATCH /study/algorithm
 | GET | `/study/activity` | `days` 1..365 (default 90), tz-aware | `{activity:[{studyDate, cardsReviewed}], days}` |
 | GET | `/study/stats` | — | `{totalCardsReviewed, totalStudyDays}` |
 | GET | `/study/dashboard-snapshot` | tz-aware | `{streak, activity (91 d hardcoded), stats, dueDecks[]}` — no web consumer since the command center shipped |
-| POST | `/study/review-batch` | `{items:[{requestId: uuid, cardId: uuid, rating, reviewedAt: date-time, durationMs?: 0..3_600_000}] 1..100}`, tz-aware | `{applied, duplicates, results:[{requestId, cardId, status:'applied'\|'duplicate', learningCycle, sequence, state, nextReviewAt, stability, difficulty, scheduledDays}]}` — one result per item, in request order. **409** for a reused `requestId` with a different card/rating; **422** only for a duplicate `requestId` inside one batch (or a malformed field); **404** for a card the caller does not own. Client clocks are untrusted and never cause a rejection: `reviewedAt` is clamped into `[receivedAt − 24 h, receivedAt]` and then up to the card's `last_reviewed_at`; `study_daily_logs` use the server's `receivedAt`. Intervals are hard-capped at 365 days (`FSRS_MAX_INTERVAL_DAYS`). Rate limit: 180 req/min **per session** across `/study/*` |
+| POST | `/study/review-batch` | `{items:[{requestId: uuid, cardId: uuid, rating, reviewedAt: date-time, durationMs?: 0..3_600_000}] 1..100}`, tz-aware | `{applied, duplicates, results:[{requestId, cardId, status:'applied'\|'duplicate', learningCycle, sequence, state, nextReviewAt, stability, difficulty, scheduledDays}]}` — one result per item, in request order. **409** for a reused `requestId` with a different card/rating; **422** only for a duplicate `requestId` inside one batch (or a malformed field); **404** for a card the caller does not own. Client clocks are untrusted and never cause a rejection: `reviewedAt` is kept only if it lies within 24 h before `receivedAt` (otherwise `receivedAt` is used) and is then clamped up to the card's `last_reviewed_at`; `study_daily_logs` use the server's `receivedAt`. Intervals are hard-capped at 365 days (`FSRS_MAX_INTERVAL_DAYS`). Rate limit: 180 req/min **per user** across `/study/*` |
 | POST | `/study/deck/:deckId/reset-progress` | — | `{reset:n}` — `fsrs_card_states` rows deleted. Events are immutable; the next review opens a new `learning_cycle`. **409** `Deck membership changed during reset` |
 | POST | `/study/card/:cardId/reset-progress` | — | `{reset:n}` — `0` or `1` |
 | POST | `/study/interleaved` | `{deckIds: uuid[1..20], limit?: 1..200 default 50}` | `{cards, total, due}`; `total` is `COUNT(*) OVER ()`, the true pre-limit due count |

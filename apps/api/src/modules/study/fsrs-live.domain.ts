@@ -4,10 +4,13 @@ import { ConflictError, ValidationError } from '../../shared/errors';
 const MAX_BATCH_SIZE = 100;
 /**
  * Client clocks are untrusted and a grade is never rejected for one. The
- * client instant is clamped into `[receivedAt - 24 h, receivedAt]`: it only
+ * client instant is kept only inside `[receivedAt - 24 h, receivedAt]` — it
  * refines sub-hour ordering (a re-queued grade retried minutes later, a
- * keepalive flush on page exit). Calendar facts (`study_daily_logs`) use the
- * server's `receivedAt` alone — see `groupReviewsByStudyDate`.
+ * keepalive flush on page exit; there is no offline queue). Anything outside
+ * that window means the clock is wrong, so the server's `receivedAt` is the
+ * truth: no fabricated instant ever enters the immutable event log. Calendar
+ * facts (`study_daily_logs`) use `receivedAt` alone — see
+ * `groupReviewsByStudyDate`.
  */
 const MAX_PAST_SKEW_MS = 24 * 60 * 60 * 1000;
 const MAX_DURATION_MS = 60 * 60 * 1000;
@@ -139,11 +142,12 @@ export function normalizeLiveReviewCommands(
       rawInput.reviewedAt,
       `Review event ${index + 1} reviewedAt`,
     );
-    const reviewedAt = clampInstant(
-      clientReviewedAt,
-      receivedAtMs - MAX_PAST_SKEW_MS,
-      receivedAtMs,
-    );
+    const plausible =
+      clientReviewedAt.milliseconds <= receivedAtMs &&
+      clientReviewedAt.milliseconds >= receivedAtMs - MAX_PAST_SKEW_MS;
+    const reviewedAt = plausible
+      ? clientReviewedAt
+      : { iso: receivedAtIso, milliseconds: receivedAtMs };
     const durationMs = normalizeDuration(
       rawInput.durationMs,
       `Review event ${index + 1} durationMs`,
@@ -415,20 +419,6 @@ export function canonicalUuid(value: unknown, name: string): string {
     throw new ValidationError(`${name} must be a valid UUID`);
   }
   return value.toLowerCase();
-}
-
-function clampInstant(
-  instant: { iso: string; milliseconds: number },
-  minimumMs: number,
-  maximumMs: number,
-): { iso: string; milliseconds: number } {
-  if (instant.milliseconds < minimumMs) {
-    return { iso: new Date(minimumMs).toISOString(), milliseconds: minimumMs };
-  }
-  if (instant.milliseconds > maximumMs) {
-    return { iso: new Date(maximumMs).toISOString(), milliseconds: maximumMs };
-  }
-  return instant;
 }
 
 function canonicalInstant(

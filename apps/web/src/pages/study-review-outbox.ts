@@ -19,10 +19,11 @@ export interface ReviewOutbox {
   /** Send everything pending through the regular transport. */
   flush(): Promise<void>;
   /**
-   * Resolve only when the server holds every grade it can: waits for
-   * in-flight requests and re-flushes re-queued failures up to
-   * `settleRetries` more times. Anything still pending afterwards stays
-   * queued (and was already reported through the transport's error path).
+   * Resolve only when the server holds every grade it can: waits for every
+   * in-flight request (including grades enqueued while waiting) and
+   * re-flushes re-queued failures up to `settleRetries` more times. Anything
+   * still pending afterwards stays queued (and was already reported through
+   * the transport's error path).
    */
   settle(): Promise<void>;
   /** Page is going away: hand pending grades to the keepalive transport. */
@@ -54,7 +55,14 @@ export function createReviewOutbox(options: ReviewOutboxOptions): ReviewOutbox {
     const request: Promise<void> = transport(items)
       .then(() => undefined)
       .catch((error: unknown) => {
-        if (isPermanentFailure(error)) return;
+        if (isPermanentFailure(error)) {
+          // The server rejects the whole request for one bad requestId; send
+          // the rest one by one so only the offending grade is dropped.
+          if (items.length > 1) {
+            for (const item of items) void track([item], transport);
+          }
+          return;
+        }
         pending = [...items, ...pending];
       })
       .finally(() => {
@@ -81,10 +89,15 @@ export function createReviewOutbox(options: ReviewOutboxOptions): ReviewOutbox {
     },
     flush,
     async settle() {
-      await Promise.all(inFlight);
-      for (let round = 0; round < settleRetries && pending.length > 0; round++) {
+      let rounds = 0;
+      while (inFlight.size > 0 || pending.length > 0) {
+        if (inFlight.size > 0) {
+          await Promise.all(inFlight);
+          continue;
+        }
+        if (rounds >= settleRetries) break;
+        rounds += 1;
         await flush();
-        await Promise.all(inFlight);
       }
     },
     flushKeepalive() {

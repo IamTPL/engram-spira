@@ -60,7 +60,9 @@ const StudyModePage: Component = () => {
   const clusterStudy = () => isStudyCluster(searchParams.cardIds);
   const effectiveStudyMode = () =>
     clusterStudy() ? 'all' : studyMode();
-  const [checkingMore, setCheckingMore] = createSignal(false);
+  // While set, the card UI is replaced by a skeleton: the queue is about to
+  // be refetched and grading the stale array would double-grade cards.
+  const [refetching, setRefetching] = createSignal<null | 'more' | 'restart'>(null);
   const [cardShownAt, setCardShownAt] = createSignal<number | null>(null);
 
   // Session stats
@@ -214,9 +216,37 @@ const StudyModePage: Component = () => {
     sendKeepalive: sendReviewBatchKeepalive,
   });
 
+  /**
+   * The only way the in-session queue is ever refetched. Shows the skeleton
+   * (so nothing can be graded from the stale array), waits until the server
+   * holds every grade, refetches, and only then rewinds to the first card —
+   * otherwise a grade still in flight comes back as due, or an already-graded
+   * card gets graded again under a fresh requestId.
+   */
+  const refetchQueue = async (reason: 'more' | 'restart') => {
+    if (refetching()) return;
+    setRefetching(reason);
+    try {
+      await outbox.settle();
+      if (reason === 'more') {
+        // Brief delay for learning-step cards to become due
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ['studyData', params.deckId],
+      });
+      batch(() => {
+        setCurrentIndex(0);
+        setIsFlipped(false);
+      });
+    } finally {
+      setRefetching(null);
+    }
+  };
+
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
-    if (!card || reviewing()) return;
+    if (!card || reviewing() || refetching()) return;
 
     setReviewing(true);
     try {
@@ -243,49 +273,31 @@ const StudyModePage: Component = () => {
         nextIndex >= data.cards.length &&
         effectiveStudyMode() === 'due'
       ) {
-        await outbox.settle();
-        setCheckingMore(true);
-        // Brief delay for learning-step cards to become due
-        await new Promise((r) => setTimeout(r, 1500));
-        await queryClient.invalidateQueries({
-          queryKey: ['studyData', params.deckId],
-        });
-        const refreshed = studyData();
-        if (refreshed && refreshed.cards.length > 0) {
-          setCurrentIndex(0); // continue with new batch seamlessly
-        }
-        setCheckingMore(false);
+        await refetchQueue('more');
       }
     } finally {
       setReviewing(false);
     }
   };
 
-  // Every deliberate refetch waits for the outbox first, otherwise a grade
-  // still in flight comes back as a due card in the new queue.
-  const invalidateStudy = async () => {
-    await outbox.settle();
-    await queryClient.invalidateQueries({ queryKey: ['studyData', params.deckId] });
-  };
-
   const handleRestart = () => {
+    if (refetching()) return;
     batch(() => {
-      setCurrentIndex(0);
       setStats({ again: 0, hard: 0, good: 0, easy: 0 });
       setIsFlipped(false);
       setStudyMode('due');
     });
-    void invalidateStudy();
+    void refetchQueue('restart');
   };
 
   // Continue session without resetting stats (used by countdown timer)
   const handleContinue = () => {
+    if (refetching()) return;
     batch(() => {
-      setCurrentIndex(0);
       setIsFlipped(false);
       setStudyMode('due');
     });
-    void invalidateStudy();
+    void refetchQueue('more');
   };
 
   const handleReviewAll = () => {
@@ -298,6 +310,7 @@ const StudyModePage: Component = () => {
   };
 
   const handleResetProgress = async () => {
+    if (refetching()) return;
     try {
       await outbox.settle();
       const { error } = await (api.study.deck as any)[params.deckId][
@@ -307,12 +320,11 @@ const StudyModePage: Component = () => {
         throw new Error(getApiError(error));
       }
       batch(() => {
-        setCurrentIndex(0);
         setStats({ again: 0, hard: 0, good: 0, easy: 0 });
         setIsFlipped(false);
         setStudyMode('due');
       });
-      await invalidateStudy();
+      await refetchQueue('restart');
       queryClient.invalidateQueries({ queryKey: ['schedule', params.deckId] });
       queryClient.invalidateQueries({ queryKey: ['experience-command-center'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
@@ -507,7 +519,7 @@ const StudyModePage: Component = () => {
 
         <Show when={!studyError()}>
           <Show
-            when={!studyQuery.isLoading && !checkingMore()}
+            when={!studyQuery.isLoading && !refetching()}
             fallback={
               <div
                 class="w-full max-w-2xl space-y-5"
@@ -524,9 +536,11 @@ const StudyModePage: Component = () => {
                   </For>
                 </div>
                 <p class="text-center text-sm font-medium text-muted-foreground">
-                  {checkingMore()
-                    ? 'Checking for more cards'
-                    : 'Loading study cards'}
+                  {refetching() === 'restart'
+                    ? 'Restarting session'
+                    : refetching() === 'more'
+                      ? 'Checking for more cards'
+                      : 'Loading study cards'}
                 </p>
               </div>
             }

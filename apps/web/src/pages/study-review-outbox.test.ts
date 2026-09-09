@@ -108,8 +108,7 @@ describe('createReviewOutbox', () => {
     expect(sentKeepalive).toEqual([[item(1)]]);
     expect(outbox.pendingCount()).toBe(0);
     keepalive.reject(new Error('network'));
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(outbox.pendingCount()).toBe(1);
   });
 
@@ -123,5 +122,48 @@ describe('createReviewOutbox', () => {
     });
     outbox.flushKeepalive();
     expect(calls).toBe(0);
+  });
+
+  test('settle also waits for a grade enqueued while it was already waiting', async () => {
+    const first = deferred();
+    const second = deferred();
+    let calls = 0;
+    const outbox = createReviewOutbox({
+      send: async () => {
+        calls += 1;
+        return calls === 1 ? first.promise : second.promise;
+      },
+      sendKeepalive: async () => {},
+    });
+    outbox.enqueue(item(1));
+    let settled = false;
+    const settling = outbox.settle().then(() => {
+      settled = true;
+    });
+    outbox.enqueue(item(2)); // arrives while settle() is awaiting the first request
+    first.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    second.resolve();
+    await settling;
+    expect(calls).toBe(2);
+  });
+
+  test('a permanent failure on a multi-grade request drops only the offending grade', async () => {
+    const sent: ReviewItem[][] = [];
+    const outbox = createReviewOutbox({
+      send: async (items) => {
+        sent.push(items);
+        if (items.some((entry) => entry.requestId === item(1).requestId)) {
+          throw new Error('Review requestId was already used with a different payload');
+        }
+      },
+      sendKeepalive: async () => {},
+    });
+    outbox.requeue([item(1), item(2)]);
+    await outbox.settle();
+    // First the pair (409), then each alone: 1 is dropped, 2 lands.
+    expect(sent).toEqual([[item(1), item(2)], [item(1)], [item(2)]]);
+    expect(outbox.pendingCount()).toBe(0);
   });
 });

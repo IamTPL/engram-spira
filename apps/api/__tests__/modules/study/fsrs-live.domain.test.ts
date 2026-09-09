@@ -120,25 +120,28 @@ describe('live FSRS command normalization', () => {
     expect(command.reviewedAt).toBe('2026-07-28T07:20:16.123Z');
   });
 
-  test('clamps an instant more than 24 h before receivedAt up to that bound (client clock far behind)', () => {
+  test('keeps an instant up to 24 h old, and snaps anything older to receivedAt (client clock far behind)', () => {
     expect(
       normalize(
         reviewInput({ reviewedAt: '2026-07-27T07:20:16.123Z' }),
         new Date('2026-07-28T07:20:16.123Z'),
       ).reviewedAt,
     ).toBe('2026-07-27T07:20:16.123Z');
+    // One millisecond past the window: the client clock is wrong, so the
+    // server's own instant is the truth — never a rejection, never a
+    // fabricated "24 h ago" instant in the immutable event log.
     expect(
       normalize(
         reviewInput({ reviewedAt: '2026-07-27T07:20:16.122Z' }),
         new Date('2026-07-28T07:20:16.123Z'),
       ).reviewedAt,
-    ).toBe('2026-07-27T07:20:16.123Z');
+    ).toBe('2026-07-28T07:20:16.123Z');
     expect(
       normalize(
         reviewInput({ reviewedAt: '2019-01-01T00:00:00.000Z' }),
         new Date('2026-07-28T07:20:16.123Z'),
       ).reviewedAt,
-    ).toBe('2026-07-27T07:20:16.123Z');
+    ).toBe('2026-07-28T07:20:16.123Z');
   });
 
   test('rejects a lower timezone-crossing instant whose canonical UTC year is 0000', () => {

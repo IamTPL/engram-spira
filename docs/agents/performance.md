@@ -163,19 +163,24 @@ placeholder, `timestampFromRow` (:28) on the way out. Full rationale in `AGENTS.
   (`apps/web/src/pages/study-review-outbox.ts`, the single implementation both study pages use) posts
   every grade as soon as it is made — the idempotent `requestId` makes a retry safe, so buffering buys
   nothing and risks losing grades. `settle()` waits for in-flight requests **and re-flushes re-queued
-  failures** (2 extra rounds) so it never resolves with grades unsent; every deliberate refetch
-  (batch end, restart, continue, reset-progress) awaits it first. Regular sends carry
+  failures** (2 extra rounds) — including grades enqueued while it was waiting — so it never
+  resolves with grades unsent. `refetchQueue()` in `study-mode.tsx` (and `handleRestart` in
+  `interleaved-study.tsx`) is the **only** way the in-session queue is refetched: it hides the card UI
+  behind the skeleton first (so the stale array cannot be graded again under fresh requestIds), awaits
+  `settle()`, refetches, and only then rewinds `currentIndex`. Batch end, restart, continue and
+  reset-progress all go through it. Regular sends carry
   `fetch: { keepalive: true }`; `flushKeepalive()` dispatches a raw keepalive `fetch`
   (`lib/review-keepalive.ts`) synchronously on `pagehide` and on unmount so closing the tab cannot drop
   a review. Server side, this is 8× the request volume of the old 8-grade buffer, which is why the
-  `/study` rate limit is keyed **per session**, not per IP (`study-rate-limit.ts`).
+  `/study` rate limit is keyed **per user** (then session), not per IP (`study-rate-limit.ts`).
 - **`requestId` per grade, generated once.** `buildReviewItem`
   (`apps/web/src/pages/study-review-state.ts:23`) mints it at grade time, not per attempt, so a
   retry is idempotent server-side and the client can retry freely (`retry` at `study-mode.tsx:164`).
 - **Deliberate `staleTime` / `refetchOnWindowFocus` / `refetchOnReconnect`.** Defaults are 5 min stale /
   refetch on focus (`apps/web/src/lib/query-client.ts:6-9`). In-session study data pins
   `refetchOnWindowFocus: false` + `refetchOnReconnect: false` + `staleTime: 5_000` (`study-mode.tsx`,
-  `interleaved-study.tsx`, `lib/prefetch-study.ts`) — session stability is an explicit invariant, not a
+  `interleaved-study.tsx`; `lib/prefetch-study.ts` pins only the matching `staleTime` — the refetch
+  flags are observer options the page sets) — session stability is an explicit invariant, not a
   `staleTime` side effect — and is **removed from the cache on exit** (`queryClient.removeQueries` by
   the `['studyData']` **prefix**, in a microtask, from `onCleanup`: router params already point at the
   destination route during cleanup, so a per-deck key would miss) and invalidated by every card mutation

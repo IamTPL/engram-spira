@@ -1,7 +1,7 @@
 # SRS and study subsystem — FSRS only
 
-`apps/api/src/modules/study/` — 17 files, ~5 675 LOC, mounted at prefix `/study` (`index.ts:203`) behind
-`requireAuth` and a 180 req/60 s per-IP rate limit. 17 endpoints; see [endpoints.md](endpoints.md).
+`apps/api/src/modules/study/` — 18 files, ~5 800 LOC, mounted at prefix `/study` (`index.ts:203`) behind
+`requireAuth` and a 180 req/60 s **per-user** rate limit (`study-rate-limit.ts`). 17 endpoints; see [endpoints.md](endpoints.md).
 
 **There is exactly one scheduler.** SM-2, the per-user algorithm switch, `study_progress`, `review_logs`,
 `fsrs_user_params` and the replay tooling are all gone (migration `0029`, commit `3dea1fd`; code removal
@@ -13,6 +13,7 @@ budgets and the `EXPLAIN` gate live in [performance.md](performance.md) — this
 |---|---|
 | `fsrs.engine.ts` | Pure `ts-fsrs` adapter: `scheduleFsrsReview` (`:144`), `normalizeFsrsParameters` (`:64`). No `db` import |
 | `fsrs-live.domain.ts` | Pure write-path domain: request normalisation, idempotency comparison, `learning_cycle`/`sequence` derivation, study-date grouping |
+| `study-rate-limit.ts` | `studyRateLimitKey`: `user:<id>` → `session:<hash>` → `ip:<addr>` bucket key for the `/study` limiter |
 | `fsrs-live.service.ts` | Thin service over the repository interface — `reviewBatch`, `reviewCard`, `resetCard`, `resetDeck`, `rotateParameters` |
 | `fsrs-live.postgres.ts` | The only writer of `fsrs_card_states` / `fsrs_review_events`. One serializable transaction per call |
 | `fsrs-read.postgres.ts` | Canonical read loader (`loadByCardIds`) — state + its parameter revision, order-preserving |
@@ -92,7 +93,7 @@ ISO-8601 instant; `durationMs` is an integer 0…3 600 000.
 | Same `requestId`, same card + rating + live origin | `assertMatchingLiveReviewRequest` (`fsrs-live.domain.ts`) | `status: 'duplicate'`, the stored event replayed, nothing written. `reviewedAt`/`durationMs` are **not** compared: the server clamps `reviewedAt`, so a byte-identical retry can differ from what was persisted |
 | Same `requestId`, different card or rating | same | `ConflictError` → **409** |
 | `reviewedAt` after the server's `receivedAt` (client clock ahead) | `normalizeLiveReviewCommands` | **clamped to `receivedAt`**, applied |
-| `reviewedAt` more than 24 h before `receivedAt` (client clock far behind) | same (`MAX_PAST_SKEW_MS`) | **clamped up to `receivedAt − 24 h`**, applied — a grade is never rejected for a clock. The client instant only refines sub-hour ordering; nothing legitimate lags by days (there is no offline queue) |
+| `reviewedAt` more than 24 h before `receivedAt` (client clock far behind) | same (`MAX_PAST_SKEW_MS`) | **replaced by `receivedAt`**, applied — a grade is never rejected for a clock, and no fabricated instant enters the event log. The client instant only refines sub-hour ordering (a re-queued grade retried minutes later); nothing legitimate lags by days — there is no offline queue |
 | `reviewedAt` earlier than the card's `last_reviewed_at` (client clock behind; a 1-minute learning step graded from a slow machine) | `clampReviewChronology` | **clamped up to `last_reviewed_at`** (elapsed 0), applied — the grade is never lost |
 | Duplicate `requestId` **within one batch** | `:153` | `ValidationError` → **422** |
 | Card not owned by the caller | `requireOwnedCardsAfterLocks` (`fsrs-live.postgres.ts:711`) | `NotFoundError('Card')` → **404** |
@@ -334,7 +335,7 @@ review wave. The module's only remaining retention read is inside `getStudyRecom
 | Where | Values |
 |---|---|
 | `study-cluster.ts:3` | `MAX_STUDY_CLUSTER_CARDS` = 12 (selected-card study, and the memory-health attention cap) |
-| `fsrs-live.domain.ts:4-15` | batch cap 100, `reviewedAt` clamp window `[receivedAt − 24 h, receivedAt]`, duration cap 1 h, tz `[-840, 720]` |
+| `fsrs-live.domain.ts:4-17` | batch cap 100, client `reviewedAt` trusted only inside `[receivedAt − 24 h, receivedAt]` (else `receivedAt`), duration cap 1 h, tz `[-840, 720]` |
 | `fsrs.engine.ts:28` | `FSRS_MAX_INTERVAL_DAYS` = 365 hard interval cap (tail-risk guard; inert below one year) |
 | `fsrs-deck-reads.postgres.ts` | `LEARNED_STABILITY_DAYS` = 21 (mature threshold for `learnedCards`) |
 | `fsrs-live.postgres.ts:54-55` | 5 serializable attempts, retryable codes `40001`/`40P01` |
@@ -342,7 +343,7 @@ review wave. The module's only remaining retention read is inside `getStudyRecom
 | `fsrs-deck-reads.postgres.ts:22-23,252,293` | 1 h `dueSoon` window, interleave limit `[1,200]`, `topN` `[1,50]` |
 | `study.service.ts:237` | 91-day dashboard activity window |
 | `constants.ts:52-54` | `ACTIVITY_MAX_DAYS` 365, `ACTIVITY_DEFAULT_DAYS` 90 |
-| `study.routes.ts:27-38,64-65` | tz clamp `[-840,720]`, 180 req/60 s **per session** (`studyRateLimitKey`, `study-rate-limit.ts` — hashed session cookie, IP only when unauthenticated; every grade is its own request, so a per-IP bucket would starve users behind one NAT) |
+| `study.routes.ts:27-38,64-65` | tz clamp `[-840,720]`, 180 req/60 s **per user** (`studyRateLimitKey`, `study-rate-limit.ts`: `currentUser.id` from the derive context, then the hashed session cookie, IP only when unauthenticated; every grade is its own request, so a per-IP bucket would starve users behind one NAT) |
 | `forecast.service.ts:118` | forecast `days` clamped `[1,90]` |
 | migration `0028:38` | the retrievability curve itself, rounded to 8 dp |
 

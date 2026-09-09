@@ -26,8 +26,8 @@ Performance is the product's competitive edge and a hard requirement for every c
 | Postgres tables | `grep -rho 'pgTable(' apps/api/src/db/schema/ \| wc -l` | **26** |
 | HTTP routes | `grep -rhE '^\s*\.(get\|post\|put\|patch\|delete)\(' apps/api/src/modules/*/*.routes.ts \| wc -l` | **100** + `GET /health` = **101** |
 | SQL migrations | `ls apps/api/src/db/migrations/*.sql \| wc -l` | **30** (`0000`–`0029`) |
-| API tests | `cd apps/api && bun test` | **701** in 78 files — all pass |
-| Web tests | `cd apps/web && bun test` | **102** in 18 files, all pass |
+| API tests | `cd apps/api && bun test` | **703** in 78 files — all pass |
+| Web tests | `cd apps/web && bun test` | **104** in 18 files, all pass |
 | Web routes | `apps/web/src/app.tsx` | **13** `<Route>` |
 
 Re-measured 2026-09-09. The table drifts fast, in both directions — the FSRS-only migration *removed* 4 tables and 3 routes and cut ~57 tests (SM-2, replay tooling and the legacy retention estimators are gone) two commits after a 12-table jump added them. Re-derive before trusting any of these, including this row.
@@ -39,7 +39,7 @@ Toolchain: Bun 1.3.10, TypeScript 5.9.3, Node 22.22.2. Ports: API 3001, Vite dev
 Capture this before you change anything so you can prove you did not add to it. As of 2026-09-09 the baseline is **fully green** — the name stays as a reminder that it has flipped red → green → red before and will again.
 
 - **`bun run typecheck` PASSES (exit 0).** Both `@engram/api` and `@engram/web` are clean. **CI is green.** The 22-error Eden Treaty path-inference collapse this section used to describe (blamed on untyped handlers in `experience.routes.ts`) no longer reproduces — that file has since been refactored to an injectable-services pattern. Re-verify with `bun run typecheck` before trusting this.
-- **0 API tests fail**, of 701 across 78 files. Three long-standing failures were fixed on 2026-09-08 and must not come back: the `experience` fixture time bomb (`__tests__/helpers/fixtures.ts` now derives `now/past/future` from `Date.now()`), two `fsrs-live.postgres.test.ts` cases that seeded parameter revisions with a baked `retired_at` older than the column-default `created_at` (violating `chk_fsrs_parameter_revisions_timestamps` once the real clock passed the baked date — they now pin `created_at`/`activated_at` explicitly), and the `fsrs-only.migration.test.ts` FK-index introspection query's ambiguous `table_name` (rewritten against `pg_catalog`). The previously-documented `config-ai.test.ts` mock-leak from `kg.service.test.ts` is also gone.
+- **0 API tests fail**, of 703 across 78 files. Three long-standing failures were fixed on 2026-09-08 and must not come back: the `experience` fixture time bomb (`__tests__/helpers/fixtures.ts` now derives `now/past/future` from `Date.now()`), two `fsrs-live.postgres.test.ts` cases that seeded parameter revisions with a baked `retired_at` older than the column-default `created_at` (violating `chk_fsrs_parameter_revisions_timestamps` once the real clock passed the baked date — they now pin `created_at`/`activated_at` explicitly), and the `fsrs-only.migration.test.ts` FK-index introspection query's ambiguous `table_name` (rewritten against `pg_catalog`). The previously-documented `config-ai.test.ts` mock-leak from `kg.service.test.ts` is also gone.
 - **The Postgres-backed suites need the dev database up** (`docker compose up -d`): `fsrs-*.postgres.test.ts` each create and drop a disposable database via `TEST_POSTGRES_ADMIN_URL` (default `postgresql://postgres:postgrespassword@localhost:5435/postgres`). Without it they fail with connection errors that are not a regression.
 
 See [docs/agents/known-issues.md](docs/agents/known-issues.md) for the full list and which are safe to fix.
@@ -70,7 +70,7 @@ Violating any of these breaks the build, the types, the database, reactivity, or
 
 **Study / SRS**
 
-12. Route **every** review through `fsrsLiveService.reviewBatch` (`study.service.ts:16`, built over `fsrs-live.postgres.ts`). Never write `fsrs_card_states` / `fsrs_review_events` directly: the repository does the whole batch in **one serializable transaction** with `FOR UPDATE` locks, per-`requestId` idempotency, the `study_daily_logs` roll-up and a retry on serialization failure. There is **no SM-2 and no `users.srs_algorithm`** — no algorithm dispatch, no per-user params table; parameters live in `fsrs_parameter_revisions` and rotate through `fsrsLiveService.rotateParameters`. Scheduling policy on top of ts-fsrs: intervals are hard-capped at `FSRS_MAX_INTERVAL_DAYS = 365` (`fsrs.engine.ts`; a tail-risk guard — it does not shorten sub-year intervals), client `reviewedAt` is **never** a reason to reject a grade (clamped into `[receivedAt − 24 h, receivedAt]`, then up to `card.last_reviewed_at`), `study_daily_logs` follow the server's `receivedAt`, and `learnedCards` means review state with stability ≥ 21 days. On the web, every grade goes through `createReviewOutbox` (`study-review-outbox.ts`) and every deliberate queue refetch awaits `settle()` first.
+12. Route **every** review through `fsrsLiveService.reviewBatch` (`study.service.ts:16`, built over `fsrs-live.postgres.ts`). Never write `fsrs_card_states` / `fsrs_review_events` directly: the repository does the whole batch in **one serializable transaction** with `FOR UPDATE` locks, per-`requestId` idempotency, the `study_daily_logs` roll-up and a retry on serialization failure. There is **no SM-2 and no `users.srs_algorithm`** — no algorithm dispatch, no per-user params table; parameters live in `fsrs_parameter_revisions` and rotate through `fsrsLiveService.rotateParameters`. Scheduling policy on top of ts-fsrs: intervals are hard-capped at `FSRS_MAX_INTERVAL_DAYS = 365` (`fsrs.engine.ts`; a tail-risk guard — it does not shorten sub-year intervals), client `reviewedAt` is **never** a reason to reject a grade (trusted only within 24 h before `receivedAt`, otherwise replaced by `receivedAt`, then clamped up to `card.last_reviewed_at`), `study_daily_logs` follow the server's `receivedAt`, and `learnedCards` means review state with stability ≥ 21 days. The `/study` rate limit is per **user**, not per IP (`study-rate-limit.ts`). On the web, every grade goes through `createReviewOutbox` (`study-review-outbox.ts`) and the in-session queue is refetched only via `refetchQueue()` (`study-mode.tsx`), which hides the card UI, awaits `settle()`, then rewinds.
 13. Never compute a day boundary from a bare `new Date()` in a service. Read the offset once via `getTimezoneOffsetMinutes(headers)` in the routes file and pass it as a trailing `tzOffset = 0` parameter. The API process must run with `TZ=UTC`.
 
 **Config**
@@ -108,8 +108,8 @@ Run all three and compare against the §2 baseline. CI runs **only** `bun run ty
 
 ```bash
 bun run typecheck          # expect: exit 0
-cd apps/api && bun test    # expect: 701 pass / 0 fail (dev Postgres up)
-cd apps/web && bun test    # expect: 102 pass
+cd apps/api && bun test    # expect: 703 pass / 0 fail (dev Postgres up)
+cd apps/web && bun test    # expect: 104 pass
 ```
 
 Both tsconfigs typecheck their test files, so a type error in a test breaks CI.

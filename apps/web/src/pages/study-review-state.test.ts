@@ -124,5 +124,11 @@ describe('describeCardProgress', () => {
     expect(
       describeCardProgress({ ...base, lastReviewedAt: 'not-a-date' }, now).detail,
     ).toBe('Last seen just now · 1 review · stability 3 d');
+    expect(
+      describeCardProgress(
+        { ...base, stability: Number.NaN, lastReviewedAt: '2026-09-09T11:00:00.000Z' },
+        now,
+      ).detail,
+    ).toBe('Last seen 1 h ago · 1 review');
   });
 });

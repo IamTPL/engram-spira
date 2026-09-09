@@ -9,10 +9,12 @@ const REQUEST_ID = '33333333-3333-4333-8333-333333333333';
 
 function authForRoutes() {
   return new Elysia({ name: 'test-auth' }).derive({ as: 'scoped' }, ({ headers }) => {
-    if (headers.authorization !== 'Bearer test-user') throw new UnauthorizedError();
+    const match = /^Bearer (test-user(?:-\d+)?)$/.exec(headers.authorization ?? '');
+    if (!match) throw new UnauthorizedError();
+    const userId = match[1] === 'test-user' ? 'user-1' : match[1]!;
     return {
       currentUser: {
-        id: 'user-1',
+        id: userId,
         email: 'test@example.com',
         displayName: null,
         avatarUrl: null,
@@ -20,7 +22,7 @@ function authForRoutes() {
       },
       currentSession: {
         id: 'session-1',
-        userId: 'user-1',
+        userId,
         expiresAt: new Date(Date.now() + 86_400_000),
       },
     };
@@ -158,5 +160,30 @@ describe('study write routes', () => {
     expect(await deck.json()).toEqual({ reset: 7 });
     expect(await card.json()).toEqual({ reset: 1 });
     expect(calls.map((c) => c.op)).toEqual(['resetDeck', 'resetCard']);
+  });
+
+  test('rate limit buckets are per user, not per shared IP', async () => {
+    const calls: any[] = [];
+    const server = app(calls);
+    const body = JSON.stringify({
+      items: [
+        { requestId: REQUEST_ID, cardId: CARD_ID, rating: 'good', reviewedAt: '2026-09-09T08:00:00.000Z' },
+      ],
+    });
+    const post = (user: string) =>
+      server.handle(
+        new Request('http://localhost/study/review-batch', {
+          method: 'POST',
+          headers: { ...headers, authorization: `Bearer ${user}`, 'x-forwarded-for': '203.0.113.9' },
+          body,
+        }),
+      );
+
+    let last = 0;
+    for (let i = 0; i < 180; i++) last = (await post('test-user-1')).status;
+    expect(last).toBe(200);
+    expect((await post('test-user-1')).status).toBe(429);
+    // Same IP, different account: its own bucket.
+    expect((await post('test-user-2')).status).toBe(200);
   });
 });

@@ -63,6 +63,9 @@ const InterleavedStudyPage: Component = () => {
   const [currentIndex, setCurrentIndex] = createSignal(0);
   const [isFlipped, setIsFlipped] = createSignal(false);
   const [reviewing, setReviewing] = createSignal(false);
+  // While true, the card UI is replaced by the loading state: the mix is about
+  // to be refetched and grading the stale array would double-grade cards.
+  const [restarting, setRestarting] = createSignal(false);
   const [cardShownAt, setCardShownAt] = createSignal<number | null>(null);
 
   // Session stats
@@ -201,7 +204,7 @@ const InterleavedStudyPage: Component = () => {
 
   const handleReview = async (action: ReviewAction) => {
     const card = currentCard();
-    if (!card || reviewing()) return;
+    if (!card || reviewing() || restarting()) return;
 
     setReviewing(true);
     try {
@@ -223,14 +226,21 @@ const InterleavedStudyPage: Component = () => {
   };
 
   const handleRestart = async () => {
-    batch(() => {
+    if (restarting()) return;
+    setRestarting(true);
+    try {
+      batch(() => {
+        setStats({ again: 0, hard: 0, good: 0, easy: 0 });
+        setIsFlipped(false);
+      });
+      // Otherwise a grade still in flight comes back as due in the new mix,
+      // and the stale array could be graded again meanwhile.
+      await outbox.settle();
+      await queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
       setCurrentIndex(0);
-      setStats({ again: 0, hard: 0, good: 0, easy: 0 });
-      setIsFlipped(false);
-    });
-    // Otherwise a grade still in flight comes back as due in the new mix.
-    await outbox.settle();
-    await queryClient.invalidateQueries({ queryKey: ['interleavedStudy'] });
+    } finally {
+      setRestarting(false);
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -333,12 +343,12 @@ const InterleavedStudyPage: Component = () => {
 
       <main class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 pb-24 sm:px-8 md:pb-8">
         <Show
-          when={!studyQuery.isLoading}
+          when={!studyQuery.isLoading && !restarting()}
           fallback={
             <div class="w-full max-w-xl space-y-4">
               <div class="h-[22rem] animate-pulse rounded-xl border bg-muted/55" />
               <p class="text-center text-sm text-muted-foreground">
-                Building your review mix...
+                {restarting() ? 'Restarting session...' : 'Building your review mix...'}
               </p>
             </div>
           }

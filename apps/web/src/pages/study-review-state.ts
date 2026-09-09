@@ -117,8 +117,12 @@ export function describeCardProgress(
         : 'Learning';
   const age = now.getTime() - new Date(progress.lastReviewedAt).getTime();
   const reviews = `${progress.reps} review${progress.reps === 1 ? '' : 's'}`;
+  const stability =
+    Number.isFinite(progress.stability) && progress.stability > 0
+      ? ` · stability ${formatStability(progress.stability)}`
+      : '';
   return {
     label,
-    detail: `Last seen ${formatAge(age)} · ${reviews} · stability ${formatStability(progress.stability)}`,
+    detail: `Last seen ${formatAge(age)} · ${reviews}${stability}`,
   };
 }
